@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IOTNarad Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="dashboard-container">
+        <header class="header">
+            <h1>IOTNarad</h1>
+            <div id="current-time"></div>
+        </header>
+
+        <aside class="sidebar">
+            <nav>
+                <ul>
+                    <li><a href="#" class="nav-link active" data-page="home">Home</a></li>
+                    <li><a href="#" class="nav-link" data-page="analytic">Analytic</a></li>
+                    <li><a href="#" class="nav-link" data-page="device">Device</a></li>
+                    <li><a href="#" class="nav-link" data-page="help">Help</a></li>
+                </ul>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <div id="home" class="page active">
+                <h2>Home</h2>
+                <p>Welcome to the IOTNarad dashboard.</p>
+            </div>
+
+            <div id="analytic" class="page">
+                <h2>Analytics</h2>
+                <p>Analytics content goes here.</p>
+            </div>
+
+            <div id="device" class="page">
+                <h2>Devices</h2>
+                <div class="tab-container">
+                    <div class="tab-buttons">
+                        <button class="tab-button active" data-tab="analog">Analog</button>
+                        <button class="tab-button" data-tab="digital">Digital</button>
+                        <button class="tab-button" data-tab="communication">Communication</button>
+                    </div>
+                    <div id="analog" class="tab-content active">
+                        <h3>Analog Devices</h3>
+
+                        <h4>4 to 20mA Input</h4>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th></th>
+                                    <th>Channel</th>
+                                    <th>Div</th>
+                                    <th>Mul</th>
+                                    <th>IO</th>
+                                    <th>Name</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>1</td>
+                                    <td><input type="number" value="1" step="1" class="table-input"></td>
+                                    <td><input type="number" value="1" step="1" class="table-input"></td>
+                                    <td>AIN0</td>
+                                    <td><input type="text" value="-" class="table-input"></td>
+                                </tr>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>2</td>
+                                    <td><input type="number" value="1" step="1" class="table-input"></td>
+                                    <td><input type="number" value="1" step="1" class="table-input"></td>
+                                    <td>AIN1</td>
+                                    <td><input type="text" value="-" class="table-input"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <h4>1 to 10V Input</h4>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th></th>
+                                    <th>Channel</th>
+                                    <th>Div</th>
+                                    <th>Mul</th>
+                                    <th>IO</th>
+                                    <th>Name</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>3</td>
+                                    <td><input type="number" value="1" step="1" class="table-input"></td>
+                                    <td><input type="number" value="1" step="1" class="table-input"></td>
+                                    <td>AIN2</td>
+                                    <td><input type="text" value="-" class="table-input"></td>
+                                </tr>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>4</td>
+                                    <td><input type="number" value="1" step="1" class="table-input"></td>
+                                    <td><input type="number" value="1" step="1" class="table-input"></td>
+                                    <td>AIN3</td>
+                                    <td><input type="text" value="-" class="table-input"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <h4>0 to 10V Output</h4>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th></th>
+                                    <th>Channel</th>
+                                    <th>Value</th>
+                                    <th>IO</th>
+                                    <th>Name</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>1</td>
+                                    <td><input type="number" value="0.0" step="0.1" class="table-input"></td>
+                                    <td>DOUT0</td>
+                                    <td><input type="text" value="-" class="table-input"></td>
+                                </tr>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>2</td>
+                                    <td><input type="number" value="0.0" step="0.1" class="table-input"></td>
+                                    <td>DOUT1</td>
+                                    <td><input type="text" value="-" class="table-input"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="digital" class="tab-content">
+                        <h3>Digital Devices</h3>
+
+                        <h4>NPN</h4>
+                        <h5>Input</h5>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th></th>
+                                    <th>Channel</th>
+                                    <th>IO</th>
+                                    <th>Name</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>1</td>
+                                    <td>INP1H</td>
+                                    <td><input type="text" class="table-input" value="-"></td>
+                                </tr>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>2</td>
+                                    <td>INP2H</td>
+                                    <td><input type="text" class="table-input" value="-"></td>
+                                </tr>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>2</td>
+                                    <td>INP3H</td>
+                                    <td><input type="text" class="table-input" value="-"></td>
+                                </tr>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>2</td>
+                                    <td>INP4H</td>
+                                    <td><input type="text" class="table-input" value="-"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <h5>Output</h5>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th></th>
+                                    <th>Channel</th>
+                                    <th>IO</th>
+                                    <th>Name</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>1</td>
+                                    <td>OUTL1</td>
+                                    <td><input type="text" class="table-input" value="-"></td>
+                                </tr>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>2</td>
+                                    <td>OUTL2</td>
+                                    <td><input type="text" class="table-input" value="-"></td>
+                                </tr>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>2</td>
+                                    <td>OUTL3</td>
+                                    <td><input type="text" class="table-input" value="-"></td>
+                                </tr>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>2</td>
+                                    <td>OUTL4</td>
+                                    <td><input type="text" class="table-input" value="-"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <h4>PNP</h4>
+                        <h5>Input</h5>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th></th>
+                                    <th>Channel</th>
+                                    <th>IO</th>
+                                    <th>Name</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>1</td>
+                                    <td>INP1L</td>
+                                    <td><input type="text" class="table-input" value="-"></td>
+                                </tr>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>2</td>
+                                    <td>INP2L</td>
+                                    <td><input type="text" class="table-input" value="-"></td>
+                                </tr>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>2</td>
+                                    <td>INP3L</td>
+                                    <td><input type="text" class="table-input" value="-"></td>
+                                </tr>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>2</td>
+                                    <td>INP4L</td>
+                                    <td><input type="text" class="table-input" value="-"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <h5>Output</h5>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th></th>
+                                    <th>Channel</th>
+                                    <th>IO</th>
+                                    <th>Name</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>1</td>
+                                    <td>OUTH1</td>
+                                    <td><input type="text" class="table-input" value="-"></td>
+                                </tr>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>2</td>
+                                    <td>OUTH2</td>
+                                    <td><input type="text" class="table-input" value="-"></td>
+                                </tr>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>2</td>
+                                    <td>OUTH3</td>
+                                    <td><input type="text" class="table-input" value="-"></td>
+                                </tr>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>2</td>
+                                    <td>OUTH4</td>
+                                    <td><input type="text" class="table-input" value="-"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <h4>Relay</h4>
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th></th>
+                                    <th>Relay number</th>
+                                    <th>IO</th>
+                                    <th>Name</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>1</td>
+                                    <td>RLY1</td>
+                                    <td><input type="text" class="table-input" value="-"></td>
+                                </tr>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>2</td>
+                                    <td>RLY2</td>
+                                    <td><input type="text" class="table-input" value="-"></td>
+                                </tr>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>2</td>
+                                    <td>RLY3</td>
+                                    <td><input type="text" class="table-input" value="-"></td>
+                                </tr>
+                                <tr>
+                                    <td><input type="checkbox" /></td>
+                                    <td>2</td>
+                                    <td>RLY4</td>
+                                    <td><input type="text" class="table-input" value="-"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="communication" class="tab-content">
+                        <h3>Communication</h3>
+                        <p>Content for Communication settings.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="help" class="page">
+                <h2>Help</h2>
+                <p>Help and support information.</p>
+            </div>
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

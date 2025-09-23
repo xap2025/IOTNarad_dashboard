@@ -1,0 +1,10 @@
+.env
+__pycache__/
+.venv/
+.pytest_cache/
+*.pyc
+dist/
+build/
+.DS_Store
+influxdb-data/
+
