@@ -42,3 +42,17 @@ class MqttService:
 
 mqtt_service = MqttService()
 
+
+def publish_message(topic: str, payload: str, qos: int = 0) -> bool:
+    """Publish using the background client if available.
+
+    Returns True if the publish was queued; False otherwise.
+    """
+    if mqtt_service._client is not None:
+        try:
+            mqtt_service._client.publish(topic, payload=payload, qos=qos)
+            return True
+        except Exception:
+            return False
+    return False
+
