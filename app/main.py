@@ -1,4 +1,5 @@
 import os
+import dash
 from dash import Dash, html, dcc
 import dash_bootstrap_components as dbc
 from flask import redirect
@@ -28,9 +29,12 @@ dash_app.layout = html.Div([
 ])
 
 
+from dash.dependencies import Input, Output
+
+
 @dash_app.callback(
-    dash.dependencies.Output("page-content", "children"),
-    dash.dependencies.Input("url", "pathname"),
+    Output("page-content", "children"),
+    Input("url", "pathname"),
 )
 def display_page(pathname):
     if pathname == "/login":
