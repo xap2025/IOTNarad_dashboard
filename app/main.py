@@ -36,7 +36,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Initialize Flask server
-server = Flask(__name__, static_folder='../assets', static_url_path='/assets')
+server = Flask(__name__, static_folder='/app/assets', static_url_path='/assets')
 server.config['SECRET_KEY'] = os.getenv('APP_SECRET_KEY', 'dev-secret-key-change-me')
 
 # Initialize SocketIO
@@ -47,6 +47,11 @@ socketio = SocketIO(
     logger=True,
     engineio_logger=True
 )
+
+# Add route to serve logo directly
+@server.route('/logo')
+def serve_logo():
+    return server.send_static_file('images/xaptronics-logo.png')
 
 # Initialize Dash app with modern theme
 app = dash.Dash(
@@ -61,6 +66,51 @@ app = dash.Dash(
     title="IOTNarad Dashboard",
     update_title=None
 )
+
+# Add custom CSS for navigation styling
+app.index_string = '''
+<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+        <style>
+            .sidebar .nav-item-custom {
+                color: white !important;
+                text-align: center !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                padding: 12px 20px !important;
+            }
+            .sidebar .nav-item-custom:hover {
+                color: white !important;
+                background-color: rgba(255,255,255,0.1) !important;
+            }
+            .sidebar .nav-item-custom.active {
+                color: white !important;
+                background-color: rgba(255,255,255,0.2) !important;
+            }
+            .sidebar .nav-item-custom span {
+                color: white !important;
+            }
+            .sidebar .nav-item-custom i {
+                color: white !important;
+            }
+        </style>
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>
+'''
 
 # Initialize services
 mqtt_service = MQTTClientService()
