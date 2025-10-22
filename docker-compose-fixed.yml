@@ -8,12 +8,11 @@ services:
       - .env
     depends_on:
       - mqtt
-      - influxdb
     volumes:
       - ./.env:/app/.env:ro
       - ./app:/app/app
       - ./data:/app/data
-      - ./assets:/app/assets
+    restart: unless-stopped
 
   mqtt:
     image: eclipse-mosquitto:2
@@ -23,6 +22,7 @@ services:
       - "9001:9001"
     volumes:
       - ./infra/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    restart: unless-stopped
 
   influxdb:
     image: influxdb:2.7
@@ -31,14 +31,14 @@ services:
       - "8086:8086"
     environment:
       - DOCKER_INFLUXDB_INIT_MODE=setup
-      - DOCKER_INFLUXDB_INIT_USERNAME=${INFLUXDB_USERNAME}
-      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_PASSWORD}
-      - DOCKER_INFLUXDB_INIT_ORG=${INFLUXDB_ORG}
-      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUXDB_BUCKET}
-      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_TOKEN}
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=adminpassword
+      - DOCKER_INFLUXDB_INIT_ORG=iotnarad
+      - DOCKER_INFLUXDB_INIT_BUCKET=iotnarad-bucket
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=my-super-secret-auth-token
     volumes:
       - influxdb-data:/var/lib/influxdb2
+    restart: unless-stopped
 
 volumes:
   influxdb-data:
-
