@@ -57,6 +57,7 @@ app = dash.Dash(
         dbc.icons.FONT_AWESOME,
         "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
     ],
+    assets_folder='../assets',  # Point to assets folder for CSS files
     suppress_callback_exceptions=True,
     title="IOTNarad Dashboard",
     update_title=None
@@ -75,7 +76,7 @@ ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'iotnarad@2025')
 
 # ==================== LAYOUT ====================
 app.layout = dbc.Container([
-    dcc.Location(id='url', refresh=False),
+    dcc.Location(id='url', refresh=False, pathname='/'),
     dcc.Store(id='session-store', storage_type='session'),
     dcc.Store(id='device-data-store', storage_type='memory'),
     dcc.Interval(id='data-update-interval', interval=2000, n_intervals=0),
@@ -94,39 +95,75 @@ app.layout = dbc.Container([
 def display_page(pathname, session_data):
     """Handle page routing and authentication"""
     session_data = session_data or {}
+    pathname = pathname or '/'
     
     # Check if user is logged in
     is_authenticated = session_data.get('authenticated', False)
     user_type = session_data.get('user_type', 'user')
     
-    if pathname == '/dashboard' and is_authenticated:
-        return create_dashboard_layout(), session_data
-    elif pathname == '/create-user' and is_authenticated and user_type == 'admin':
-        return create_user_form_layout(), session_data
-    elif pathname == '/logout':
-        # Clear session
+    logger.debug(f"Page routing - Path: {pathname}, Authenticated: {is_authenticated}, User Type: {user_type}")
+    
+    # Handle logout
+    if pathname == '/logout':
+        logger.info("User logging out")
         return create_login_layout(), {}
-    elif not is_authenticated:
-        # Redirect to login
+    
+    # Protected routes - require authentication
+    if pathname == '/dashboard':
+        if is_authenticated:
+            logger.info(f"Loading dashboard for user: {session_data.get('username', 'unknown')}")
+            return create_dashboard_layout(), session_data
+        else:
+            logger.warning("Unauthenticated access attempt to dashboard")
+            return create_login_layout(), session_data
+    
+    if pathname == '/create-user':
+        if is_authenticated and user_type == 'admin':
+            logger.info("Loading create user page for admin")
+            return create_user_form_layout(), session_data
+        elif not is_authenticated:
+            logger.warning("Unauthenticated access attempt to create-user")
+            return create_login_layout(), session_data
+        else:
+            logger.warning(f"Non-admin user attempted to access create-user")
+            return create_login_layout(), session_data
+    
+    # Root path (/) - show login if not authenticated
+    if pathname == '/':
+        if not is_authenticated:
+            logger.info("Showing login page at root path")
+            return create_login_layout(), session_data
+        else:
+            # Authenticated user at root - redirect callback will handle, but show login temporarily
+            # (redirect callback will change pathname to /dashboard)
+            logger.info("Authenticated user at root - redirect callback will handle")
+            return create_login_layout(), session_data
+    
+    # Any other path - if authenticated show dashboard, else show login
+    if not is_authenticated:
+        logger.info(f"Unauthenticated access to {pathname}, showing login")
         return create_login_layout(), session_data
     else:
-        # Default to login
-        return create_login_layout(), session_data
+        # Authenticated but unknown path - show dashboard
+        logger.info(f"Authenticated user on unknown path {pathname}, showing dashboard")
+        return create_dashboard_layout(), session_data
 
 
 @app.callback(
     Output('session-store', 'data', allow_duplicate=True),
     Output('login-message', 'children'),
+    Output('url', 'pathname', allow_duplicate=True),
     Input('login-button', 'n_clicks'),
     State('username-input', 'value'),
     State('password-input', 'value'),
     State('session-store', 'data'),
+    State('url', 'pathname'),
     prevent_initial_call=True
 )
-def login_user(n_clicks, username, password, session_data):
+def login_user(n_clicks, username, password, session_data, current_path):
     """Handle user login"""
     if not n_clicks:
-        return session_data or {}, ''
+        return session_data or {}, '', current_path or '/'
     
     session_data = session_data or {}
     
@@ -136,7 +173,8 @@ def login_user(n_clicks, username, password, session_data):
         session_data['username'] = username
         session_data['user_type'] = 'admin'
         logger.info(f"Admin {username} logged in successfully")
-        return session_data, ''
+        # Redirect to dashboard after successful login
+        return session_data, '', '/dashboard'
     
     # Check user credentials in InfluxDB
     try:
@@ -147,7 +185,8 @@ def login_user(n_clicks, username, password, session_data):
             session_data['user_type'] = user.get('User_Type', 'user')
             session_data['user_data'] = user
             logger.info(f"User {username} logged in successfully")
-            return session_data, ''
+            # Redirect to dashboard after successful login
+            return session_data, '', '/dashboard'
     except Exception as e:
         logger.error(f"Error authenticating user: {e}")
     
@@ -158,7 +197,7 @@ def login_user(n_clicks, username, password, session_data):
         color="danger",
         dismissable=True,
         className="mt-3"
-    )
+    ), current_path or '/'
 
 
 @app.callback(
@@ -168,9 +207,24 @@ def login_user(n_clicks, username, password, session_data):
     prevent_initial_call=True
 )
 def redirect_after_login(session_data, current_path):
-    """Redirect to dashboard after successful login"""
-    if session_data and session_data.get('authenticated') and current_path == '/':
-        return '/dashboard'
+    """Redirect to dashboard after successful login - backup redirect"""
+    current_path = current_path or '/'
+    
+    if session_data and session_data.get('authenticated'):
+        # If authenticated and on root path, redirect to dashboard
+        if current_path == '/':
+            logger.info("Redirecting authenticated user from root to dashboard")
+            return '/dashboard'
+        # If authenticated but not on dashboard or create-user, redirect to dashboard
+        elif current_path not in ['/dashboard', '/create-user']:
+            logger.info(f"Redirecting authenticated user to dashboard from {current_path}")
+            return '/dashboard'
+    elif not session_data or not session_data.get('authenticated'):
+        # If not authenticated and trying to access protected routes, redirect to root
+        if current_path in ['/dashboard', '/create-user']:
+            logger.info(f"Unauthenticated access to {current_path}, redirecting to root")
+            return '/'
+    
     return current_path
 
 

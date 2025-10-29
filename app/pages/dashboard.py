@@ -5,7 +5,7 @@ Main dashboard with sidebar navigation and content area
 from dash import html, dcc, Input, Output, State, callback
 import dash_bootstrap_components as dbc
 from datetime import datetime
-
+import pytz
 
 def create_dashboard_layout():
     """Create the main dashboard layout with sidebar navigation"""
@@ -17,9 +17,9 @@ def create_dashboard_layout():
             html.Div([
                 # Username display
                 html.Div([
-                    html.H6(id='sidebar-username', className='fw-bold mb-4',
-                            style={'color': 'white', 'textAlign': 'center', 'fontSize': '0.9rem'}),
-                ], className='mb-3'),
+                    html.H6(id='sidebar-username', className='fw-bold',
+                            style={'color': 'white', 'textAlign': 'center', 'fontSize': '0.9rem', 'marginBottom': '0'}),
+                ], style={'display': 'flex', 'justifyContent': 'center', 'alignItems': 'center', 'marginBottom': '1rem', 'paddingTop': '0.75rem'}),
                 
                 # Xaptronics Logo Section
                 html.Div([
@@ -31,152 +31,152 @@ def create_dashboard_layout():
                                 alt='Xaptronics Logo',
                                 className='img-fluid',
                                 style={
-                                    'width': '120px',
-                                    'height': '120px',
+                                    'width': '100%',
+                                    'maxWidth': '110px',
+                                    'height': 'auto',
+                                    'maxHeight': '110px',
                                     'objectFit': 'contain',
-                                    'filter': 'brightness(0) invert(1)',  # Makes logo white
                                     'margin': '0 auto',
-                                    'display': 'block'
+                                    'display': 'block',
+                                    'paddingTop': '8px',
+                                    'paddingBottom': '8px'
                                 }
                             ),
-                            # Fallback CSS Logo (always visible as backup)
-                            html.Div([
-                                # X Lines
-                                html.Div(style={
-                                    'width': '50px', 'height': '3px', 'backgroundColor': 'white',
-                                    'transform': 'rotate(45deg)', 'position': 'absolute', 'top': '23px', 'left': '5px'
-                                }),
-                                html.Div(style={
-                                    'width': '50px', 'height': '3px', 'backgroundColor': 'white',
-                                    'transform': 'rotate(-45deg)', 'position': 'absolute', 'top': '23px', 'left': '5px'
-                                }),
-                                # Capacitor Symbol
-                                html.Div(style={
-                                    'width': '15px', 'height': '3px', 'backgroundColor': 'white',
-                                    'position': 'absolute', 'top': '30px', 'left': '22px'
-                                }),
-                                html.Div(style={
-                                    'width': '15px', 'height': '3px', 'backgroundColor': 'white',
-                                    'position': 'absolute', 'top': '35px', 'left': '22px'
-                                }),
-                                html.Div(style={
-                                    'width': '3px', 'height': '8px', 'backgroundColor': 'white',
-                                    'position': 'absolute', 'top': '30px', 'left': '17px'
-                                }),
-                                html.Div(style={
-                                    'width': '3px', 'height': '8px', 'backgroundColor': 'white',
-                                    'position': 'absolute', 'top': '30px', 'left': '37px'
-                                }),
-                            ], style={
-                                'width': '60px', 
-                                'height': '60px', 
-                                'position': 'relative', 
-                                'margin': '0 auto'
-                            }),
-                        ], className='mb-3'),
+                        ], className='mb-2', style={
+                            'display': 'flex',
+                            'justifyContent': 'center',
+                            'alignItems': 'center',
+                            'width': '100%',
+                            'paddingTop': '8px',
+                            'paddingBottom': '0px'
+                        }),
                         
                         # Company Name
-                        html.Div([
-                            html.H5("Xaptronics", className='mb-1 fw-bold text-center',
-                                    style={'color': 'white', 'fontSize': '1.3rem', 'letterSpacing': '0.5px'}),
-                            html.P("Possibilities Infinite", className='mb-0 text-center',
-                                   style={'color': 'rgba(255,255,255,0.8)', 'fontSize': '0.75rem', 'fontStyle': 'italic'}),
-                        ], className='mb-3'),
                         
                         # Product Name
                         html.Div([
-                            html.H4("IOTNarad", className='mb-0 fw-bold text-center',
-                                    style={'color': '#00d4ff', 'letterSpacing': '2px', 'fontSize': '1.4rem', 'textShadow': '0 0 10px rgba(0,212,255,0.3)'}),
-                            html.P("IoT Dashboard", className='mb-0 text-center',
-                                   style={'color': 'rgba(255,255,255,0.7)', 'fontSize': '0.8rem', 'fontWeight': '300'}),
-                        ]),
+                            html.H4("IOTNarad", className='mb-1 fw-bold text-center',
+                                    style={'color': 'white', 'letterSpacing': '1px', 'fontSize': '1.2rem', 'textShadow': '0 0 10px rgba(255,255,255,0.3)', 'wordWrap': 'break-word', 'overflowWrap': 'break-word'}),
+                            html.P("IoT Dashboard", className='mb-0 text-center mt-1',
+                                   style={'color': 'rgba(255,255,255,0.7)', 'fontSize': '0.75rem', 'fontWeight': '300', 'wordWrap': 'break-word', 'lineHeight': '1.4'}),
+                        ], style={'marginTop': '6px', 'marginBottom': '2px'}),
                     ], className='text-center'),
-                ], className='mb-4 p-3', style={
+                ], style={
                     'border': '1px solid rgba(255,255,255,0.1)',
                     'borderRadius': '12px',
+                    'borderTopLeftRadius': '12px',
+                    'borderTopRightRadius': '12px',
+                    'borderBottomLeftRadius': '12px',
+                    'borderBottomRightRadius': '12px',
                     'backgroundColor': 'rgba(255,255,255,0.05)',
-                    'backdropFilter': 'blur(5px)'
+                    'backdropFilter': 'blur(5px)',
+                    'display': 'flex',
+                    'flexDirection': 'column',
+                    'alignItems': 'center',
+                    'justifyContent': 'center',
+                    'width': '100%',
+                    'maxWidth': '100%',
+                    'boxSizing': 'border-box',
+                    'padding': '0.75rem 0.75rem',
+                    'paddingTop': '0.875rem',
+                    'paddingBottom': '1rem',
+                    'overflow': 'visible',
+                    'minHeight': 'auto',
+                    'marginBottom': '1rem'
                 }),
                 
-                html.Hr(style={'borderColor': 'rgba(255,255,255,0.1)', 'margin': '0.5rem 0'}),
-            ], className='p-4', style={'minHeight': '200px'}),
+                html.Hr(style={'borderColor': 'rgba(255,255,255,0.1)', 'margin': '0 0 1rem 0', 'width': '100%'}),
+            ], className='p-2', style={
+                'display': 'flex',
+                'flexDirection': 'column',
+                'alignItems': 'center',
+                'justifyContent': 'flex-start',
+                'width': '100%',
+                'boxSizing': 'border-box',
+                'overflow': 'hidden',
+                'flexShrink': '0',
+                'paddingTop': '0.75rem',
+                'paddingBottom': '0.75rem'
+            }),
             
             # Navigation Menu
             html.Nav([
                 dbc.Nav([
                     # Home
                     dbc.NavLink([
-                        html.I(className="fas fa-home me-3"),
-                        html.Span("Home")
+                        html.I(className="fas fa-home me-3", style={'color': 'white'}),
+                        html.Span("Home", style={'color': 'white'})
                     ], id='nav-home', href='#', className='nav-item-custom active',
-                       n_clicks=0),
+                       n_clicks=0, style={'color': 'white'}),
                     
                     # Analytics
                     dbc.NavLink([
-                        html.I(className="fas fa-chart-line me-3"),
-                        html.Span("Analytics")
+                        html.I(className="fas fa-chart-line me-3", style={'color': 'white'}),
+                        html.Span("Analytics", style={'color': 'white'})
                     ], id='nav-analytics', href='#', className='nav-item-custom',
-                       n_clicks=0),
+                       n_clicks=0, style={'color': 'white'}),
                     
                     # OEE Dashboard
                     dbc.NavLink([
-                        html.I(className="fas fa-industry me-3"),
-                        html.Span("OEE Dashboard")
+                        html.I(className="fas fa-industry me-3", style={'color': 'white'}),
+                        html.Span("OEE Dashboard", style={'color': 'white'})
                     ], id='nav-oee', href='#', className='nav-item-custom',
-                       n_clicks=0),
+                       n_clicks=0, style={'color': 'white'}),
                     
                     # Devices
                     dbc.NavLink([
-                        html.I(className="fas fa-microchip me-3"),
-                        html.Span("Devices")
+                        html.I(className="fas fa-microchip me-3", style={'color': 'white'}),
+                        html.Span("Devices", style={'color': 'white'})
                     ], id='nav-devices', href='#', className='nav-item-custom',
-                       n_clicks=0),
+                       n_clicks=0, style={'color': 'white'}),
                     
                     # Profile (for regular users)
                     dbc.NavLink([
-                        html.I(className="fas fa-user me-3"),
-                        html.Span("Profile")
+                        html.I(className="fas fa-user me-3", style={'color': 'white'}),
+                        html.Span("Profile", style={'color': 'white'})
                     ], id='nav-profile', href='#', className='nav-item-custom',
-                       n_clicks=0, style={'display': 'none'}),
+                       n_clicks=0, style={'display': 'none', 'color': 'white'}),
                     
                     # Settings (for admin users only)
                     dbc.NavLink([
-                        html.I(className="fas fa-cog me-3"),
-                        html.Span("Settings")
+                        html.I(className="fas fa-cog me-3", style={'color': 'white'}),
+                        html.Span("Settings", style={'color': 'white'})
                     ], id='nav-settings', href='#', className='nav-item-custom',
-                       n_clicks=0),
+                       n_clicks=0, style={'color': 'white'}),
                     
                     # Help
                     dbc.NavLink([
-                        html.I(className="fas fa-question-circle me-3"),
-                        html.Span("Help")
+                        html.I(className="fas fa-question-circle me-3", style={'color': 'white'}),
+                        html.Span("Help", style={'color': 'white'})
                     ], id='nav-help', href='#', className='nav-item-custom',
-                       n_clicks=0),
+                       n_clicks=0, style={'color': 'white'}),
                     
                 ], vertical=True, className='flex-column'),
-            ], className='px-3'),
+            ], className='px-3', style={'flexShrink': '1', 'overflow': 'hidden', 'minHeight': '0'}),
             
             # Bottom Section
             html.Div([
-                html.Hr(style={'borderColor': 'rgba(255,255,255,0.1)'}),
+                html.Hr(style={'borderColor': 'rgba(255,255,255,0.1)', 'margin': '0.5rem 0'}),
                 dbc.NavLink([
-                    html.I(className="fas fa-sign-out-alt me-3"),
-                    html.Span("Logout")
-                ], href='/logout', className='nav-item-custom text-danger',
-                   style={'color': '#ff6b6b !important'}),
-            ], className='px-3 mt-auto'),
+                    html.I(className="fas fa-sign-out-alt me-3", style={'color': 'white'}),
+                    html.Span("Logout", style={'color': 'white'})
+                ], href='/logout', className='nav-item-custom',
+                   style={'color': 'white !important'}),
+            ], className='px-3', style={'marginTop': 'auto', 'flexShrink': '0', 'paddingBottom': '1rem'}),
             
         ], className='sidebar', style={
             'position': 'fixed',
             'left': '0',
             'top': '0',
-            'bottom': '0',
-            'width': '280px',
+            'height': '100vh',
+            'maxHeight': '100vh',
             'background': 'linear-gradient(180deg, #1a1a2e 0%, #16213e 100%)',
             'display': 'flex',
             'flexDirection': 'column',
             'boxShadow': '4px 0 10px rgba(0,0,0,0.1)',
-            'zIndex': '1000'
+            'zIndex': '1000',
+            'overflowY': 'hidden',
+            'overflowX': 'hidden'
         }),
         
         # Main Content Area
@@ -195,26 +195,16 @@ def create_dashboard_layout():
                     ]),
                     
                     html.Div([
-                        # Connection Status
-                        html.Div([
-                            html.Span(id='mqtt-status', children=[
-                                html.I(className="fas fa-circle me-2",
-                                       style={'color': '#4ade80', 'fontSize': '0.7rem'}),
-                                "MQTT Connected"
-                            ], className='badge bg-light text-dark me-3 px-3 py-2',
-                                   style={'fontSize': '0.85rem'}),
-                            
-                            html.Span(id='influx-status', children=[
-                                html.I(className="fas fa-circle me-2",
-                                       style={'color': '#4ade80', 'fontSize': '0.7rem'}),
-                                "DB Connected"
-                            ], className='badge bg-light text-dark me-3 px-3 py-2',
-                                   style={'fontSize': '0.85rem'}),
-                        ], className='d-flex align-items-center'),
+                        # Date Display
+                        html.Div(id='current-date', className='text-muted me-4',
+                                style={'fontSize': '0.9rem', 'fontWeight': '500'}),
                         
                         # Clock
-                        html.Div(id='current-time', className='text-muted',
-                                style={'fontSize': '0.9rem'}),
+                        html.Div([
+                            html.I(className="fas fa-clock me-2", style={'color': '#667eea'}),
+                            html.Span(id='current-time', className='fw-bold',
+                                    style={'fontSize': '0.95rem', 'color': '#1a1a2e', 'fontFamily': 'monospace'})
+                        ], className='d-flex align-items-center'),
                     ], className='d-flex align-items-center'),
                 ], className='d-flex justify-content-between align-items-center'),
             ], className='header-bar', style={
@@ -230,12 +220,11 @@ def create_dashboard_layout():
             }),
             
         ], className='main-content', style={
-            'marginLeft': '280px',
             'minHeight': '100vh',
             'background': '#f8f9fa'
         }),
         
-        # Interval for clock update
+        # Interval for clock and date update
         dcc.Interval(id='clock-interval', interval=1000, n_intervals=0),
         
         # Store for active page
@@ -245,13 +234,25 @@ def create_dashboard_layout():
 
 # Callbacks for Dashboard
 @callback(
-    Output('current-time', 'children'),
+    [Output('current-time', 'children'),
+     Output('current-date', 'children')],
     Input('clock-interval', 'n_intervals')
 )
-def update_time(n):
-    """Update the current time display"""
-    now = datetime.now()
-    return now.strftime('%I:%M:%S %p')
+def update_time_and_date(n):
+    """Update the current time and date display with IST timezone"""
+    # Get IST timezone (Asia/Kolkata = UTC+5:30)
+    ist = pytz.timezone('Asia/Kolkata')
+    
+    # Get current time in IST
+    now_ist = datetime.now(ist)
+    
+    # Time format: HH:MM:SS with 24-hour format
+    time_str = now_ist.strftime('%H:%M:%S')
+    
+    # Date format: Day, DD Month YYYY (e.g., Monday, 29 October 2025)
+    date_str = now_ist.strftime('%A, %d %B %Y')
+    
+    return time_str, date_str
 
 
 @callback(
