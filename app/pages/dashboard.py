@@ -4,8 +4,10 @@ Main dashboard with sidebar navigation and content area
 """
 from dash import html, dcc, Input, Output, State, callback
 import dash_bootstrap_components as dbc
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
+import plotly.graph_objs as go
+import random
 
 def create_dashboard_layout():
     """Create the main dashboard layout with sidebar navigation"""
@@ -379,164 +381,369 @@ def update_page_content(home_clicks, analytics_clicks, oee_clicks, devices_click
 
 
 def create_home_content():
-    """Create home page content with statistics"""
+    """Create home page content matching OEE Dashboard layout"""
     return html.Div([
-        # Statistics Cards Row
+        # Top Section - KPI Cards (4 cards)
         dbc.Row([
+            # Overall OEE
             dbc.Col([
                 html.Div([
                     html.Div([
                         html.I(className="fas fa-industry fa-2x",
-                               style={'color': '#667eea'}),
+                               style={'color': 'rgba(255,255,255,0.9)'}),
                         html.Div([
-                            html.H3("87.5%", className='mb-0 fw-bold'),
-                            html.P("Overall OEE", className='mb-0 text-muted',
-                                   style={'fontSize': '0.9rem'}),
+                            html.H3("84%", className='mb-0 fw-bold',
+                                   style={'color': 'white'}),
+                            html.P("Overall OEE", className='mb-0',
+                                   style={'fontSize': '0.9rem', 'color': 'rgba(255,255,255,0.9)'}),
                         ], className='ms-3'),
                     ], className='d-flex align-items-center'),
                 ], className='stat-card', style={
-                    'background': 'white',
+                    'background': 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
                     'borderRadius': '12px',
                     'padding': '1.5rem',
-                    'boxShadow': '0 2px 8px rgba(0,0,0,0.05)',
-                    'border': '1px solid #e9ecef',
-                    'transition': 'all 0.3s ease'
+                    'boxShadow': '0 4px 12px rgba(59, 130, 246, 0.3)',
+                    'border': 'none',
+                    'color': 'white'
                 }),
             ], md=3),
             
-            dbc.Col([
-                html.Div([
-                    html.Div([
-                        html.I(className="fas fa-microchip fa-2x",
-                               style={'color': '#4ade80'}),
-                        html.Div([
-                            html.H3("6", className='mb-0 fw-bold'),
-                            html.P("Production Lines", className='mb-0 text-muted',
-                                   style={'fontSize': '0.9rem'}),
-                        ], className='ms-3'),
-                    ], className='d-flex align-items-center'),
-                ], className='stat-card', style={
-                    'background': 'white',
-                    'borderRadius': '12px',
-                    'padding': '1.5rem',
-                    'boxShadow': '0 2px 8px rgba(0,0,0,0.05)',
-                    'border': '1px solid #e9ecef',
-                    'transition': 'all 0.3s ease'
-                }),
-            ], md=3),
-            
+            # Total Production
             dbc.Col([
                 html.Div([
                     html.Div([
                         html.I(className="fas fa-cogs fa-2x",
-                               style={'color': '#fbbf24'}),
+                               style={'color': 'rgba(255,255,255,0.9)'}),
                         html.Div([
-                            html.H3("4,890", className='mb-0 fw-bold'),
-                            html.P("Units Produced", className='mb-0 text-muted',
-                                   style={'fontSize': '0.9rem'}),
+                            html.H3("375", className='mb-0 fw-bold',
+                                   style={'color': 'white'}),
+                            html.P("Total Production", className='mb-0',
+                                   style={'fontSize': '0.9rem', 'color': 'rgba(255,255,255,0.9)'}),
                         ], className='ms-3'),
                     ], className='d-flex align-items-center'),
                 ], className='stat-card', style={
-                    'background': 'white',
+                    'background': 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                     'borderRadius': '12px',
                     'padding': '1.5rem',
-                    'boxShadow': '0 2px 8px rgba(0,0,0,0.05)',
-                    'border': '1px solid #e9ecef',
-                    'transition': 'all 0.3s ease'
+                    'boxShadow': '0 4px 12px rgba(16, 185, 129, 0.3)',
+                    'border': 'none',
+                    'color': 'white'
                 }),
             ], md=3),
             
+            # Energy Usage
             dbc.Col([
                 html.Div([
                     html.Div([
-                        html.I(className="fas fa-chart-line fa-2x",
-                               style={'color': '#10b981'}),
+                        html.I(className="fas fa-bolt fa-2x",
+                               style={'color': 'rgba(255,255,255,0.9)'}),
                         html.Div([
-                            html.H3("94.8%", className='mb-0 fw-bold'),
-                            html.P("Quality Rate", className='mb-0 text-muted',
-                                   style={'fontSize': '0.9rem'}),
+                            html.H3("5.8", className='mb-0 fw-bold',
+                                   style={'color': 'white'}),
+                            html.P("Energy Usage (kWh)", className='mb-0',
+                                   style={'fontSize': '0.9rem', 'color': 'rgba(255,255,255,0.9)'}),
                         ], className='ms-3'),
                     ], className='d-flex align-items-center'),
                 ], className='stat-card', style={
-                    'background': 'white',
+                    'background': 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
                     'borderRadius': '12px',
                     'padding': '1.5rem',
-                    'boxShadow': '0 2px 8px rgba(0,0,0,0.05)',
-                    'border': '1px solid #e9ecef',
-                    'transition': 'all 0.3s ease'
+                    'boxShadow': '0 4px 12px rgba(249, 115, 22, 0.3)',
+                    'border': 'none',
+                    'color': 'white'
+                }),
+            ], md=3),
+            
+            # Active Alarms
+            dbc.Col([
+                html.Div([
+                    html.Div([
+                        html.I(className="fas fa-exclamation-triangle fa-2x",
+                               style={'color': 'rgba(255,255,255,0.9)'}),
+                        html.Div([
+                            html.H3("1", className='mb-0 fw-bold',
+                                   style={'color': 'white'}),
+                            html.P("Active Alarms", className='mb-0',
+                                   style={'fontSize': '0.9rem', 'color': 'rgba(255,255,255,0.9)'}),
+                        ], className='ms-3'),
+                    ], className='d-flex align-items-center'),
+                ], className='stat-card', style={
+                    'background': 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                    'borderRadius': '12px',
+                    'padding': '1.5rem',
+                    'boxShadow': '0 4px 12px rgba(239, 68, 68, 0.3)',
+                    'border': 'none',
+                    'color': 'white'
                 }),
             ], md=3),
         ], className='mb-4'),
         
-        # Welcome Message
+        # Middle Section - Machine Status (3 Machines)
         dbc.Row([
             dbc.Col([
                 html.Div([
-                    html.H4("🏭 Manufacturing Excellence Dashboard", className='fw-bold mb-3'),
-                    html.P([
-                        "Welcome to IOTNarad OEE Management Platform. ",
-                        "Monitor Overall Equipment Effectiveness and optimize your manufacturing operations in real-time."
-                    ], className='mb-3'),
-                    html.Ul([
-                        html.Li("View OEE Dashboard for real-time manufacturing metrics"),
-                        html.Li("Monitor production lines and equipment performance"),
-                        html.Li("Analyze Six Big Losses and improvement opportunities"),
-                        html.Li("Track quality rates and production efficiency"),
-                    ], className='mb-3'),
-                    dbc.Button([
-                        html.I(className="fas fa-industry me-2"),
-                        "View OEE Dashboard"
-                    ], color='primary', size='lg', id='quick-oee-dashboard'),
-                ], className='stat-card', style={
-                    'background': 'white',
-                    'borderRadius': '12px',
-                    'padding': '1.5rem',
-                    'boxShadow': '0 2px 8px rgba(0,0,0,0.05)',
-                    'border': '1px solid #e9ecef',
-                    'transition': 'all 0.3s ease'
-                }),
-            ], md=8),
-            
-            dbc.Col([
-                html.Div([
-                    html.H5("Production Status", className='fw-bold mb-3'),
-                    html.Div([
-                        html.Div([
-                            html.Span("Lines Running", className='fw-500'),
-                            html.Span([
-                                html.I(className="fas fa-circle me-2",
-                                       style={'color': '#4ade80', 'fontSize': '0.6rem'}),
-                                "5/6 Active"
-                            ], className='badge bg-light text-success'),
-                        ], className='d-flex justify-content-between mb-2'),
-                        
-                        html.Div([
-                            html.Span("OEE Target", className='fw-500'),
-                            html.Span([
-                                html.I(className="fas fa-circle me-2",
-                                       style={'color': '#4ade80', 'fontSize': '0.6rem'}),
-                                "87.5% (Target: 85%)"
-                            ], className='badge bg-light text-success'),
-                        ], className='d-flex justify-content-between mb-2'),
-                        
-                        html.Div([
-                            html.Span("Quality Rate", className='fw-500'),
-                            html.Span([
-                                html.I(className="fas fa-circle me-2",
-                                       style={'color': '#4ade80', 'fontSize': '0.6rem'}),
-                                "94.8%"
-                            ], className='badge bg-light text-success'),
-                        ], className='d-flex justify-content-between'),
+                    html.H6([
+                        html.I(className="fas fa-industry me-2", style={'color': '#667eea'}),
+                        "Machine Status (3 Machines)"
+                    ], className='fw-bold mb-3'),
+                    
+                    dbc.Row([
+                        dbc.Col([
+                            create_machine_card("M01", "Running", 89, 92, 2.4, "#10b981")
+                        ], md=4),
+                        dbc.Col([
+                            create_machine_card("M02", "Idle", 68, 55, 1.2, "#f97316")
+                        ], md=4),
+                        dbc.Col([
+                            create_machine_card("M03", "Maintenance", None, None, None, "#ef4444")
+                        ], md=4),
                     ]),
-                ], className='stat-card', style={
+                ], className='stat-card p-4', style={
                     'background': 'white',
                     'borderRadius': '12px',
-                    'padding': '1.5rem',
                     'boxShadow': '0 2px 8px rgba(0,0,0,0.05)',
-                    'border': '1px solid #e9ecef',
-                    'transition': 'all 0.3s ease'
+                    'border': '1px solid #e9ecef'
                 }),
-            ], md=4),
+            ], md=12),
+        ], className='mb-4'),
+        
+        # Bottom Section - Device Overview Table
+        dbc.Row([
+            dbc.Col([
+                create_device_overview_table()
+            ], md=12),
+        ]),
+    ])
+
+
+def create_machine_card(machine_id, status, oee, utilization, energy, status_color):
+    """Create machine status card with chart"""
+    
+    # Generate sample chart data based on status
+    if status == "Running":
+        # Green line chart - increasing trend
+        chart_data = go.Scatter(
+            x=['8 AM', '9 AM', '10 AM', '11 AM', '12 PM'],
+            y=[120, 130, 140, 150, 160],
+            mode='lines+markers',
+            line=dict(color='#10b981', width=2),
+            marker=dict(size=6),
+            name='Production'
+        )
+    elif status == "Idle":
+        # Orange line chart - fluctuating
+        chart_data = go.Scatter(
+            x=['8 AM', '9 AM', '10 AM', '11 AM', '12 PM'],
+            y=[75, 80, 78, 82, 80],
+            mode='lines+markers',
+            line=dict(color='#f97316', width=2),
+            marker=dict(size=6),
+            name='Production'
+        )
+    else:  # Maintenance
+        # Red flat line
+        chart_data = go.Scatter(
+            x=['8 AM', '9 AM', '10 AM', '11 AM', '12 PM'],
+            y=[0, 0, 0, 0, 0],
+            mode='lines+markers',
+            line=dict(color='#ef4444', width=2),
+            marker=dict(size=6),
+            name='Production'
+        )
+    
+    fig = go.Figure(data=[chart_data])
+    fig.update_layout(
+        height=120,
+        margin=dict(l=10, r=10, t=10, b=10),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        showlegend=False,
+        xaxis=dict(showgrid=False, zeroline=False),
+        yaxis=dict(showgrid=False, zeroline=False),
+        font=dict(size=10)
+    )
+    
+    return html.Div([
+        html.Div([
+            html.H6(f"Machine {machine_id}", className='mb-2 fw-bold'),
+            html.Div([
+                html.Span([
+                    html.I(className="fas fa-circle me-2",
+                           style={'color': status_color, 'fontSize': '0.6rem'}),
+                    html.Span(status, style={'color': status_color, 'fontWeight': '600'})
+                ], className='badge bg-light',
+                   style={'fontSize': '0.85rem'}),
+            ], className='mb-2'),
+            
+            html.Div([
+                html.Div([
+                    html.Small("OEE", className='text-muted d-block', style={'fontSize': '0.75rem'}),
+                    html.Span(f"{oee}%" if oee else "-", className='fw-bold',
+                             style={'color': status_color, 'fontSize': '1rem'})
+                ], className='text-center'),
+                html.Div([
+                    html.Small("Utilization", className='text-muted d-block', style={'fontSize': '0.75rem'}),
+                    html.Span(f"{utilization}%" if utilization else "-", className='fw-bold',
+                             style={'fontSize': '1rem'})
+                ], className='text-center'),
+                html.Div([
+                    html.Small("Energy", className='text-muted d-block', style={'fontSize': '0.75rem'}),
+                    html.Span(f"{energy} kWh" if energy else "-", className='fw-bold',
+                             style={'fontSize': '1rem'})
+                ], className='text-center'),
+            ], className='d-flex justify-content-between mb-2'),
+            
+            dcc.Graph(figure=fig, config={'displayModeBar': False}, style={'height': '120px'}),
+        ], style={'padding': '0.75rem'})
+    ], className='machine-card', style={
+        'background': 'white',
+        'borderRadius': '8px',
+        'border': f'2px solid {status_color}40',
+        'boxShadow': '0 2px 6px rgba(0,0,0,0.08)'
+    })
+
+
+def create_device_overview_table():
+    """Create Device Overview table with new columns"""
+    
+    # Sample device data
+    device_data = [
+        {
+            'gateway_id': 'GW-001',
+            'device_name': 'Production Line A',
+            'location': 'Factory Floor 1',
+            'oee': 89.2,
+            'status': 'Running',
+            'last_update': '2 min ago'
+        },
+        {
+            'gateway_id': 'GW-002',
+            'device_name': 'Production Line B',
+            'location': 'Factory Floor 1',
+            'oee': 85.7,
+            'status': 'Running',
+            'last_update': '1 min ago'
+        },
+        {
+            'gateway_id': 'GW-003',
+            'device_name': 'Production Line C',
+            'location': 'Factory Floor 2',
+            'oee': 91.3,
+            'status': 'Running',
+            'last_update': '3 min ago'
+        },
+        {
+            'gateway_id': 'GW-004',
+            'device_name': 'Quality Control Station',
+            'location': 'Factory Floor 2',
+            'oee': 0.0,
+            'status': 'Maintenance',
+            'last_update': '25 min ago'
+        },
+        {
+            'gateway_id': 'GW-005',
+            'device_name': 'Packaging Unit',
+            'location': 'Warehouse',
+            'oee': 78.5,
+            'status': 'Idle',
+            'last_update': '5 min ago'
+        },
+        {
+            'gateway_id': 'GW-006',
+            'device_name': 'Inspection Station',
+            'location': 'Factory Floor 1',
+            'oee': 93.6,
+            'status': 'Running',
+            'last_update': '1 min ago'
+        },
+    ]
+    
+    return html.Div([
+        html.H6([
+            html.I(className="fas fa-table me-2", style={'color': '#667eea'}),
+            "DEVICE OVERVIEW"
+        ], className='fw-bold mb-3'),
+        
+        dbc.Table([
+            html.Thead([
+                html.Tr([
+                    html.Th("Gateway ID"),
+                    html.Th("Device Name"),
+                    html.Th("Location"),
+                    html.Th("OEE"),
+                    html.Th("Status"),
+                    html.Th("Last Update"),
+                    html.Th("Actions"),
+                ], style={'background': '#f8f9fa'})
+            ]),
+            html.Tbody([
+                create_device_row(data) for data in device_data
+            ])
+        ], striped=True, bordered=True, hover=True, responsive=True,
+           className='table-sm', style={'fontSize': '0.9rem'}),
+    ], className='stat-card p-4', style={
+        'background': 'white',
+        'borderRadius': '12px',
+        'boxShadow': '0 2px 8px rgba(0,0,0,0.05)',
+        'border': '1px solid #e9ecef'
+    })
+
+
+def create_device_row(data):
+    """Create a row for device overview table"""
+    
+    # Determine status color
+    if data['status'] == 'Running':
+        status_color = '#10b981'
+        status_icon = 'fa-play-circle'
+    elif data['status'] == 'Maintenance':
+        status_color = '#ef4444'
+        status_icon = 'fa-wrench'
+    else:  # Idle
+        status_color = '#f97316'
+        status_icon = 'fa-pause-circle'
+    
+    # Determine OEE color
+    if data['oee'] >= 85:
+        oee_color = '#10b981'
+    elif data['oee'] >= 75:
+        oee_color = '#fbbf24'
+    elif data['oee'] > 0:
+        oee_color = '#f97316'
+    else:
+        oee_color = '#6c757d'
+    
+    return html.Tr([
+        html.Td([
+            html.I(className="fas fa-network-wired me-2", style={'color': '#667eea'}),
+            html.Span(data['gateway_id'], className='fw-bold')
+        ]),
+        html.Td(data['device_name']),
+        html.Td([
+            html.I(className="fas fa-map-marker-alt me-2", style={'color': '#6c757d', 'fontSize': '0.8rem'}),
+            data['location']
+        ]),
+        html.Td([
+            html.Span(f"{data['oee']:.1f}%" if data['oee'] > 0 else "-",
+                     style={'color': oee_color, 'fontWeight': 'bold'})
+        ]),
+        html.Td([
+            html.Span([
+                html.I(className=f"fas {status_icon} me-2",
+                       style={'color': status_color, 'fontSize': '0.7rem'}),
+                data['status']
+            ], className='badge',
+               style={'backgroundColor': f"{status_color}20",
+                      'color': status_color,
+                      'fontSize': '0.85rem'})
+        ]),
+        html.Td([
+            html.I(className="fas fa-clock me-2", style={'color': '#6c757d', 'fontSize': '0.8rem'}),
+            data['last_update']
+        ]),
+        html.Td([
+            dbc.Button("View Details", size='sm', color='primary', outline=True, className='me-1'),
+            dbc.Button("Configure", size='sm', color='info', outline=True)
         ]),
     ])
 
