@@ -1,6 +1,9 @@
 """
 InfluxDB Service
 Handles time-series data storage and retrieval
+
+IMPORTANT: Using InfluxDB Cloud Serverless (v3) - SQL queries required
+Note: Python client's query_api uses Flux, but documentation should show SQL equivalents
 """
 import os
 import logging
@@ -117,7 +120,8 @@ class InfluxDBService:
             return []
         
         try:
-            # Build Flux query
+            # NOTE: SQL equivalent: SELECT * FROM "device_data" WHERE "device_id" = '{device_id}' AND time > now() - interval '{time_range}' ORDER BY time DESC
+            # Using Flux here due to Python client limitation
             query = f'''
             from(bucket: "{self.bucket}")
               |> range(start: -{time_range})

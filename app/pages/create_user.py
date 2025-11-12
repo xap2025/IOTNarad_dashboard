@@ -1,5 +1,5 @@
 import dash
-from dash import html, dcc, callback, Input, Output, State
+from dash import html, dcc, callback, Input, Output, State, no_update, ctx
 import dash_bootstrap_components as dbc
 import re
 import secrets
@@ -19,9 +19,9 @@ def create_user_form_layout():
             html.H3([
                 html.I(className="fas fa-user-plus me-3"),
                 "Create New User"
-            ], className='fw-bold mb-3', style={'color': 'white'}),
-            html.P("Fill in the details below to create a new user account.", className='text-muted mb-4', style={'color': 'rgba(255,255,255,0.8)'}),
-        ], className='mb-4'),
+            ], className='fw-bold mb-3', style={'color': '#1a1a2e'}),
+            html.P("Fill in the details below to create a new user account.", className='text-muted mb-4'),
+        ], className='mb-4', style={'padding': '2rem 0', 'background': '#f8f9fa'}),
         
         # User Creation Form
         dbc.Card([
@@ -104,97 +104,119 @@ def create_user_form_layout():
         
         # Store for form data
         dcc.Store(id='user-form-data'),
-        
-        # JavaScript for WebSocket communication
-        html.Script("""
-            const socket = io();
-            
-            // Handle form submission
-            document.getElementById('submit-user-btn').addEventListener('click', function() {
-                const formData = {
-                    Company_Name: document.getElementById('user-company-name').value,
-                    User_Id: document.getElementById('user-id').value,
-                    Email_Id: document.getElementById('user-email').value,
-                    Phone_No: document.getElementById('user-phone').value,
-                    User_Type: document.getElementById('user-type').value,
-                    status: document.getElementById('account-status').value
-                };
-                
-                // Generate password
-                const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-                let password = '';
-                for (let i = 0; i < 12; i++) {
-                    password += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
-                }
-                formData.Password = password;
-                
-                // Send via WebSocket
-                socket.emit('create_user', formData);
-            });
-            
-            socket.on('user_created', function(data) {
-                if (data.status === 'success') {
-                    const successHtml = `
-                        <div class="alert alert-success" role="alert">
-                            <h4 class="alert-heading">
-                                <i class="fas fa-check-circle me-2"></i>
-                                User Created Successfully!
-                            </h4>
-                            <p><strong>User ID:</strong> ${data.user_id}</p>
-                            <p><strong>Email:</strong> ${data.email}</p>
-                            <p><strong>Status:</strong> ${data.email_sent ? 'Credentials sent via email' : 'Email sending failed'}</p>
-                            <hr>
-                            <div class="mb-0">
-                                <a href="/dashboard" class="btn btn-primary me-2">
-                                    <i class="fas fa-eye me-2"></i>View Dashboard
-                                </a>
-                                <a href="/create-user" class="btn btn-success">
-                                    <i class="fas fa-plus me-2"></i>Create Another User
-                                </a>
-                            </div>
-                        </div>
-                    `;
-                    document.getElementById('user-creation-message').innerHTML = successHtml;
-                    
-                    // Reset form
-                    document.getElementById('user-creation-form').reset();
-                    document.getElementById('submit-user-btn').disabled = false;
-                }
-            });
-            
-            socket.on('user_creation_error', function(data) {
-                const errorHtml = `
-                    <div class="alert alert-danger" role="alert">
-                        <h4 class="alert-heading">
-                            <i class="fas fa-exclamation-triangle me-2"></i>
-                            Error Creating User
-                        </h4>
-                        <p>${data.message}</p>
-                        <hr>
-                        <div class="mb-0">
-                            <button class="btn btn-danger" onclick="location.reload()">
-                                <i class="fas fa-redo me-2"></i>Try Again
-                            </button>
-                        </div>
-                    </div>
-                `;
-                document.getElementById('user-creation-message').innerHTML = errorHtml;
-                document.getElementById('submit-user-btn').disabled = false;
-            });
-        """),
-    ])
+    ], fluid=True, style={'minHeight': '100vh', 'background': '#f8f9fa', 'padding': '2rem'})
 
 
 @callback(
-    Output('submit-user-btn', 'disabled'),
+    [Output('user-creation-message', 'children'),
+     Output('submit-user-btn', 'disabled')],
     Input('submit-user-btn', 'n_clicks'),
+    [State('user-company-name', 'value'),
+     State('user-id', 'value'),
+     State('user-email', 'value'),
+     State('user-phone', 'value'),
+     State('user-type', 'value'),
+     State('account-status', 'value')],
     prevent_initial_call=True
 )
-def disable_button_during_processing(n_clicks):
-    """Disable button during processing"""
-    if n_clicks and n_clicks > 0:
-        return True
-    return False
+def handle_user_submission(n_clicks, company_name, user_id, email, phone, user_type, status):
+    """Handle user form submission via Dash callback"""
+    import secrets
+    import string
+    
+    if not n_clicks or n_clicks == 0:
+        return dash.no_update, False
+    
+    # Validate form
+    if not all([company_name, user_id, email, phone, user_type]):
+        return dbc.Alert([
+            html.H4("⚠️ Validation Error", className='fw-bold'),
+            html.P("Please fill all required fields.")
+        ], color='warning'), False
+    
+    # Generate password
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+    password = ''.join(secrets.choice(alphabet) for _ in range(12))
+    
+    # Prepare form data
+    form_data = {
+        'Company_Name': company_name.strip(),
+        'User_Id': user_id.strip(),
+        'Email_Id': email.strip(),
+        'Phone_No': phone.strip(),
+        'User_Type': user_type,
+        'Status': status or 'active',
+        'Password': password
+    }
+    
+    # Import services here to avoid circular imports
+    from app.services.user_service import UserService
+    from app.services.email_service import EmailService
+    
+    user_service = UserService()
+    email_service = EmailService()
+    
+    try:
+        # Check if user ID already exists
+        existing_user = user_service.get_user_by_id(form_data['User_Id'])
+        if existing_user:
+            return dbc.Alert([
+                html.H4("❌ Error", className='fw-bold'),
+                html.P(f"User ID '{form_data['User_Id']}' already exists. Please choose a different User ID.")
+            ], color='danger'), False
+        
+        # Create user in database
+        success = user_service.create_user(form_data)
+        
+        if success:
+            # Send email
+            email_sent = email_service.send_user_credentials(form_data)
+            
+            # Success message
+            return dbc.Alert([
+                html.H4([
+                    html.I(className="fas fa-check-circle me-2"),
+                    "User Created Successfully!"
+                ], className='fw-bold'),
+                html.P([
+                    html.Strong("User ID: "), form_data['User_Id']
+                ]),
+                html.P([
+                    html.Strong("Email: "), form_data['Email_Id']
+                ]),
+                html.P([
+                    html.Strong("Password: "),
+                    html.Code(password, style={'background': '#f8f9fa', 'padding': '4px 8px', 'borderRadius': '4px'})
+                ]),
+                html.P([
+                    html.Strong("Email Status: "),
+                    html.Span("✅ Credentials sent via email", className='text-success') if email_sent 
+                    else html.Span("⚠️ Email sending failed (but user is created)", className='text-warning')
+                ]),
+                html.Hr(),
+                html.Div([
+                    html.A([
+                        html.I(className="fas fa-eye me-2"),
+                        "View Dashboard"
+                    ], href="/dashboard", className='btn btn-primary me-2'),
+                    html.A([
+                        html.I(className="fas fa-plus me-2"),
+                        "Create Another User"
+                    ], href="/create-user", className='btn btn-success', id='create-another-user-link')
+                ], className='mb-0')
+            ], color='success'), False
+        else:
+            return dbc.Alert([
+                html.H4("❌ Error", className='fw-bold'),
+                html.P("Failed to create user in database. Please check server logs for details.")
+            ], color='danger'), False
+            
+    except Exception as e:
+        logger.error(f"Error creating user: {e}")
+        return dbc.Alert([
+            html.H4("❌ Error", className='fw-bold'),
+            html.P(f"An error occurred: {str(e)}")
+        ], color='danger'), False
 
 
 # Validation callbacks for real-time feedback

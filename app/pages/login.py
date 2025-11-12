@@ -39,9 +39,10 @@ def create_login_layout():
                             dbc.Input(
                                 id='username-input',
                                 type='text',
-                                placeholder='Username',
+                                placeholder='User ID',
                                 className='border-start-0',
-                                style={'paddingLeft': '0'}
+                                style={'paddingLeft': '0'},
+                                required=True
                             )
                         ], className='mb-3'),
                         
@@ -56,9 +57,26 @@ def create_login_layout():
                                 type='password',
                                 placeholder='Password',
                                 className='border-start-0',
-                                style={'paddingLeft': '0'}
+                                style={'paddingLeft': '0'},
+                                required=True
                             )
-                        ], className='mb-4'),
+                        ], className='mb-3'),
+                        
+                        # Forgot Password Link
+                        html.Div([
+                            html.A(
+                                "Forgot Password?",
+                                id='forgot-password-link',
+                                href='#',
+                                className='text-decoration-none',
+                                n_clicks=0,
+                                style={
+                                    'color': '#667eea',
+                                    'fontSize': '0.9rem',
+                                    'cursor': 'pointer'
+                                }
+                            )
+                        ], className='text-end mb-3'),
                         
                         # Login Button
                         dbc.Button(
@@ -89,15 +107,6 @@ def create_login_layout():
                                       style={'fontSize': '0.85rem', 'color': '#666'})
                         ], className='text-center'),
                     ]),
-                    
-                    # Info Section
-                    html.Div([
-                        html.Small([
-                            html.I(className="fas fa-info-circle me-2"),
-                            "Default: admin / iotnarad@2025"
-                        ], className='text-muted d-block text-center mt-3',
-                           style={'fontSize': '0.75rem'})
-                    ])
                 ], className='p-4')
             ], className='border-0', style={
                 'maxWidth': '420px',
@@ -117,5 +126,70 @@ def create_login_layout():
             'overflow': 'hidden',
             'margin': '0',
             'padding': '0'
-        })
+        }),
+        
+        # Forgot Password Modal
+        dbc.Modal([
+            dbc.ModalHeader([
+                html.I(className="fas fa-key me-2"),
+                "Reset Password"
+            ]),
+            dbc.ModalBody([
+                html.P("Enter your User ID and registered Phone Number to reset your password.", 
+                       className='text-muted mb-4'),
+                
+                # User ID Input
+                dbc.InputGroup([
+                    dbc.InputGroupText(
+                        html.I(className="fas fa-user"),
+                        className='bg-light border-end-0'
+                    ),
+                    dbc.Input(
+                        id='forgot-user-id',
+                        type='text',
+                        placeholder='User ID',
+                        className='border-start-0'
+                    )
+                ], className='mb-3'),
+                
+                # Phone Number Input
+                dbc.InputGroup([
+                    dbc.InputGroupText(
+                        html.I(className="fas fa-phone"),
+                        className='bg-light border-end-0'
+                    ),
+                    dbc.Input(
+                        id='forgot-phone-no',
+                        type='tel',
+                        placeholder='Phone Number (e.g., +919876543210)',
+                        className='border-start-0'
+                    )
+                ], className='mb-3'),
+                
+                # Message Display
+                html.Div(id='forgot-password-message', className='mb-3'),
+                
+            ]),
+            dbc.ModalFooter([
+                dbc.Button(
+                    "Cancel",
+                    id='forgot-password-cancel',
+                    color='secondary',
+                    className='me-2',
+                    n_clicks=0
+                ),
+                dbc.Button(
+                    [html.I(className="fas fa-paper-plane me-2"), "Send Reset Link"],
+                    id='forgot-password-submit',
+                    color='primary',
+                    n_clicks=0
+                ),
+            ]),
+        ], 
+        id='forgot-password-modal',
+        is_open=False,
+        centered=True,
+        backdrop=True,
+        size='md'
+        ),
     ], style={'margin': '0', 'padding': '0'})

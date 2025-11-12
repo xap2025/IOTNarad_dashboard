@@ -5,8 +5,9 @@ Handles MQTT communication with IoT devices
 import os
 import json
 import logging
+import hashlib
 import paho.mqtt.client as mqtt
-from threading import Thread
+from threading import Thread, Lock
 from typing import Callable, Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,9 @@ class MQTTClientService:
         self.topic_device_data = os.getenv('MQTT_TOPIC_DEVICE_DATA', 'iotnarad/devices/+/data')
         self.topic_device_config = os.getenv('MQTT_TOPIC_DEVICE_CONFIG', 'iotnarad/devices/+/config')
         self.topic_device_status = os.getenv('MQTT_TOPIC_DEVICE_STATUS', 'iotnarad/devices/+/status')
+        # Use Dev/Init/+ instead of Dev/Init/# to avoid matching Dev/Init/Ack/... messages
+        # + matches single level, # matches multiple levels
+        self.topic_device_init = os.getenv('MQTT_TOPIC_DEVICE_INIT', 'Dev/Init/+')
         
         # Initialize MQTT client
         self.client = mqtt.Client(client_id=self.client_id, clean_session=True)
@@ -37,6 +41,12 @@ class MQTTClientService:
         # Callbacks
         self.data_callback: Optional[Callable] = None
         self.status_callback: Optional[Callable] = None
+        self.init_callback: Optional[Callable] = None
+        
+        # Message deduplication: Track recently processed messages
+        self._processed_messages: set = set()
+        self._message_lock = Lock()
+        self._message_ttl = 5.0  # Keep message hash for 5 seconds
         
         self.connected = False
         logger.info(f"MQTT Client initialized: {self.client_id}")
@@ -50,8 +60,10 @@ class MQTTClientService:
             # Subscribe to topics
             self.client.subscribe(self.topic_device_data)
             self.client.subscribe(self.topic_device_status)
+            self.client.subscribe(self.topic_device_init)
             logger.info(f"📡 Subscribed to: {self.topic_device_data}")
             logger.info(f"📡 Subscribed to: {self.topic_device_status}")
+            logger.info(f"📡 Subscribed to: {self.topic_device_init}")
         else:
             self.connected = False
             logger.error(f"❌ Failed to connect to MQTT Broker. Return code: {rc}")
@@ -70,10 +82,30 @@ class MQTTClientService:
             topic = msg.topic
             payload = msg.payload.decode('utf-8')
             
-            logger.debug(f"📨 Message received on {topic}: {payload[:100]}...")
+            # Create message hash for deduplication (topic + payload)
+            message_hash = hashlib.md5(f"{topic}:{payload}".encode()).hexdigest()
+            
+            # Check if this exact message was recently processed
+            with self._message_lock:
+                if message_hash in self._processed_messages:
+                    logger.debug(f"🔕 Duplicate message ignored: {topic} (hash: {message_hash[:8]}...)")
+                    return
+                # Mark as processed
+                self._processed_messages.add(message_hash)
+                # Clean up old hashes (keep only last 1000 to prevent memory leak)
+                if len(self._processed_messages) > 1000:
+                    # Remove oldest entries (simple FIFO)
+                    self._processed_messages = set(list(self._processed_messages)[-500:])
+            
+            logger.info(f"📨 Message received on {topic}: {payload[:200]}...")
             
             # Parse JSON payload
-            data = json.loads(payload)
+            try:
+                data = json.loads(payload)
+            except json.JSONDecodeError as e:
+                logger.error(f"❌ Failed to decode JSON message on {topic}: {e}")
+                logger.error(f"   Raw payload: {payload}")
+                return
             
             # Extract device ID from topic (e.g., iotnarad/devices/esp32_gw_01/data)
             topic_parts = topic.split('/')
@@ -83,15 +115,27 @@ class MQTTClientService:
                 device_id = 'unknown'
             
             # Route message based on topic
-            if '/data' in topic and self.data_callback:
+            if topic.startswith('Dev/Init/') and not topic.startswith('Dev/Init/Ack/'):
+                # Device initialization message (ignore acknowledgment messages)
+                logger.info(f"🔔 Routing to init callback for topic: {topic}")
+                if self.init_callback:
+                    logger.info(f"✅ Init callback exists, calling...")
+                    self.init_callback(topic, data)
+                else:
+                    logger.warning(f"⚠️ Init callback not registered!")
+            elif topic.startswith('Dev/Init/Ack/'):
+                # Ignore acknowledgment messages (server's own messages)
+                logger.debug(f"🔕 Ignoring acknowledgment message on topic: {topic}")
+            elif '/data' in topic and self.data_callback:
                 self.data_callback(device_id, data)
             elif '/status' in topic and self.status_callback:
                 self.status_callback(device_id, data)
+            else:
+                logger.warning(f"⚠️ No callback registered for topic: {topic}")
                 
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to decode JSON message: {e}")
         except Exception as e:
-            logger.error(f"Error processing MQTT message: {e}")
+            logger.error(f"❌ Error processing MQTT message: {e}")
+            logger.exception("Full error traceback:")
     
     def start(self):
         """Start MQTT client in background thread"""
@@ -182,6 +226,28 @@ class MQTTClientService:
         """Set callback for device status messages"""
         self.status_callback = callback
         logger.info("Status callback registered")
+    
+    def set_init_callback(self, callback: Callable):
+        """Set callback for device initialization messages"""
+        self.init_callback = callback
+        logger.info("Device initialization callback registered")
+    
+    def publish_ack(self, serial_number: str, status: str = "success", message: str = "Received"):
+        """
+        Publish acknowledgment to device
+        
+        Args:
+            serial_number: Device serial number
+            status: Acknowledgment status (default: "success")
+            message: Acknowledgment message (default: "Received")
+        """
+        topic = f"Dev/Init/Ack/{serial_number}"
+        payload = {
+            "status": status,
+            "message": message,
+            "timestamp": self._get_timestamp()
+        }
+        return self.publish(topic, payload, qos=1, retain=False)
     
     def is_connected(self) -> bool:
         """Check if MQTT client is connected"""

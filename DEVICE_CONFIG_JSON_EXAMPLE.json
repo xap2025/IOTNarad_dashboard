@@ -1,0 +1,393 @@
+{
+  "device_id": "esp32_gw_01",
+  "metadata": {
+    "device_name": "ESP32-Gateway-01",
+    "device_type": "esp32_gateway",
+    "location": "Production Line 1",
+    "description": "Main gateway for production monitoring",
+    "created_at": "2024-01-15T10:30:00Z",
+    "updated_at": "2024-01-20T14:45:00Z",
+    "version": "1.0.0"
+  },
+  "analog": {
+    "input_4_20ma": [
+      {
+        "channel": 1,
+        "enabled": true,
+        "divider": 100,
+        "multiplier": 1,
+        "io_pin": "AIN0",
+        "name": "Temperature Sensor",
+        "min_value": 4,
+        "max_value": 20,
+        "unit": "mA"
+      },
+      {
+        "channel": 2,
+        "enabled": true,
+        "divider": 100,
+        "multiplier": 1,
+        "io_pin": "AIN1",
+        "name": "Pressure Sensor",
+        "min_value": 4,
+        "max_value": 20,
+        "unit": "mA"
+      }
+    ],
+    "input_1_10v": [
+      {
+        "channel": 3,
+        "enabled": true,
+        "divider": 1000,
+        "multiplier": 1,
+        "io_pin": "AIN2",
+        "name": "Flow Meter",
+        "min_value": 1,
+        "max_value": 10,
+        "unit": "V"
+      },
+      {
+        "channel": 4,
+        "enabled": false,
+        "divider": 1,
+        "multiplier": 1,
+        "io_pin": "AIN3",
+        "name": "-",
+        "min_value": 1,
+        "max_value": 10,
+        "unit": "V"
+      }
+    ],
+    "output_0_10v": [
+      {
+        "channel": 1,
+        "enabled": true,
+        "value": 5.0,
+        "io_pin": "DOUT0",
+        "name": "Valve Control",
+        "min_value": 0,
+        "max_value": 10,
+        "unit": "V"
+      },
+      {
+        "channel": 2,
+        "enabled": false,
+        "value": 0.0,
+        "io_pin": "DOUT1",
+        "name": "-",
+        "min_value": 0,
+        "max_value": 10,
+        "unit": "V"
+      }
+    ]
+  },
+  "digital": {
+    "npn_input": [
+      {
+        "channel": 1,
+        "enabled": true,
+        "io_pin": "INP1H",
+        "name": "Start Button",
+        "pullup": true,
+        "debounce_ms": 50
+      },
+      {
+        "channel": 2,
+        "enabled": true,
+        "io_pin": "INP2H",
+        "name": "Stop Button",
+        "pullup": true,
+        "debounce_ms": 50
+      },
+      {
+        "channel": 3,
+        "enabled": false,
+        "io_pin": "INP3H",
+        "name": "-",
+        "pullup": false,
+        "debounce_ms": 0
+      },
+      {
+        "channel": 4,
+        "enabled": false,
+        "io_pin": "INP4H",
+        "name": "-",
+        "pullup": false,
+        "debounce_ms": 0
+      }
+    ],
+    "npn_output": [
+      {
+        "channel": 1,
+        "enabled": true,
+        "io_pin": "OUTL1",
+        "name": "Motor Control",
+        "initial_state": false
+      },
+      {
+        "channel": 2,
+        "enabled": true,
+        "io_pin": "OUTL2",
+        "name": "Alarm LED",
+        "initial_state": false
+      },
+      {
+        "channel": 3,
+        "enabled": false,
+        "io_pin": "OUTL3",
+        "name": "-",
+        "initial_state": false
+      },
+      {
+        "channel": 4,
+        "enabled": false,
+        "io_pin": "OUTL4",
+        "name": "-",
+        "initial_state": false
+      }
+    ],
+    "pnp_input": [
+      {
+        "channel": 1,
+        "enabled": true,
+        "io_pin": "INP1L",
+        "name": "Sensor A",
+        "pullup": false,
+        "debounce_ms": 50
+      },
+      {
+        "channel": 2,
+        "enabled": false,
+        "io_pin": "INP2L",
+        "name": "-",
+        "pullup": false,
+        "debounce_ms": 0
+      },
+      {
+        "channel": 3,
+        "enabled": false,
+        "io_pin": "INP3L",
+        "name": "-",
+        "pullup": false,
+        "debounce_ms": 0
+      },
+      {
+        "channel": 4,
+        "enabled": false,
+        "io_pin": "INP4L",
+        "name": "-",
+        "pullup": false,
+        "debounce_ms": 0
+      }
+    ],
+    "pnp_output": [
+      {
+        "channel": 1,
+        "enabled": true,
+        "io_pin": "OUTH1",
+        "name": "Status Indicator",
+        "initial_state": false
+      },
+      {
+        "channel": 2,
+        "enabled": false,
+        "io_pin": "OUTH2",
+        "name": "-",
+        "initial_state": false
+      },
+      {
+        "channel": 3,
+        "enabled": false,
+        "io_pin": "OUTH3",
+        "name": "-",
+        "initial_state": false
+      },
+      {
+        "channel": 4,
+        "enabled": false,
+        "io_pin": "OUTH4",
+        "name": "-",
+        "initial_state": false
+      }
+    ],
+    "relay": [
+      {
+        "channel": 1,
+        "enabled": true,
+        "io_pin": "RLY1",
+        "name": "Main Power Relay",
+        "initial_state": false
+      },
+      {
+        "channel": 2,
+        "enabled": true,
+        "io_pin": "RLY2",
+        "name": "Emergency Stop Relay",
+        "initial_state": false
+      },
+      {
+        "channel": 3,
+        "enabled": false,
+        "io_pin": "RLY3",
+        "name": "-",
+        "initial_state": false
+      },
+      {
+        "channel": 4,
+        "enabled": false,
+        "io_pin": "RLY4",
+        "name": "-",
+        "initial_state": false
+      }
+    ]
+  },
+  "rs485_modbus": {
+    "enabled": true,
+    "communication_settings": {
+      "baud_rate": 9600,
+      "data_bits": 8,
+      "parity": "None",
+      "stop_bits": 1
+    },
+    "protocol_settings": {
+      "mode": "RTU",
+      "role": "Master"
+    },
+    "polling_interval_ms": 1000,
+    "slave_devices": [
+      {
+        "index": 0,
+        "slave_id": "1",
+        "function_code": "0x03",
+        "register_address": "0",
+        "data_type": "int16",
+        "endianness": "Big Endian",
+        "variable_name": "Temperature",
+        "register_count": 1
+      },
+      {
+        "index": 1,
+        "slave_id": "1",
+        "function_code": "0x03",
+        "register_address": "1",
+        "data_type": "int16",
+        "endianness": "Big Endian",
+        "variable_name": "Pressure",
+        "register_count": 1
+      },
+      {
+        "index": 2,
+        "slave_id": "2",
+        "function_code": "0x04",
+        "register_address": "0",
+        "data_type": "uint32",
+        "endianness": "Little Endian",
+        "variable_name": "Flow Rate",
+        "register_count": 2
+      }
+    ]
+  },
+  "can_bus": {
+    "enabled": true,
+    "communication_settings": {
+      "baud_rate": 500,
+      "identifier_length": "11-bit",
+      "can_mode": "Normal",
+      "filter_mode": "Accept",
+      "filter_id": "0x123",
+      "filter_mask": "0x7FF"
+    },
+    "can_messages": [
+      {
+        "index": 0,
+        "can_id": "0x123",
+        "direction": "TX",
+        "period_ms": 100,
+        "variable_name": "Engine Speed",
+        "data_length": 8
+      },
+      {
+        "index": 1,
+        "can_id": "0x124",
+        "direction": "RX",
+        "period_ms": 50,
+        "variable_name": "Temperature Reading",
+        "data_length": 8
+      },
+      {
+        "index": 2,
+        "can_id": "0x125",
+        "direction": "TX",
+        "period_ms": 200,
+        "variable_name": "Pressure Value",
+        "data_length": 8
+      }
+    ],
+    "data_mapping": [
+      {
+        "index": 0,
+        "can_id": "0x123",
+        "byte_position": "Byte 0",
+        "data_length": "1 Byte",
+        "data_type": "int8",
+        "endianness": "Big Endian",
+        "variable_name": "Speed Low",
+        "scale_factor": 1.0,
+        "offset": 0.0
+      },
+      {
+        "index": 1,
+        "can_id": "0x123",
+        "byte_position": "Byte 1",
+        "data_length": "1 Byte",
+        "data_type": "uint8",
+        "endianness": "Big Endian",
+        "variable_name": "Speed High",
+        "scale_factor": 1.0,
+        "offset": 0.0
+      },
+      {
+        "index": 2,
+        "can_id": "0x124",
+        "byte_position": "Byte 0",
+        "data_length": "2 Bytes",
+        "data_type": "int16",
+        "endianness": "Little Endian",
+        "variable_name": "Temperature",
+        "scale_factor": 0.1,
+        "offset": -40.0
+      },
+      {
+        "index": 3,
+        "can_id": "0x125",
+        "byte_position": "Byte 0",
+        "data_length": "4 Bytes",
+        "data_type": "float32",
+        "endianness": "Big Endian",
+        "variable_name": "Pressure",
+        "scale_factor": 1.0,
+        "offset": 0.0
+      }
+    ]
+  },
+  "mqtt": {
+    "broker": "mqtt",
+    "port": 1883,
+    "username": "",
+    "password": "",
+    "topic_prefix": "iotnarad/devices/esp32_gw_01",
+    "publish_interval": 5,
+    "qos": 1,
+    "retain": false
+  },
+  "network": {
+    "wifi_ssid": "Production_WiFi",
+    "wifi_password": "********",
+    "ip_mode": "dhcp",
+    "static_ip": "",
+    "gateway": "",
+    "subnet": "255.255.255.0",
+    "dns": "8.8.8.8"
+  }
+}
+

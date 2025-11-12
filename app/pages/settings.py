@@ -258,9 +258,6 @@ def create_settings_layout():
         
         # Store for user data
         dcc.Store(id='user-data-store'),
-        
-        # URL location for navigation
-        dcc.Location(id='url', refresh=False),
     ])
 
 
@@ -278,18 +275,20 @@ def toggle_user_modal(n1, n2, is_open):
     return is_open
 
 
-@callback(
-    Output('url', 'pathname'),
-    Input('create-user-btn', 'n_clicks'),
-    prevent_initial_call=True
-)
-def navigate_to_create_user(n_clicks):
-    """Navigate to create user page"""
-    print(f"Create User button clicked: {n_clicks}")  # Debug
-    if n_clicks and n_clicks > 0:
-        print("Redirecting to /create-user")  # Debug
-        return '/create-user'
-    return '/dashboard'
+# Navigation callback is now handled in dashboard.py
+# This callback is disabled to prevent conflicts when settings is used inside dashboard
+# @callback(
+#     Output('url', 'pathname', allow_duplicate=True),
+#     Input('create-user-btn', 'n_clicks'),
+#     prevent_initial_call=True
+# )
+# def navigate_to_create_user(n_clicks):
+#     """Navigate to create user page"""
+#     print(f"Create User button clicked: {n_clicks}")  # Debug
+#     if n_clicks and n_clicks > 0:
+#         print("Redirecting to /create-user")  # Debug
+#         return '/create-user'
+#     return '/dashboard#settings'
 
 
 @callback(

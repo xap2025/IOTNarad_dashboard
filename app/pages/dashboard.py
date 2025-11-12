@@ -2,12 +2,15 @@
 Dashboard Page Layout
 Main dashboard with sidebar navigation and content area
 """
-from dash import html, dcc, Input, Output, State, callback
+from dash import html, dcc, Input, Output, State, callback, no_update
 import dash_bootstrap_components as dbc
 from datetime import datetime, timedelta
 import pytz
 import plotly.graph_objs as go
 import random
+import logging
+
+logger = logging.getLogger(__name__)
 
 def create_dashboard_layout():
     """Create the main dashboard layout with sidebar navigation"""
@@ -307,12 +310,16 @@ def update_page_content(home_clicks, analytics_clicks, oee_clicks, devices_click
     print(f"User type: {user_type}, Triggered ID: {ctx.triggered_id if ctx.triggered_id else 'None'}")  # Debug
     
     # Determine which button was clicked
-    if ctx.triggered_id == 'nav-analytics':
+    # If no button was clicked (initial load), use current_page from store
+    if not ctx.triggered_id:
+        page = current_page if current_page else 'home'
+    elif ctx.triggered_id == 'nav-analytics':
         page = 'analytics'
     elif ctx.triggered_id == 'nav-oee':
         page = 'oee'
     elif ctx.triggered_id == 'nav-devices':
         page = 'devices'
+        logger.info("✅ Devices tab clicked, loading device config layout...")
     elif ctx.triggered_id == 'nav-profile':
         page = 'profile'
     elif ctx.triggered_id == 'nav-settings':
@@ -357,11 +364,25 @@ def update_page_content(home_clicks, analytics_clicks, oee_clicks, devices_click
         title = "OEE Dashboard"
         subtitle = "Overall Equipment Effectiveness monitoring"
     elif page == 'devices':
-        content = create_device_config_layout()
-        title = "Devices"
-        subtitle = "Configure and manage your IoT devices"
+        try:
+            content = create_device_config_layout()
+            title = "Devices"
+            subtitle = "Configure and manage your IoT devices"
+            logger.info("✅ Devices page content created successfully")
+        except Exception as e:
+            logger.error(f"❌ Error creating devices page content: {e}")
+            logger.exception("Full traceback:")
+            content = html.Div([
+                dbc.Alert([
+                    html.H4("Error loading Devices page", className='alert-heading'),
+                    html.P(f"An error occurred: {str(e)}"),
+                    html.P("Please check the logs for more details.", className='mb-0'),
+                ], color='danger')
+            ])
+            title = "Devices"
+            subtitle = "Error loading page"
     elif page == 'profile':
-        content = create_profile_content()
+        content = create_profile_content(session_data)
         title = "Profile"
         subtitle = "User profile management"
     elif page == 'settings':
@@ -748,13 +769,149 @@ def create_device_row(data):
     ])
 
 
-def create_profile_content():
-    """Create profile page content"""
+def create_profile_content(session_data=None):
+    """Create profile page content with user information"""
+    # Get user data from session
+    user_data = session_data.get('user_data', {}) if session_data else {}
+    username = session_data.get('username', 'N/A') if session_data else 'N/A'
+    
+    # Try to fetch fresh data from database if username is available
+    if username and username != 'N/A':
+        try:
+            from app.services.user_service import UserService
+            user_service = UserService()
+            db_user = user_service.get_user_by_id(username)
+            if db_user:
+                # Use database data, fallback to session data
+                user_data = db_user
+                logger.info(f"✅ Fetched user data from database for: {username}")
+        except Exception as e:
+            logger.warning(f"Could not fetch user data from database: {e}")
+            # Continue with session data
+    
+    # Extract user information
+    user_id = user_data.get('User_Id', username)
+    company_name = user_data.get('Company_Name', 'N/A')
+    email = user_data.get('Email_Id', 'N/A')
+    phone = user_data.get('Phone_No', 'N/A')
+    user_type = user_data.get('User_Type', session_data.get('user_type', 'user') if session_data else 'user')
+    status = user_data.get('status', 'active')
+    
+    # Status badge
+    status_badge = dbc.Badge(
+        "Active" if status.lower() == 'active' else "Inactive",
+        color="success" if status.lower() == 'active' else "secondary",
+        className='ms-2'
+    )
+    
+    # User type badge
+    user_type_badge = dbc.Badge(
+        user_type.title(),
+        color="danger" if user_type.lower() == 'admin' else "primary",
+        className='ms-2'
+    )
+    
     return html.Div([
-        html.H4("User Profile", className='fw-bold mb-4'),
-        html.P("Manage your profile settings and preferences.", className='text-muted'),
-        # Add profile content here
-    ])
+        # Header
+        html.Div([
+            html.H3([
+                html.I(className="fas fa-user-circle me-3"),
+                "My Profile"
+            ], className='fw-bold mb-2', style={'color': '#1a1a2e'}),
+            html.P("View and manage your account information", className='text-muted mb-4'),
+        ], className='mb-4'),
+        
+        # Profile Information Card
+        dbc.Card([
+            dbc.CardBody([
+                html.H5([
+                    html.I(className="fas fa-info-circle me-2"),
+                    "Account Information"
+                ], className='fw-bold mb-4'),
+                
+                # User Information Display
+                dbc.Row([
+                    dbc.Col([
+                        html.Div([
+                            html.Label("User ID", className='fw-bold text-muted mb-2', style={'fontSize': '0.9rem'}),
+                            html.Div([
+                                html.I(className="fas fa-user me-2", style={'color': '#667eea'}),
+                                html.Span(user_id, style={'fontSize': '1.1rem', 'fontWeight': '500'})
+                            ], className='d-flex align-items-center')
+                        ], className='mb-4'),
+                        
+                        html.Div([
+                            html.Label("Company Name", className='fw-bold text-muted mb-2', style={'fontSize': '0.9rem'}),
+                            html.Div([
+                                html.I(className="fas fa-building me-2", style={'color': '#667eea'}),
+                                html.Span(company_name, style={'fontSize': '1.1rem', 'fontWeight': '500'})
+                            ], className='d-flex align-items-center')
+                        ], className='mb-4'),
+                        
+                        html.Div([
+                            html.Label("Email Address", className='fw-bold text-muted mb-2', style={'fontSize': '0.9rem'}),
+                            html.Div([
+                                html.I(className="fas fa-envelope me-2", style={'color': '#667eea'}),
+                                html.Span(email, style={'fontSize': '1.1rem', 'fontWeight': '500'})
+                            ], className='d-flex align-items-center')
+                        ], className='mb-4'),
+                    ], md=6),
+                    
+                    dbc.Col([
+                        html.Div([
+                            html.Label("Phone Number", className='fw-bold text-muted mb-2', style={'fontSize': '0.9rem'}),
+                            html.Div([
+                                html.I(className="fas fa-phone me-2", style={'color': '#667eea'}),
+                                html.Span(phone, style={'fontSize': '1.1rem', 'fontWeight': '500'})
+                            ], className='d-flex align-items-center')
+                        ], className='mb-4'),
+                        
+                        html.Div([
+                            html.Label("User Type", className='fw-bold text-muted mb-2', style={'fontSize': '0.9rem'}),
+                            html.Div([
+                                html.I(className="fas fa-user-tag me-2", style={'color': '#667eea'}),
+                                html.Span(user_type.title(), style={'fontSize': '1.1rem', 'fontWeight': '500'}),
+                                user_type_badge
+                            ], className='d-flex align-items-center')
+                        ], className='mb-4'),
+                        
+                        html.Div([
+                            html.Label("Account Status", className='fw-bold text-muted mb-2', style={'fontSize': '0.9rem'}),
+                            html.Div([
+                                html.I(className="fas fa-check-circle me-2", style={'color': '#667eea'}),
+                                html.Span(status.title(), style={'fontSize': '1.1rem', 'fontWeight': '500'}),
+                                status_badge
+                            ], className='d-flex align-items-center')
+                        ], className='mb-4'),
+                    ], md=6),
+                ]),
+                
+                html.Hr(className='my-4'),
+                
+                # Change Password Button
+                html.Div([
+                    dbc.Button([
+                        html.I(className="fas fa-key me-2"),
+                        "Change Password"
+                    ], 
+                    id='change-password-btn',
+                    color='primary',
+                    size='lg',
+                    className='px-4',
+                    n_clicks=0
+                    )
+                ], className='text-center mt-4'),
+                
+            ], className='p-4')
+        ], className='border-0 shadow-sm mb-4', style={
+            'borderRadius': '12px',
+            'background': 'white'
+        }),
+        
+        # Message Display Area
+        html.Div(id='profile-message', className='mt-3'),
+        
+    ], className='p-4')
 
 
 def create_settings_content():
@@ -947,113 +1104,30 @@ def create_settings_content():
     ])
 
 
-# Settings Page Callbacks
+# Settings Page Callbacks - Navigate to create-user page
 @callback(
-    Output('url', 'pathname'),
+    Output('url', 'pathname', allow_duplicate=True),
     Input('create-user-btn', 'n_clicks'),
     prevent_initial_call=True
 )
-def navigate_to_create_user(n_clicks):
-    """Navigate to create user page"""
-    print(f"Create User button clicked: {n_clicks}")  # Debug
+def navigate_to_create_user_from_settings(n_clicks):
+    """Navigate to create user page from settings"""
     if n_clicks and n_clicks > 0:
-        print("Redirecting to /create-user")  # Debug
         return '/create-user'
-    return '/dashboard'
+    return no_update
 
 
-# Create User Modal Callbacks
+# Profile Page Callbacks - Navigate to change password page
 @callback(
-    Output("create-user-modal", "is_open"),
-    [Input("create-user-btn", "n_clicks"),
-     Input("close-user-modal", "n_clicks"),
-     Input("save-user-btn", "n_clicks")],
-    [State("create-user-modal", "is_open")],
-)
-def toggle_user_modal(n1, n2, n3, is_open):
-    """Toggle create user modal"""
-    if n1 or n2 or n3:
-        return not is_open
-    return is_open
-
-
-@callback(
-    [Output('user-creation-message', 'children'),
-     Output('save-user-btn', 'disabled')],
-    [Input('save-user-btn', 'n_clicks')],
-    [State('user-company-name', 'value'),
-     State('user-id', 'value'),
-     State('user-email', 'value'),
-     State('user-phone', 'value'),
-     State('user-password', 'value'),
-     State('user-type', 'value')],
+    Output('url', 'pathname', allow_duplicate=True),
+    Input('change-password-btn', 'n_clicks'),
     prevent_initial_call=True
 )
-def create_user(n_clicks, company_name, user_id, email, phone, password, user_type):
-    """Create new user with validation"""
-    if not n_clicks:
-        return None, False
-    
-    # Validation
-    errors = []
-    
-    if not company_name or len(company_name.strip()) < 2:
-        errors.append("Company name must be at least 2 characters long")
-    
-    if not user_id or len(user_id.strip()) < 3:
-        errors.append("User ID must be at least 3 characters long")
-    elif not re.match(r'^[a-zA-Z0-9_]+$', user_id):
-        errors.append("User ID can only contain letters, numbers, and underscores")
-    
-    if not email or not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email):
-        errors.append("Please enter a valid email address")
-    
-    if not phone or not re.match(r'^(\+)?\d{10,15}$', re.sub(r'[^\d+]', '', phone)):
-        errors.append("Please enter a valid phone number")
-    
-    if not user_type:
-        errors.append("Please select a user type")
-    
-    if errors:
-        return dbc.Alert([
-            html.H4("Validation Errors", className='fw-bold'),
-            html.Ul([html.Li(error) for error in errors])
-        ], color='danger'), False
-    
-    # Generate secure password
-    import secrets
-    import string
-    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
-    generated_password = ''.join(secrets.choice(alphabet) for _ in range(12))
-    
-    # Create user data
-    user_data = {
-        'Company_Name': company_name.strip(),
-        'User_Id': user_id.strip(),
-        'Email_Id': email.strip().lower(),
-        'Phone_No': phone.strip(),
-        'User_Type': user_type,
-        'status': 'active',
-        'Password': generated_password,
-        'timestamp': datetime.utcnow().isoformat() + 'Z'
-    }
-    
-    # Save to InfluxDB (you'll need to implement this)
-    try:
-        # Here you would save to InfluxDB using your user service
-        # For now, just show success message
-        return dbc.Alert([
-            html.H4("User Created Successfully!", className='fw-bold'),
-            html.P(f"User ID: {user_id}"),
-            html.P(f"Email: {email}"),
-            html.P(f"Generated Password: {generated_password}"),
-            html.P("Login credentials have been sent to the user's email address."),
-        ], color='success'), True
-    except Exception as e:
-        return dbc.Alert([
-            html.H4("Error Creating User", className='fw-bold'),
-            html.P(f"An error occurred: {str(e)}")
-        ], color='danger'), False
+def navigate_to_change_password(n_clicks):
+    """Navigate to change password page from profile"""
+    if n_clicks and n_clicks > 0:
+        return '/change-password'
+    return no_update
 
 
 def create_help_content():

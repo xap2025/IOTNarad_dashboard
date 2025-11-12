@@ -1,0 +1,35 @@
+# Email Configuration Template for .env file
+# Copy these lines to your .env file
+
+# ============================================
+# Option 1: Google Workspace (Gmail Business)
+# ============================================
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=info@xaptronics.com
+SMTP_PASSWORD=your-16-digit-app-password-here
+FROM_EMAIL=info@xaptronics.com
+FROM_NAME=Xaptronics IOTNarad
+
+# ============================================
+# Option 2: Microsoft 365 (Outlook Business)
+# ============================================
+# Uncomment these if using Microsoft 365:
+# SMTP_SERVER=smtp.office365.com
+# SMTP_PORT=587
+# SMTP_USERNAME=info@xaptronics.com
+# SMTP_PASSWORD=your-email-password
+# FROM_EMAIL=info@xaptronics.com
+# FROM_NAME=Xaptronics IOTNarad
+
+# ============================================
+# Option 3: Custom Email Server
+# ============================================
+# Uncomment these if using custom server:
+# SMTP_SERVER=mail.xaptronics.com
+# SMTP_PORT=587
+# SMTP_USERNAME=info@xaptronics.com
+# SMTP_PASSWORD=your-email-password
+# FROM_EMAIL=info@xaptronics.com
+# FROM_NAME=Xaptronics IOTNarad
+

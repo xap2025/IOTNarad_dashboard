@@ -1,1 +1,0 @@
-unable to get image 'eclipse-mosquitto:2': error during connect: Get "http://%2F%2F.%2Fpipe%2FdockerDesktopLinuxEngine/v1.51/images/eclipse-mosquitto:2/json": open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.

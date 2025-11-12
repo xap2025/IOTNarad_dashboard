@@ -66,11 +66,19 @@ def create_device_config_layout():
                     className='pt-3'
                 ),
                 
-                # Communication Tab
+                # RS485 MODBUS Tab
                 dbc.Tab(
-                    create_communication_config_tab(),
-                    label="📡 Communication",
-                    tab_id='tab-communication',
+                    create_rs485_modbus_content(),
+                    label="🔌 RS485 MODBUS",
+                    tab_id='tab-modbus',
+                    className='pt-3'
+                ),
+                
+                # CAN Bus Tab
+                dbc.Tab(
+                    create_can_bus_content(),
+                    label="🚌 CAN Bus",
+                    tab_id='tab-canbus',
                     className='pt-3'
                 ),
             ], id='config-tabs', active_tab='tab-analog'),
@@ -436,241 +444,18 @@ def create_digital_io_row(channel, io_pin, pin_type):
     ])
 
 
-def create_communication_config_tab():
-    """Create communication configuration tab content"""
-    
-    return html.Div([
-        dbc.Row([
-            # Network Settings
-            dbc.Col([
-                html.Div([
-                    html.H5([
-                        html.I(className="fas fa-wifi me-2", style={'color': '#667eea'}),
-                        "Network Settings"
-                    ], className='fw-bold mb-3'),
-                    
-                    dbc.Form([
-                        dbc.Row([
-                            dbc.Label("WiFi SSID", md=4, className='fw-bold'),
-                            dbc.Col([
-                                dbc.Input(
-                                    id='wifi-ssid',
-                                    type='text',
-                                    placeholder='Enter WiFi SSID',
-                                    value=''
-                                ),
-                            ], md=8),
-                        ], className='mb-3'),
-                        
-                        dbc.Row([
-                            dbc.Label("WiFi Password", md=4, className='fw-bold'),
-                            dbc.Col([
-                                dbc.Input(
-                                    id='wifi-password',
-                                    type='password',
-                                    placeholder='Enter password',
-                                    value=''
-                                ),
-                            ], md=8),
-                        ], className='mb-3'),
-                        
-                        dbc.Row([
-                            dbc.Label("IP Mode", md=4, className='fw-bold'),
-                            dbc.Col([
-                                dcc.Dropdown(
-                                    id='ip-mode',
-                                    options=[
-                                        {'label': 'DHCP (Automatic)', 'value': 'dhcp'},
-                                        {'label': 'Static IP', 'value': 'static'},
-                                    ],
-                                    value='dhcp'
-                                ),
-                            ], md=8),
-                        ], className='mb-3'),
-                        
-                        dbc.Row([
-                            dbc.Label("Static IP", md=4, className='fw-bold'),
-                            dbc.Col([
-                                dbc.Input(
-                                    id='static-ip',
-                                    type='text',
-                                    placeholder='192.168.1.100',
-                                    disabled=True
-                                ),
-                            ], md=8),
-                        ], className='mb-3'),
-                    ]),
-                ], className='stat-card p-4'),
-            ], md=6),
-            
-            # MQTT Settings
-            dbc.Col([
-                html.Div([
-                    html.H5([
-                        html.I(className="fas fa-exchange-alt me-2", style={'color': '#667eea'}),
-                        "MQTT Settings"
-                    ], className='fw-bold mb-3'),
-                    
-                    dbc.Form([
-                        dbc.Row([
-                            dbc.Label("MQTT Broker", md=4, className='fw-bold'),
-                            dbc.Col([
-                                dbc.Input(
-                                    id='mqtt-broker',
-                                    type='text',
-                                    placeholder='mqtt.example.com',
-                                    value='mqtt'
-                                ),
-                            ], md=8),
-                        ], className='mb-3'),
-                        
-                        dbc.Row([
-                            dbc.Label("MQTT Port", md=4, className='fw-bold'),
-                            dbc.Col([
-                                dbc.Input(
-                                    id='mqtt-port',
-                                    type='number',
-                                    value=1883
-                                ),
-                            ], md=8),
-                        ], className='mb-3'),
-                        
-                        dbc.Row([
-                            dbc.Label("Device Topic", md=4, className='fw-bold'),
-                            dbc.Col([
-                                dbc.Input(
-                                    id='mqtt-topic',
-                                    type='text',
-                                    placeholder='iotnarad/devices/esp32_01',
-                                    value=''
-                                ),
-                            ], md=8),
-                        ], className='mb-3'),
-                        
-                        dbc.Row([
-                            dbc.Label("Publish Interval", md=4, className='fw-bold'),
-                            dbc.Col([
-                                dbc.InputGroup([
-                                    dbc.Input(
-                                        id='publish-interval',
-                                        type='number',
-                                        value=5,
-                                        min=1
-                                    ),
-                                    dbc.InputGroupText("seconds"),
-                                ]),
-                            ], md=8),
-                        ], className='mb-3'),
-                    ]),
-                ], className='stat-card p-4'),
-            ], md=6),
-        ], className='mb-4'),
-        
-        dbc.Row([
-            # Modbus Settings
-            dbc.Col([
-                html.Div([
-                    html.H5([
-                        html.I(className="fas fa-network-wired me-2", style={'color': '#667eea'}),
-                        "Modbus RTU Settings"
-                    ], className='fw-bold mb-3'),
-                    
-                    dbc.Form([
-                        dbc.Row([
-                            dbc.Label("Enable Modbus", md=4, className='fw-bold'),
-                            dbc.Col([
-                                dbc.Switch(
-                                    id='modbus-enable',
-                                    value=False,
-                                    className='mt-1'
-                                ),
-                            ], md=8),
-                        ], className='mb-3'),
-                        
-                        dbc.Row([
-                            dbc.Label("Baud Rate", md=4, className='fw-bold'),
-                            dbc.Col([
-                                dcc.Dropdown(
-                                    id='modbus-baudrate',
-                                    options=[
-                                        {'label': '9600', 'value': 9600},
-                                        {'label': '19200', 'value': 19200},
-                                        {'label': '38400', 'value': 38400},
-                                        {'label': '115200', 'value': 115200},
-                                    ],
-                                    value=9600
-                                ),
-                            ], md=8),
-                        ], className='mb-3'),
-                        
-                        dbc.Row([
-                            dbc.Label("Slave Address", md=4, className='fw-bold'),
-                            dbc.Col([
-                                dbc.Input(
-                                    id='modbus-slave-addr',
-                                    type='number',
-                                    value=1,
-                                    min=1,
-                                    max=247
-                                ),
-                            ], md=8),
-                        ], className='mb-3'),
-                    ]),
-                ], className='stat-card p-4'),
-            ], md=6),
-            
-            # CAN Bus Settings
-            dbc.Col([
-                html.Div([
-                    html.H5([
-                        html.I(className="fas fa-bus me-2", style={'color': '#667eea'}),
-                        "CAN Bus Settings"
-                    ], className='fw-bold mb-3'),
-                    
-                    dbc.Form([
-                        dbc.Row([
-                            dbc.Label("Enable CAN Bus", md=4, className='fw-bold'),
-                            dbc.Col([
-                                dbc.Switch(
-                                    id='canbus-enable',
-                                    value=False,
-                                    className='mt-1'
-                                ),
-                            ], md=8),
-                        ], className='mb-3'),
-                        
-                        dbc.Row([
-                            dbc.Label("CAN Speed", md=4, className='fw-bold'),
-                            dbc.Col([
-                                dcc.Dropdown(
-                                    id='canbus-speed',
-                                    options=[
-                                        {'label': '125 Kbps', 'value': 125},
-                                        {'label': '250 Kbps', 'value': 250},
-                                        {'label': '500 Kbps', 'value': 500},
-                                        {'label': '1 Mbps', 'value': 1000},
-                                    ],
-                                    value=500
-                                ),
-                            ], md=8),
-                        ], className='mb-3'),
-                        
-                        dbc.Row([
-                            dbc.Label("CAN ID Filter", md=4, className='fw-bold'),
-                            dbc.Col([
-                                dbc.Input(
-                                    id='canbus-filter',
-                                    type='text',
-                                    placeholder='0x100-0x200',
-                                    value=''
-                                ),
-                            ], md=8),
-                        ], className='mb-3'),
-                    ]),
-                ], className='stat-card p-4'),
-            ], md=6),
-        ]),
-    ])
+
+
+def create_rs485_modbus_content():
+    """Create RS485 MODBUS page content - imports from rs485_modbus.py"""
+    from app.pages.rs485_modbus import create_rs485_modbus_layout
+    return create_rs485_modbus_layout()
+
+
+def create_can_bus_content():
+    """Create CAN Bus page content - imports from can_bus.py"""
+    from app.pages.can_bus import create_can_bus_layout
+    return create_can_bus_layout()
 
 
 # Callback for save configuration
