@@ -48,6 +48,10 @@ logger = logging.getLogger(__name__)
 # Initialize Flask server
 server = Flask(__name__, static_folder='../assets', static_url_path='/assets')
 server.config['SECRET_KEY'] = os.getenv('APP_SECRET_KEY', 'dev-secret-key-change-me')
+# Configure session to work reliably across different domains/IPs
+server.config['SESSION_COOKIE_HTTPONLY'] = True
+server.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+server.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 hours
 
 # Initialize SocketIO
 socketio = SocketIO(
@@ -107,18 +111,36 @@ app.layout = dbc.Container([
 )
 def display_page(pathname, session_data):
     """Handle page routing and authentication"""
+    from flask import session as flask_session
+    
     session_data = session_data or {}
     pathname = pathname or '/'
     
-    # Check if user is logged in
-    is_authenticated = session_data.get('authenticated', False)
-    user_type = session_data.get('user_type', 'user')
+    # CRITICAL: Check Flask server-side session first (more reliable than client-side storage)
+    # This ensures authentication works even if browser sessionStorage fails
+    flask_authenticated = flask_session.get('authenticated', False)
+    flask_user_type = flask_session.get('user_type', 'user')
+    flask_username = flask_session.get('username', '')
     
-    logger.debug(f"Page routing - Path: {pathname}, Authenticated: {is_authenticated}, User Type: {user_type}")
+    # Sync Flask session with client-side store
+    if flask_authenticated:
+        session_data['authenticated'] = True
+        session_data['username'] = flask_username
+        session_data['user_type'] = flask_user_type
+        if flask_session.get('user_data'):
+            session_data['user_data'] = flask_session.get('user_data')
+    
+    # Check if user is logged in (prefer Flask session, fallback to client store)
+    is_authenticated = flask_authenticated or session_data.get('authenticated', False)
+    user_type = flask_user_type if flask_authenticated else session_data.get('user_type', 'user')
+    
+    logger.info(f"🔍 Page routing - Path: {pathname}, Flask Auth: {flask_authenticated}, Client Auth: {session_data.get('authenticated', False)}, User Type: {user_type}, Username: {flask_username or session_data.get('username', 'N/A')}")
     
     # Handle logout
     if pathname == '/logout':
         logger.info("User logging out")
+        from flask import session as flask_session
+        flask_session.clear()
         return create_login_layout(), {}
     
     # Protected routes - require authentication
@@ -131,14 +153,15 @@ def display_page(pathname, session_data):
             return create_login_layout(), session_data
     
     if pathname == '/create-user':
+        logger.info(f"🔐 Create-user access check - Authenticated: {is_authenticated}, User Type: {user_type}, Flask Session: {flask_authenticated}")
         if is_authenticated and user_type == 'admin':
-            logger.info("Loading create user page for admin")
+            logger.info(f"✅ Loading create user page for admin: {flask_username or session_data.get('username', 'unknown')}")
             return create_user_form_layout(), session_data
         elif not is_authenticated:
-            logger.warning("Unauthenticated access attempt to create-user")
+            logger.warning(f"❌ Unauthenticated access attempt to create-user - Flask: {flask_authenticated}, Client: {session_data.get('authenticated', False)}")
             return create_login_layout(), session_data
         else:
-            logger.warning(f"Non-admin user attempted to access create-user")
+            logger.warning(f"❌ Non-admin user ({user_type}) attempted to access create-user")
             return create_login_layout(), session_data
     
     if pathname == '/change-password':
@@ -225,10 +248,21 @@ def login_user(n_clicks, username, password, session_data, current_path):
     if user is not None and isinstance(user, dict) and user.get('User_Id') == username:
         # Double-check password was actually verified
         logger.info(f"✅ User {username} authenticated successfully (Type: {user.get('User_Type', 'user')})")
+        
+        # CRITICAL: Store in Flask server-side session (more reliable)
+        from flask import session as flask_session
+        flask_session.permanent = True
+        flask_session['authenticated'] = True
+        flask_session['username'] = username
+        flask_session['user_type'] = user.get('User_Type', 'user')
+        flask_session['user_data'] = user
+        
+        # Also update client-side store
         session_data['authenticated'] = True
         session_data['username'] = username
         session_data['user_type'] = user.get('User_Type', 'user')
         session_data['user_data'] = user
+        
         # Redirect to dashboard after successful login
         return session_data, '', '/dashboard'
     
