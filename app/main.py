@@ -546,11 +546,8 @@ def on_device_init_received(topic: str, data: Dict[str, Any]):
         logger.info(f"📨 Device initialization message received on topic: {topic}")
         logger.info(f"   Payload: {data}")
         
-        # IMPORTANT: This callback should ONLY process Dev/Init/<SerialNumber> messages
-        # NOT Dev/Init/Ack/... messages (those are acknowledgments we send, not device init messages)
-        if topic.startswith('Dev/Init/Ack/'):
-            logger.debug(f"🔕 Ignoring acknowledgment message on topic: {topic}")
-            return
+        # Process Dev/Init/<SerialNumber> messages
+        # Acknowledgments are published to Dev/Ack/<SerialNumber> (separate topic)
         
         # Extract serial number from payload
         serial_number = data.get('SerialNumber')
@@ -559,7 +556,7 @@ def on_device_init_received(topic: str, data: Dict[str, Any]):
             # Try to extract from topic if not in payload
             # Topic format: Dev/Init/<SerialNumber>
             topic_parts = topic.split('/')
-            if len(topic_parts) >= 3 and topic_parts[2] != 'Ack':
+            if len(topic_parts) >= 3:
                 serial_number = topic_parts[2]
             else:
                 logger.error(f"❌ Cannot extract serial number from topic: {topic}")

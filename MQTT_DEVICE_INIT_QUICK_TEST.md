@@ -17,6 +17,8 @@
 docker compose logs app | Select-String "Connected to MQTT|Subscribed to: Dev/Init"
 ```
 **Expected:** `✅ Connected to MQTT Broker` और `📡 Subscribed to: Dev/Init/#`
+docker compose logs app | grep -E "Connected to MQTT|Subscribed to: Dev/Init"
+
 
 #### Step 2: Test Message Publish
 ```powershell
@@ -25,6 +27,8 @@ $topic = "Dev/Init/$serialNumber"
 $payload = '{"SerialNumber": "' + $serialNumber + '"}'
 docker exec -i iotnarad_mqtt mosquitto_pub -h localhost -p 1883 -t $topic -m $payload
 ```
+serialNumber=DF5647
+docker exec -i iotnarad_mqtt mosquitto_pub -h localhost -p 1883 -t "Dev/Init/$serialNumber" -m '{"SerialNumber":"'"$serialNumber"'"}'
 
 #### Step 3: Check Logs
 ```powershell

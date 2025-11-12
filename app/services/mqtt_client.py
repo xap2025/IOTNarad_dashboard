@@ -28,7 +28,8 @@ class MQTTClientService:
         self.topic_device_data = os.getenv('MQTT_TOPIC_DEVICE_DATA', 'iotnarad/devices/+/data')
         self.topic_device_config = os.getenv('MQTT_TOPIC_DEVICE_CONFIG', 'iotnarad/devices/+/config')
         self.topic_device_status = os.getenv('MQTT_TOPIC_DEVICE_STATUS', 'iotnarad/devices/+/status')
-        # Use Dev/Init/+ instead of Dev/Init/# to avoid matching Dev/Init/Ack/... messages
+        # Subscribe to Dev/Init/+ to receive device initialization messages
+        # Acknowledgments are published to Dev/Ack/<SerialNumber> (separate topic)
         # + matches single level, # matches multiple levels
         self.topic_device_init = os.getenv('MQTT_TOPIC_DEVICE_INIT', 'Dev/Init/+')
         
@@ -115,17 +116,14 @@ class MQTTClientService:
                 device_id = 'unknown'
             
             # Route message based on topic
-            if topic.startswith('Dev/Init/') and not topic.startswith('Dev/Init/Ack/'):
-                # Device initialization message (ignore acknowledgment messages)
+            if topic.startswith('Dev/Init/'):
+                # Device initialization message
                 logger.info(f"🔔 Routing to init callback for topic: {topic}")
                 if self.init_callback:
                     logger.info(f"✅ Init callback exists, calling...")
                     self.init_callback(topic, data)
                 else:
                     logger.warning(f"⚠️ Init callback not registered!")
-            elif topic.startswith('Dev/Init/Ack/'):
-                # Ignore acknowledgment messages (server's own messages)
-                logger.debug(f"🔕 Ignoring acknowledgment message on topic: {topic}")
             elif '/data' in topic and self.data_callback:
                 self.data_callback(device_id, data)
             elif '/status' in topic and self.status_callback:
@@ -241,7 +239,7 @@ class MQTTClientService:
             status: Acknowledgment status (default: "success")
             message: Acknowledgment message (default: "Received")
         """
-        topic = f"Dev/Init/Ack/{serial_number}"
+        topic = f"Dev/Ack/{serial_number}"
         payload = {
             "status": status,
             "message": message,
