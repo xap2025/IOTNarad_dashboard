@@ -162,3 +162,8 @@ body > div {
     padding: 1.5rem !important; /* Using rem */
 }
 
+/* Hide navigation items */
+.nav-hidden {
+    display: none !important;
+}
+

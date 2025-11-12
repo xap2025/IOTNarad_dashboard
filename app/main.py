@@ -209,15 +209,21 @@ def display_page(pathname, session_data):
             return create_login_layout(), session_data
     
     if pathname == '/create-user':
-        logger.info(f"🔐 Create-user access check - Authenticated: {is_authenticated}, User Type: {user_type}, Flask Session: {flask_authenticated}")
-        if is_authenticated and user_type == 'admin':
-            logger.info(f"✅ Loading create user page for admin: {flask_username or session_data.get('username', 'unknown')}")
+        # Get username (User_Id) from session
+        username = flask_username or session_data.get('username', '')
+        # Check if User_Id is admin (only check username/User_Id == 'admin')
+        is_admin = (is_authenticated and username == 'admin')
+        
+        logger.info(f"🔐 Create-user access check - Authenticated: {is_authenticated}, User_Id: {username}, Is Admin: {is_admin}, Flask Session: {flask_authenticated}")
+        
+        if is_admin:
+            logger.info(f"✅ Loading create user page for admin User_Id: {username}")
             return create_user_form_layout(), session_data
         elif not is_authenticated:
             logger.warning(f"❌ Unauthenticated access attempt to create-user - Flask: {flask_authenticated}, Client: {session_data.get('authenticated', False)}")
             return create_login_layout(), session_data
         else:
-            logger.warning(f"❌ Non-admin user ({user_type}) attempted to access create-user")
+            logger.warning(f"❌ Non-admin User_Id ({username}) attempted to access create-user")
             return create_login_layout(), session_data
     
     if pathname == '/change-password':

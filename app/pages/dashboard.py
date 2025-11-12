@@ -135,18 +135,18 @@ def create_dashboard_layout():
                     ], id='nav-devices', href='#', className='nav-item-custom',
                        n_clicks=0, style={'color': 'white'}),
                     
-                    # Profile (for regular users)
+                    # Profile (visible for all users - admin and regular users)
                     dbc.NavLink([
                         html.I(className="fas fa-user me-3", style={'color': 'white'}),
                         html.Span("Profile", style={'color': 'white'})
                     ], id='nav-profile', href='#', className='nav-item-custom',
-                       n_clicks=0, style={'display': 'none', 'color': 'white'}),
+                       n_clicks=0, style={'color': 'white'}),
                     
-                    # Settings (for admin users only)
+                    # Settings (for admin users only - hidden by default, shown only for admin)
                     dbc.NavLink([
                         html.I(className="fas fa-cog me-3", style={'color': 'white'}),
                         html.Span("Settings", style={'color': 'white'})
-                    ], id='nav-settings', href='#', className='nav-item-custom',
+                    ], id='nav-settings', href='#', className='nav-item-custom nav-hidden',
                        n_clicks=0, style={'color': 'white'}),
                     
                     # Help
@@ -274,6 +274,35 @@ def update_sidebar_username(session_data):
 
 
 @callback(
+    [Output('nav-settings', 'className', allow_duplicate=True),
+     Output('nav-profile', 'className', allow_duplicate=True)],
+    Input('session-store', 'data'),
+    prevent_initial_call='initial_duplicate'
+)
+def update_nav_visibility_from_session(session_data):
+    """Update navigation visibility when session data changes"""
+    if not session_data:
+        # Return className to hide
+        return 'nav-item-custom nav-hidden', 'nav-item-custom nav-hidden'
+    
+    username = session_data.get('username', '')
+    user_type = session_data.get('user_type', 'user')
+    
+    # Settings only visible if User_Id == 'admin'
+    is_admin = (username == 'admin')
+    # Use className to control visibility
+    settings_class = 'nav-item-custom' if is_admin else 'nav-item-custom nav-hidden'
+    
+    # Profile visible for ALL users (both admin and regular users)
+    profile_class = 'nav-item-custom'
+    
+    logger.info(f"🔐 Nav visibility update from session - User_Id: {username}, Is Admin: {is_admin}, Settings visible: {is_admin}, Profile visible: True")
+    
+    return settings_class, profile_class
+
+
+
+@callback(
     [Output('dashboard-content', 'children'),
      Output('active-page-store', 'data'),
      Output('page-title', 'children'),
@@ -282,8 +311,8 @@ def update_sidebar_username(session_data):
      Output('nav-analytics', 'className'),
      Output('nav-oee', 'className'),
      Output('nav-devices', 'className'),
-     Output('nav-profile', 'className'),
-     Output('nav-settings', 'className'),
+     Output('nav-profile', 'className', allow_duplicate=True),
+     Output('nav-settings', 'className', allow_duplicate=True),
      Output('nav-help', 'className'),
      Output('nav-profile', 'style'),
      Output('nav-settings', 'style')],
@@ -296,7 +325,7 @@ def update_sidebar_username(session_data):
      Input('nav-help', 'n_clicks')],
     [State('active-page-store', 'data'),
      State('session-store', 'data')],
-    prevent_initial_call=False
+    prevent_initial_call='initial_duplicate'
 )
 def update_page_content(home_clicks, analytics_clicks, oee_clicks, devices_clicks, profile_clicks, settings_clicks, help_clicks, current_page, session_data):
     """Update page content based on navigation"""
@@ -305,9 +334,12 @@ def update_page_content(home_clicks, analytics_clicks, oee_clicks, devices_click
     from app.pages.analytics import create_analytics_layout
     from app.pages.settings import create_settings_layout
     
-    # Get user type from session
+    # Get username (User_Id) from session
+    username = session_data.get('username', '') if session_data else ''
     user_type = session_data.get('user_type', 'user') if session_data else 'user'
-    print(f"User type: {user_type}, Triggered ID: {ctx.triggered_id if ctx.triggered_id else 'None'}")  # Debug
+    # Check if User_Id is admin (only check username/User_Id, not user_type)
+    is_admin = (username == 'admin')
+    print(f"User_Id (username): {username}, User Type: {user_type}, Is Admin: {is_admin}, Triggered ID: {ctx.triggered_id if ctx.triggered_id else 'None'}")  # Debug
     
     # Determine which button was clicked
     # If no button was clicked (initial load), use current_page from store
@@ -345,9 +377,21 @@ def update_page_content(home_clicks, analytics_clicks, oee_clicks, devices_click
     }
     nav_classes[page] = active_class
     
-    # Set visibility based on user type
-    profile_style = {'display': 'block'} if user_type == 'user' else {'display': 'none'}
-    settings_style = {'display': 'block'} if user_type == 'admin' else {'display': 'none'}
+    # Set visibility based on User_Id using className
+    # Settings only visible if User_Id == 'admin'
+    # Profile visible for ALL users (both admin and regular users)
+    profile_class = 'nav-item-custom'  # Always visible for all users
+    settings_class = 'nav-item-custom' if is_admin else 'nav-item-custom nav-hidden'
+    
+    # Update nav_classes with visibility
+    nav_classes['profile'] = profile_class
+    nav_classes['settings'] = settings_class
+    
+    # Keep style for color
+    profile_style = {'color': 'white'}
+    settings_style = {'color': 'white'}
+    
+    logger.info(f"🔐 Visibility check - User_Id: {username}, Is Admin: {is_admin}, Settings visible: {is_admin}, Settings class: {settings_class}")
     
     # Page content
     if page == 'home':
@@ -386,9 +430,20 @@ def update_page_content(home_clicks, analytics_clicks, oee_clicks, devices_click
         title = "Profile"
         subtitle = "User profile management"
     elif page == 'settings':
-        content = create_settings_content()
-        title = "Settings"
-        subtitle = "Admin management panel"
+        # Only allow admin user to access settings
+        if is_admin:
+            content = create_settings_content()
+            title = "Settings"
+            subtitle = "Admin management panel"
+        else:
+            content = html.Div([
+                dbc.Alert([
+                    html.H4("Access Denied", className='alert-heading'),
+                    html.P("Only admin users can access the Settings page."),
+                ], color='danger')
+            ])
+            title = "Settings"
+            subtitle = "Access Denied"
     else:  # help
         content = create_help_content()
         title = "Help"
@@ -396,8 +451,8 @@ def update_page_content(home_clicks, analytics_clicks, oee_clicks, devices_click
     
     return (content, page, title, subtitle, 
             nav_classes['home'], nav_classes['analytics'], 
-            nav_classes['oee'], nav_classes['devices'], nav_classes['profile'], 
-            nav_classes['settings'], nav_classes['help'],
+            nav_classes['oee'], nav_classes['devices'], 
+            nav_classes['profile'], nav_classes['settings'], nav_classes['help'],
             profile_style, settings_style)
 
 
