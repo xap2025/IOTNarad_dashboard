@@ -89,6 +89,10 @@ device_info_service = DeviceInfoService()
 ADMIN_USERNAME = os.getenv('ADMIN_USERNAME', 'admin')
 ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'iotnarad@2025')
 
+# Server-side session storage (fallback when browser sessionStorage fails)
+# Key: session_id (from Flask session), Value: session data dict
+_server_sessions: Dict[str, Dict[str, Any]] = {}
+
 # ==================== LAYOUT ====================
 app.layout = dbc.Container([
     dcc.Location(id='url', refresh=False, pathname='/'),
@@ -98,6 +102,28 @@ app.layout = dbc.Container([
     html.Div(id='page-content'),
     # SocketIO client library - loaded globally for all pages
     html.Script(src="https://cdn.socket.io/4.5.4/socket.io.min.js"),
+    # Client-side script to sync Flask session with Dash store on page load
+    html.Script("""
+        // Sync Flask session with Dash session store on page load
+        (function() {
+            fetch('/api/session/status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.authenticated) {
+                        // Update session store if authenticated
+                        const event = new CustomEvent('flask-session-sync', {
+                            detail: {
+                                authenticated: data.authenticated,
+                                username: data.username,
+                                user_type: data.user_type
+                            }
+                        });
+                        window.dispatchEvent(event);
+                    }
+                })
+                .catch(err => console.log('Session sync error:', err));
+        })();
+    """),
 ], fluid=True, className='p-0 m-0')
 
 
@@ -111,23 +137,53 @@ app.layout = dbc.Container([
 )
 def display_page(pathname, session_data):
     """Handle page routing and authentication"""
-    from flask import session as flask_session
+    from flask import session as flask_session, has_request_context
+    
+    global _server_sessions
     
     session_data = session_data or {}
     pathname = pathname or '/'
     
     # CRITICAL: Check Flask server-side session first (more reliable than client-side storage)
     # This ensures authentication works even if browser sessionStorage fails
-    flask_authenticated = flask_session.get('authenticated', False)
-    flask_user_type = flask_session.get('user_type', 'user')
-    flask_username = flask_session.get('username', '')
+    flask_authenticated = False
+    flask_user_type = 'user'
+    flask_username = ''
+    server_session_id = None
+    
+    # CRITICAL FIX: Access Flask session using request context
+    # Dash callbacks run in Flask request context, so we can access session directly
+    try:
+        # Get Flask session cookie from request
+        session_cookie = request.cookies.get('session', '')
+        
+        # Check Flask session directly
+        flask_authenticated = flask_session.get('authenticated', False)
+        flask_user_type = flask_session.get('user_type', 'user')
+        flask_username = flask_session.get('username', '')
+        
+        # Also check server-side session storage (backup for IP address access)
+        if session_cookie and session_cookie in _server_sessions:
+            server_session = _server_sessions[session_cookie]
+            if not flask_authenticated and server_session.get('authenticated'):
+                flask_authenticated = True
+                flask_user_type = server_session.get('user_type', 'user')
+                flask_username = server_session.get('username', '')
+                logger.info(f"✅ Using server-side session backup - User: {flask_username}, Type: {flask_user_type}")
+        
+        logger.info(f"🔐 Flask session check - Cookie: {session_cookie[:20] if session_cookie else 'None'}..., Auth: {flask_authenticated}, User: {flask_username}, Type: {flask_user_type}")
+    except Exception as e:
+        logger.error(f"❌ Error accessing Flask session: {e}", exc_info=True)
+        flask_authenticated = False
+        flask_user_type = 'user'
+        flask_username = ''
     
     # Sync Flask session with client-side store
     if flask_authenticated:
         session_data['authenticated'] = True
         session_data['username'] = flask_username
         session_data['user_type'] = flask_user_type
-        if flask_session.get('user_data'):
+        if has_request_context() and flask_session.get('user_data'):
             session_data['user_data'] = flask_session.get('user_data')
     
     # Check if user is logged in (prefer Flask session, fallback to client store)
@@ -250,12 +306,26 @@ def login_user(n_clicks, username, password, session_data, current_path):
         logger.info(f"✅ User {username} authenticated successfully (Type: {user.get('User_Type', 'user')})")
         
         # CRITICAL: Store in Flask server-side session (more reliable)
-        from flask import session as flask_session
-        flask_session.permanent = True
-        flask_session['authenticated'] = True
-        flask_session['username'] = username
-        flask_session['user_type'] = user.get('User_Type', 'user')
-        flask_session['user_data'] = user
+        from flask import session as flask_session, has_request_context
+        global _server_sessions
+        
+        if has_request_context():
+            flask_session.permanent = True
+            flask_session['authenticated'] = True
+            flask_session['username'] = username
+            flask_session['user_type'] = user.get('User_Type', 'user')
+            flask_session['user_data'] = user
+            
+            # Also store in server-side backup storage (keyed by session cookie)
+            # This ensures session works even when browser sessionStorage fails on IP addresses
+            session_cookie = request.cookies.get('session') or flask_session.get('_id') or str(id(flask_session))
+            _server_sessions[session_cookie] = {
+                'authenticated': True,
+                'username': username,
+                'user_type': user.get('User_Type', 'user'),
+                'user_data': user
+            }
+            logger.info(f"💾 Stored session in server-side storage: {session_cookie[:20]}... (User: {username}, Type: {user.get('User_Type', 'user')})")
         
         # Also update client-side store
         session_data['authenticated'] = True
@@ -431,6 +501,26 @@ def handle_forgot_password(n_clicks, user_id, phone_no):
             ], className='fw-bold'),
             html.P(f"An error occurred: {str(e)}")
         ], color="danger", dismissable=True), user_id or '', phone_no or ''
+
+
+# ==================== FLASK ROUTES FOR SESSION MANAGEMENT ====================
+
+@server.route('/api/session/status', methods=['GET'])
+def get_session_status():
+    """API endpoint to get current session status - helps with authentication across different domains"""
+    from flask import jsonify
+    try:
+        auth_status = {
+            'authenticated': session.get('authenticated', False),
+            'username': session.get('username', ''),
+            'user_type': session.get('user_type', 'user'),
+            'has_session': bool(session)
+        }
+        logger.debug(f"Session status API called: {auth_status}")
+        return jsonify(auth_status), 200
+    except Exception as e:
+        logger.error(f"Error getting session status: {e}")
+        return jsonify({'authenticated': False, 'error': str(e)}), 500
 
 
 # ==================== SOCKETIO EVENTS ====================
