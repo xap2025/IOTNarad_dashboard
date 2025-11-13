@@ -14,7 +14,8 @@ class ConfigJSONBuilder:
     def build_analog_config(
         input_4_20ma_data: List[Dict],
         input_1_10v_data: List[Dict],
-        output_0_10v_data: List[Dict]
+        output_0_10v_data: List[Dict],
+        scan_rate: int = 1000
     ) -> Dict[str, Any]:
         """
         Build analog configuration section
@@ -23,6 +24,7 @@ class ConfigJSONBuilder:
             input_4_20ma_data: List of 4-20mA input channel data
             input_1_10v_data: List of 1-10V input channel data
             output_0_10v_data: List of 0-10V output channel data
+            scan_rate: Scan rate in seconds (default: 1000)
             
         Returns:
             Analog configuration dictionary
@@ -49,8 +51,8 @@ class ConfigJSONBuilder:
                     "divider": item.get("divider", 1),
                     "multiplier": item.get("multiplier", 1),
                     "io_pin": item.get("io_pin", f"AIN{idx + 2}"),
-                    "name": item.get("name", "-"),
-                    "min_value": 1,
+                    "name": item.get("name", item.get("io_pin", f"AIN{idx + 2}")) if item.get("name") else item.get("io_pin", f"AIN{idx + 2}"),
+                    "min_value": 0,
                     "max_value": 10,
                     "unit": "V"
                 }
@@ -68,7 +70,8 @@ class ConfigJSONBuilder:
                     "unit": "V"
                 }
                 for idx, item in enumerate(output_0_10v_data)
-            ]
+            ],
+            "scan_rate": scan_rate
         }
     
     @staticmethod

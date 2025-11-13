@@ -55,8 +55,8 @@ class DeviceConfigService:
                     {'channel': 2, 'enabled': False, 'div': 1, 'mul': 1, 'name': '-', 'io': 'AIN1'}
                 ],
                 'input_1_10v': [
-                    {'channel': 3, 'enabled': False, 'div': 1, 'mul': 1, 'name': '-', 'io': 'AIN2'},
-                    {'channel': 4, 'enabled': False, 'div': 1, 'mul': 1, 'name': '-', 'io': 'AIN3'}
+                    {'channel': 3, 'enabled': False, 'div': 1, 'mul': 1, 'name': 'AIN2', 'io': 'AIN2', 'scan_rate': 1000, 'min_value': 0, 'max_value': 10},
+                    {'channel': 4, 'enabled': False, 'div': 1, 'mul': 1, 'name': 'AIN3', 'io': 'AIN3', 'scan_rate': 1000, 'min_value': 0, 'max_value': 10}
                 ],
                 'output_0_10v': [
                     {'channel': 1, 'enabled': False, 'value': 0.0, 'name': '-', 'io': 'DOUT0'},

@@ -192,7 +192,7 @@ class MQTTClientService:
         Publish device configuration
         
         Args:
-            device_id: Device identifier
+            device_id: Device Serial Number (Sr_No) from Device_info measurement
             config: Configuration dictionary
         """
         topic = f"iotnarad/devices/{device_id}/config"

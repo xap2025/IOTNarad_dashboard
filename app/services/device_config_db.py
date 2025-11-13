@@ -45,7 +45,7 @@ class DeviceConfigDBService:
         Save device configuration to InfluxDB
         
         Args:
-            device_id: Device identifier (e.g., "esp32_gw_01")
+            device_id: Device Serial Number (Sr_No) from Device_info measurement
             config: Complete device configuration dictionary
             
         Returns:
@@ -121,11 +121,12 @@ class DeviceConfigDBService:
                     .tag("channel_type", "input_1_10v") \
                     .tag("channel", str(channel.get("channel", ""))) \
                     .tag("io_pin", channel.get("io_pin", "")) \
-                    .tag("name", channel.get("name", "")) \
+                    .tag("name", channel.get("name", channel.get("io_pin", ""))) \
                     .field("enabled", channel.get("enabled", False)) \
                     .field("divider", channel.get("divider", 1)) \
                     .field("multiplier", channel.get("multiplier", 1)) \
-                    .field("min_value", channel.get("min_value", 1)) \
+                    .field("scan_rate", channel.get("scan_rate", 1000)) \
+                    .field("min_value", channel.get("min_value", 0)) \
                     .field("max_value", channel.get("max_value", 10)) \
                     .field("unit", channel.get("unit", "V")) \
                     .time(timestamp, WritePrecision.NS)
@@ -334,7 +335,7 @@ class DeviceConfigDBService:
         Get latest device configuration from InfluxDB
         
         Args:
-            device_id: Device identifier
+            device_id: Device Serial Number (Sr_No) from Device_info measurement
             
         Returns:
             Device configuration dictionary or None

@@ -17,6 +17,9 @@
 docker compose logs app | Select-String "Connected to MQTT|Subscribed to: Dev/Init"
 ```
 **Expected:** `✅ Connected to MQTT Broker` और `📡 Subscribed to: Dev/Init/#`
+
+Equivalent bash command for GCP VM
+
 docker compose logs app | grep -E "Connected to MQTT|Subscribed to: Dev/Init"
 
 
@@ -27,6 +30,8 @@ $topic = "Dev/Init/$serialNumber"
 $payload = '{"SerialNumber": "' + $serialNumber + '"}'
 docker exec -i iotnarad_mqtt mosquitto_pub -h localhost -p 1883 -t $topic -m $payload
 ```
+Equivalent bash command for GCP VM
+
 serialNumber=DF5647
 docker exec -i iotnarad_mqtt mosquitto_pub -h localhost -p 1883 -t "Dev/Init/$serialNumber" -m '{"SerialNumber":"'"$serialNumber"'"}'
 
@@ -35,6 +40,11 @@ docker exec -i iotnarad_mqtt mosquitto_pub -h localhost -p 1883 -t "Dev/Init/$se
 docker compose logs app --tail 30 | Select-String "DF5647|Message received|registered"
 ```
 **Expected:** Message received और device registered के logs दिखने चाहिए
+
+Equivalent bash command for GCP VM
+
+docker compose logs app --tail 30 | grep -E "DF5647|Message received|registered"
+
 
 #### Step 4: Check Database
 ```powershell

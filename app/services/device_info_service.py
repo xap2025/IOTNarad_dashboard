@@ -8,7 +8,7 @@ Note: Python client's query_api uses Flux, but documentation should show SQL equ
 import os
 import logging
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from influxdb_client import InfluxDBClient, Point, WritePrecision
 from influxdb_client.client.write_api import SYNCHRONOUS
 
@@ -235,6 +235,69 @@ class DeviceInfoService:
         except Exception as e:
             logger.error(f"Error listing devices: {e}")
             return []
+    
+    def get_all_devices_info(self) -> List[Dict[str, Any]]:
+        """
+        Get all devices with their information in a single optimized query
+        
+        Returns:
+            List of device info dictionaries with Sr_No, Device_Name, Owner, etc.
+        """
+        if not self.connected:
+            return []
+        
+        try:
+            # Get all records, pivot to wide format, group by Sr_No, take latest
+            query = f'''
+                from(bucket: "{self.bucket}")
+                |> range(start: -365d)
+                |> filter(fn: (r) => r._measurement == "Device_info")
+                |> pivot(rowKey: ["_time", "Sr_No"], columnKey: ["_field"], valueColumn: "_value")
+                |> group(columns: ["Sr_No"])
+                |> sort(columns: ["_time"], desc: true)
+                |> keep(columns: ["_time", "Sr_No", "Owner", "Device_Name", "Date_Of_Register"])
+                |> first()
+            '''
+            
+            result = self.query_api.query(org=self.org, query=query)
+            
+            # Process results
+            devices = []
+            seen_serials = set()
+            
+            for table in result:
+                for record in table.records:
+                    sr_no = record.values.get('Sr_No')
+                    if not sr_no or sr_no in seen_serials:
+                        continue
+                    
+                    seen_serials.add(sr_no)
+                    devices.append({
+                        'Sr_No': sr_no,
+                        'Device_Name': record.values.get('Device_Name', 'Unnamed'),
+                        'Owner': record.values.get('Owner', 'Unassigned'),
+                        'Date_Of_Register': record.values.get('Date_Of_Register', ''),
+                        'timestamp': record.get_time().isoformat() if record.get_time() else datetime.utcnow().isoformat()
+                    })
+            
+            # Sort by Serial Number
+            return sorted(devices, key=lambda x: x['Sr_No'])
+            
+        except Exception as e:
+            logger.error(f"Error getting all devices info: {e}")
+            logger.exception("Full error traceback:")
+            # Fallback: use individual queries if optimized query fails
+            try:
+                serial_numbers = self.list_all_devices()
+                devices = []
+                for sr_no in serial_numbers:
+                    device_info = self.get_device_info(sr_no)
+                    if device_info:
+                        devices.append(device_info)
+                return sorted(devices, key=lambda x: x.get('Sr_No', ''))
+            except Exception as fallback_error:
+                logger.error(f"Fallback query also failed: {fallback_error}")
+                return []
     
     def update_device_info(self, serial_number: str, owner: str = None, device_name: str = None) -> bool:
         """
