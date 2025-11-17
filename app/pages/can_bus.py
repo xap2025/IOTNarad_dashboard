@@ -167,6 +167,15 @@ def create_can_bus_layout():
             ]),
         ], className='stat-card p-4 mb-4'),
         
+        # Save Configuration Button for CAN Bus Tab
+        html.Div([
+            dbc.Button([
+                html.I(className="fas fa-save me-2"),
+                "Save Configuration"
+            ], id='save-canbus-config-btn', color='primary', size='lg', className='mt-3'),
+            html.Div(id='save-canbus-status-message', className='d-inline-block ms-3 mt-3'),
+        ], className='text-end'),
+        
         # Stores for CAN messages and data mappings
         dcc.Store(id='can-messages-store', data=[{"index": 0, "can_id": "0x123", "direction": "TX", "period": "100", "var_name": "Message Name"}]),
         dcc.Store(id='can-data-mapping-store', data=[{"index": 0, "can_id": "0x123", "byte_pos": "Byte 0", "data_len": "1 Byte", "data_type": "int8", "endianness": "Big Endian", "var_name": "Variable Name", "scale": "1", "offset": "0"}]),

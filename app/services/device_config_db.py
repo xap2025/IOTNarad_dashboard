@@ -2,8 +2,9 @@
 Device Configuration Database Service
 Saves device configurations to InfluxDB
 
-IMPORTANT: Using InfluxDB Cloud Serverless (v3) - SQL queries required
-Note: Python client's query_api uses Flux, but documentation should show SQL equivalents
+IMPORTANT: Using Self-Hosted InfluxDB 2.x
+- Supports Flux queries via Python client
+- Local instance running via Docker
 """
 import os
 import json
@@ -23,11 +24,11 @@ class DeviceConfigDBService:
     """
     
     def __init__(self):
-        # InfluxDB Configuration
-        self.url = os.getenv('INFLUXDB_URL', 'https://us-east-1-1.aws.cloud2.influxdata.com')
-        self.token = os.getenv('INFLUXDB_TOKEN', 'T0ZoSucqSCbNtgfcZSYE81-vYA7DdXpPFRb17vc2iUZsUZ0CsebGlOTpr9XTGFjlaiyqI5bwUhtqLQe2zU7wnA==')
-        self.org = os.getenv('INFLUXDB_ORG', 'iot-narad-gcp')
-        self.bucket = os.getenv('INFLUXDB_BUCKET', 'iot_data_gcp')
+        # Self-Hosted InfluxDB 2.x Configuration
+        self.url = os.getenv('INFLUXDB_URL', 'http://influxdb:8086')
+        self.token = os.getenv('INFLUXDB_TOKEN', '')
+        self.org = os.getenv('INFLUXDB_ORG', 'iotnarad')
+        self.bucket = os.getenv('INFLUXDB_BUCKET', 'iotnarad-bucket')
         
         try:
             self.client = InfluxDBClient(url=self.url, token=self.token, org=self.org, timeout=30000)
@@ -35,6 +36,7 @@ class DeviceConfigDBService:
             self.query_api = self.client.query_api()
             self.connected = True
             logger.info(f"✅ Device Config DB Service connected to InfluxDB: {self.url}")
+            logger.info(f"   Database: Self-Hosted InfluxDB 2.x")
             logger.info(f"   Bucket: {self.bucket}, Org: {self.org}")
         except Exception as e:
             self.connected = False
@@ -51,6 +53,11 @@ class DeviceConfigDBService:
         Returns:
             Success status
         """
+        # Validate device_id
+        if not device_id or not device_id.strip():
+            logger.error("❌ Cannot save device config: device_id is empty or None")
+            return False
+            
         if not self.connected:
             logger.warning("InfluxDB not connected. Cannot save device config.")
             return False
@@ -62,27 +69,22 @@ class DeviceConfigDBService:
             config_json = json.dumps(config, ensure_ascii=False)
             
             # Create Point with measurement "Device_Config"
+            # Note: metadata has been removed, config only contains device_id and sections
             point = Point("Device_Config") \
                 .tag("device_id", device_id) \
-                .tag("device_name", config.get("metadata", {}).get("device_name", device_id)) \
-                .tag("device_type", config.get("metadata", {}).get("device_type", "esp32_gateway")) \
-                .tag("location", config.get("metadata", {}).get("location", "")) \
                 .field("config_json", config_json) \
-                .field("version", config.get("metadata", {}).get("version", "1.0.0")) \
                 .time(timestamp, WritePrecision.NS)
             
             # Write to InfluxDB
             self.write_api.write(bucket=self.bucket, org=self.org, record=point)
             
             logger.info(f"✅ Device configuration saved for: {device_id}")
-            logger.info(f"   Measurement: Device_Config")
+            logger.info(f"   Measurement: Device_Config (merged JSON only)")
             logger.info(f"   Timestamp: {timestamp.isoformat()}")
             
-            # Also save individual sections for easier querying
-            self._save_analog_config(device_id, config.get("analog", {}), timestamp)
-            self._save_digital_config(device_id, config.get("digital", {}), timestamp)
-            self._save_modbus_config(device_id, config.get("rs485_modbus", {}), timestamp)
-            self._save_can_bus_config(device_id, config.get("can_bus", {}), timestamp)
+            # NOTE: Individual sections are saved via save_config_sections_only() 
+            # This method ONLY saves the merged complete JSON to Device_Config
+            # DO NOT save individual sections here to avoid duplicate entries
             
             return True
             
@@ -91,12 +93,68 @@ class DeviceConfigDBService:
             logger.exception("Full error traceback:")
             return False
     
+    def save_config_sections_only(self, device_id: str, config: Dict[str, Any]) -> bool:
+        """
+        Save only individual configuration sections to their respective tables
+        Does NOT save to Device_Config measurement
+        
+        Used by individual "Save Configuration" buttons in each tab
+        
+        Args:
+            device_id: Device Serial Number (Sr_No)
+            config: Configuration dictionary (can be partial)
+            
+        Returns:
+            Success status
+        """
+        # Validate device_id
+        if not device_id or not device_id.strip():
+            logger.error("❌ Cannot save device config sections: device_id is empty or None")
+            return False
+            
+        if not self.connected:
+            logger.warning("InfluxDB not connected. Cannot save device config sections.")
+            return False
+        
+        try:
+            timestamp = datetime.utcnow()
+            
+            # Save ONLY the sections that are provided in the config (not all sections)
+            # This ensures we only save the specific tab's data when called from individual save buttons
+            if "analog" in config:
+                self._save_analog_config(device_id, config.get("analog", {}), timestamp)
+            if "digital" in config:
+                self._save_digital_config(device_id, config.get("digital", {}), timestamp)
+            if "rs485_modbus" in config:
+                self._save_modbus_config(device_id, config.get("rs485_modbus", {}), timestamp)
+            if "can_bus" in config:
+                self._save_can_bus_config(device_id, config.get("can_bus", {}), timestamp)
+            
+            logger.info(f"✅ Device configuration sections saved for: {device_id} (no Device_Config)")
+            logger.info(f"   Saved to individual tables only")
+            logger.info(f"   Timestamp: {timestamp.isoformat()}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error saving device config sections to InfluxDB: {e}")
+            logger.exception("Full error traceback:")
+            return False
+    
     def _save_analog_config(self, device_id: str, analog_config: Dict[str, Any], timestamp: datetime):
         """Save analog configuration as separate points"""
+        # Ensure device_id is valid
+        if not device_id or not device_id.strip():
+            logger.warning("⚠️ Cannot save analog config: device_id is empty or None")
+            return
+            
         if not analog_config:
             return
         
         try:
+            # Get scan_rate from analog_config top level (applies to all channels)
+            scan_rate = analog_config.get("scan_rate", 1000)
+            
             # Save 4-20mA inputs
             for channel in analog_config.get("input_4_20ma", []):
                 point = Point("Device_Config_Analog") \
@@ -108,13 +166,11 @@ class DeviceConfigDBService:
                     .field("enabled", channel.get("enabled", False)) \
                     .field("divider", channel.get("divider", 1)) \
                     .field("multiplier", channel.get("multiplier", 1)) \
-                    .field("min_value", channel.get("min_value", 4)) \
-                    .field("max_value", channel.get("max_value", 20)) \
-                    .field("unit", channel.get("unit", "mA")) \
+                    .field("scan_rate", scan_rate) \
                     .time(timestamp, WritePrecision.NS)
                 self.write_api.write(bucket=self.bucket, org=self.org, record=point)
             
-            # Save 1-10V inputs
+            # Save 0-10V inputs (input_1_10v - renamed but still uses same channel type)
             for channel in analog_config.get("input_1_10v", []):
                 point = Point("Device_Config_Analog") \
                     .tag("device_id", device_id) \
@@ -125,36 +181,116 @@ class DeviceConfigDBService:
                     .field("enabled", channel.get("enabled", False)) \
                     .field("divider", channel.get("divider", 1)) \
                     .field("multiplier", channel.get("multiplier", 1)) \
-                    .field("scan_rate", channel.get("scan_rate", 1000)) \
-                    .field("min_value", channel.get("min_value", 0)) \
-                    .field("max_value", channel.get("max_value", 10)) \
-                    .field("unit", channel.get("unit", "V")) \
+                    .field("scan_rate", scan_rate) \
                     .time(timestamp, WritePrecision.NS)
                 self.write_api.write(bucket=self.bucket, org=self.org, record=point)
             
             # Save 0-10V outputs
-            for channel in analog_config.get("output_0_10v", []):
-                point = Point("Device_Config_Analog") \
-                    .tag("device_id", device_id) \
-                    .tag("channel_type", "output_0_10v") \
-                    .tag("channel", str(channel.get("channel", ""))) \
-                    .tag("io_pin", channel.get("io_pin", "")) \
-                    .tag("name", channel.get("name", "")) \
-                    .field("enabled", channel.get("enabled", False)) \
-                    .field("value", channel.get("value", 0.0)) \
-                    .field("min_value", channel.get("min_value", 0)) \
-                    .field("max_value", channel.get("max_value", 10)) \
-                    .field("unit", channel.get("unit", "V")) \
-                    .time(timestamp, WritePrecision.NS)
-                self.write_api.write(bucket=self.bucket, org=self.org, record=point)
+            output_0_10v_list = analog_config.get("output_0_10v", [])
+            logger.info(f"🔍 STEP: Saving output_0_10v channels - count: {len(output_0_10v_list)} for device {device_id}")
+            logger.info(f"🔍 DEBUG: Full analog_config keys: {list(analog_config.keys())}")
+            logger.info(f"🔍 DEBUG: analog_config.get('output_0_10v'): {analog_config.get('output_0_10v', 'KEY_NOT_FOUND')}")
+            logger.info(f"🔍 DEBUG: output_0_10v_list type: {type(output_0_10v_list)}, contents: {output_0_10v_list}")
+            
+            if not output_0_10v_list:
+                logger.error(f"❌ CRITICAL: output_0_10v list is EMPTY for device {device_id}!")
+                logger.error(f"❌ Full analog_config: {analog_config}")
+                logger.error(f"❌ analog_config.get('output_0_10v'): {analog_config.get('output_0_10v', 'KEY_NOT_FOUND')}")
+            else:
+                logger.info(f"✅ Found {len(output_0_10v_list)} output_0_10v channels to save")
+                
+                # Collect all points first for batch write
+                output_points = []
+                
+                for idx, channel in enumerate(output_0_10v_list):
+                    try:
+                        channel_num = channel.get("channel", "")
+                        channel_value = channel.get("value", 0.0)
+                        channel_name = channel.get("name", "")
+                        channel_io_pin = channel.get("io_pin", "")
+                        channel_enabled = channel.get("enabled", False)
+                        
+                        logger.info(f"🔍 Processing output channel {idx+1}/{len(output_0_10v_list)} - channel: {channel_num}, value: {channel_value}, name: {channel_name}, io_pin: {channel_io_pin}, enabled: {channel_enabled}")
+                        
+                        # Ensure value is valid
+                        # Note: We store values as integers (millivolts) to match existing schema
+                        # and preserve precision: 5.5V = 5500 mV, 0.0V = 0 mV, 10.0V = 10000 mV
+                        # Self-Hosted InfluxDB 2.x supports both integer and float types
+                        try:
+                            float_value = float(channel_value)
+                            # Validate range: 0.0 to 10.0 volts
+                            if float_value < 0.0:
+                                float_value = 0.0
+                                logger.warning(f"⚠️ Channel {channel_num} - value < 0, clamping to 0.0V")
+                            elif float_value > 10.0:
+                                float_value = 10.0
+                                logger.warning(f"⚠️ Channel {channel_num} - value > 10.0, clamping to 10.0V")
+                            
+                            # Convert to integer by multiplying by 1000 (millivolts)
+                            # Use round() to handle floating point precision issues
+                            # This preserves precision: 5.5V = 5500 mV, 0.0V = 0 mV, 10.0V = 10000 mV
+                            int_value = int(round(float_value * 1000))
+                            logger.info(f"✅ Channel {channel_num} - value converted: {float_value}V = {int_value}mV (integer)")
+                        except (ValueError, TypeError) as ve:
+                            logger.error(f"❌ Cannot convert value '{channel_value}' to float for channel {channel_num}: {ve}")
+                            int_value = 0  # Default to 0 mV (0.0V)
+                        
+                        # Create InfluxDB point
+                        # Use integer type for 'value' field to match existing schema
+                        point = Point("Device_Config_Analog") \
+                            .tag("device_id", device_id) \
+                            .tag("channel_type", "output_0_10v") \
+                            .tag("channel", str(channel_num)) \
+                            .tag("io_pin", str(channel_io_pin)) \
+                            .tag("name", str(channel_name)) \
+                            .field("enabled", bool(channel_enabled)) \
+                            .field("value", int_value) \
+                            .field("scan_rate", int(scan_rate)) \
+                            .time(timestamp, WritePrecision.NS)
+                        
+                        output_points.append(point)
+                        logger.info(f"✅ Channel {channel_num} - point created successfully, added to batch (batch size: {len(output_points)})")
+                        
+                    except Exception as channel_error:
+                        logger.error(f"❌ Error creating point for output channel {channel_num}: {channel_error}")
+                        logger.exception(f"Full traceback for output channel {channel_num}:")
+                        # Continue with next channel instead of stopping
+                        continue
+                
+                # Batch write all output points at once
+                if output_points:
+                    try:
+                        logger.info(f"🔍 Writing {len(output_points)} output_0_10v points to InfluxDB...")
+                        self.write_api.write(bucket=self.bucket, org=self.org, record=output_points)
+                        logger.info(f"✅ Successfully batch-saved {len(output_points)} output_0_10v channels to Device_Config_Analog for device {device_id}")
+                        
+                        # Log details of each saved channel (using the original channel data, not Point object)
+                        for idx, channel in enumerate(output_0_10v_list):
+                            channel_num = channel.get("channel", "")
+                            channel_value = channel.get("value", 0.0)
+                            logger.info(f"✅ Saved output_0_10v: channel={channel_num}, value={channel_value}V ({int(round(float(channel_value) * 1000))}mV)")
+                    except Exception as write_error:
+                        logger.error(f"❌ CRITICAL: Failed to write output_0_10v points to InfluxDB: {write_error}")
+                        logger.exception("Full traceback for batch write error:")
+                        raise  # Re-raise to ensure caller knows save failed
+                else:
+                    logger.warning(f"⚠️ No output points to write (output_points list is empty)")
             
             logger.debug(f"✅ Analog config saved for device: {device_id}")
             
         except Exception as e:
-            logger.error(f"Error saving analog config: {e}")
+            logger.error(f"❌ Error saving analog config for device {device_id}: {e}")
+            logger.exception("Full traceback for analog config save error:")
+            # Re-raise exception to ensure caller knows save failed
+            raise
     
     def _save_digital_config(self, device_id: str, digital_config: Dict[str, Any], timestamp: datetime):
         """Save digital configuration as separate points"""
+        # Ensure device_id is valid
+        if not device_id or not device_id.strip():
+            logger.warning("⚠️ Cannot save digital config: device_id is empty or None")
+            return
+            
         if not digital_config:
             return
         
@@ -233,7 +369,12 @@ class DeviceConfigDBService:
     
     def _save_modbus_config(self, device_id: str, modbus_config: Dict[str, Any], timestamp: datetime):
         """Save MODBUS configuration"""
-        if not modbus_config or not modbus_config.get("enabled"):
+        # Ensure device_id is valid
+        if not device_id or not device_id.strip():
+            logger.warning("⚠️ Cannot save MODBUS config: device_id is empty or None")
+            return
+            
+        if not modbus_config:
             return
         
         try:
@@ -275,6 +416,11 @@ class DeviceConfigDBService:
     
     def _save_can_bus_config(self, device_id: str, can_bus_config: Dict[str, Any], timestamp: datetime):
         """Save CAN Bus configuration"""
+        # Ensure device_id is valid
+        if not device_id or not device_id.strip():
+            logger.warning("⚠️ Cannot save CAN Bus config: device_id is empty or None")
+            return
+            
         if not can_bus_config or not can_bus_config.get("enabled"):
             return
         
@@ -399,6 +545,345 @@ class DeviceConfigDBService:
         except Exception as e:
             logger.error(f"Error listing devices: {e}")
             return []
+    
+    def get_analog_config(self, device_id: str) -> Optional[Dict[str, Any]]:
+        """Get latest analog configuration from Device_Config_Analog table"""
+        if not self.connected or not device_id or not device_id.strip():
+            return None
+        
+        try:
+            query = f'''
+                from(bucket: "{self.bucket}")
+                |> range(start: -365d)
+                |> filter(fn: (r) => r._measurement == "Device_Config_Analog")
+                |> filter(fn: (r) => r.device_id == "{device_id}")
+                |> sort(columns: ["_time"], desc: true)
+                |> group()
+                |> keep(columns: ["_time", "channel_type", "channel", "io_pin", "name", "enabled", "divider", "multiplier", "scan_rate", "value"])
+            '''
+            
+            result = self.query_api.query(org=self.org, query=query)
+            
+            input_4_20ma = []
+            input_1_10v = []
+            output_0_10v = []
+            scan_rate = 1000
+            
+            for table in result:
+                for record in table.records:
+                    channel_type = record.values.get("channel_type", "")
+                    channel = record.values.get("channel", "")
+                    io_pin = record.values.get("io_pin", "")
+                    name = record.values.get("name", "")
+                    enabled = record.values.get("enabled", False)
+                    divider = record.values.get("divider", 1.0)
+                    multiplier = record.values.get("multiplier", 1.0)
+                    scan_rate_val = record.values.get("scan_rate", 1000)
+                    value = record.values.get("value", 0.0)
+                    
+                    scan_rate = scan_rate_val  # All channels have same scan_rate
+                    
+                    channel_data = {
+                        "channel": int(channel) if channel else 0,
+                        "enabled": enabled,
+                        "io_pin": io_pin,
+                        "name": name
+                    }
+                    
+                    if channel_type == "input_4_20ma":
+                        channel_data["divider"] = divider
+                        channel_data["multiplier"] = multiplier
+                        input_4_20ma.append(channel_data)
+                    elif channel_type == "input_1_10v":
+                        channel_data["divider"] = divider
+                        channel_data["multiplier"] = multiplier
+                        input_1_10v.append(channel_data)
+                    elif channel_type == "output_0_10v":
+                        # Convert integer value (millivolts) back to float (volts)
+                        # IMPORTANT: In InfluxDB, value is stored as integer (millivolts)
+                        # We convert back to float (volts) for UI display
+                        # 5500 mV = 5.5V, 0 mV = 0.0V, 10000 mV = 10.0V
+                        try:
+                            if value is None:
+                                channel_data["value"] = 0.0
+                            elif isinstance(value, int):
+                                # Value is in millivolts, convert to volts
+                                channel_data["value"] = float(value) / 1000.0
+                            elif isinstance(value, float):
+                                # Already in volts (shouldn't happen, but handle it)
+                                channel_data["value"] = float(value)
+                            else:
+                                # Try to convert to int first, then to float
+                                int_val = int(float(value)) if value else 0
+                                channel_data["value"] = float(int_val) / 1000.0
+                            logger.debug(f"✅ Loaded output_0_10v channel {channel}: {value} mV = {channel_data['value']} V")
+                        except (ValueError, TypeError) as ve:
+                            logger.error(f"❌ Error converting value for output channel {channel}: {value} - {ve}")
+                            channel_data["value"] = 0.0  # Default to 0.0V
+                        output_0_10v.append(channel_data)
+            
+            if not input_4_20ma and not input_1_10v and not output_0_10v:
+                return None
+            
+            return {
+                "input_4_20ma": input_4_20ma,
+                "input_1_10v": input_1_10v,
+                "output_0_10v": output_0_10v,
+                "scan_rate": scan_rate
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting analog config: {e}")
+            return None
+    
+    def get_digital_config(self, device_id: str) -> Optional[Dict[str, Any]]:
+        """Get latest digital configuration from Device_Config_Digital table"""
+        if not self.connected or not device_id or not device_id.strip():
+            return None
+        
+        try:
+            query = f'''
+                from(bucket: "{self.bucket}")
+                |> range(start: -365d)
+                |> filter(fn: (r) => r._measurement == "Device_Config_Digital")
+                |> filter(fn: (r) => r.device_id == "{device_id}")
+                |> sort(columns: ["_time"], desc: true)
+                |> group()
+                |> keep(columns: ["_time", "channel_type", "channel", "io_pin", "name", "enabled", "pullup", "debounce_ms", "initial_state", "scan_rate"])
+            '''
+            
+            result = self.query_api.query(org=self.org, query=query)
+            
+            npn_input = []
+            npn_output = []
+            pnp_input = []
+            pnp_output = []
+            relay = []
+            scan_rate = 1000
+            
+            for table in result:
+                for record in table.records:
+                    channel_type = record.values.get("channel_type", "")
+                    channel = record.values.get("channel", "")
+                    io_pin = record.values.get("io_pin", "")
+                    name = record.values.get("name", "")
+                    enabled = record.values.get("enabled", False)
+                    pullup = record.values.get("pullup", True)
+                    debounce_ms = record.values.get("debounce_ms", 50)
+                    initial_state = record.values.get("initial_state", False)
+                    scan_rate_val = record.values.get("scan_rate", 1000)
+                    
+                    scan_rate = scan_rate_val
+                    
+                    channel_data = {
+                        "channel": int(channel) if channel else 0,
+                        "enabled": enabled,
+                        "io_pin": io_pin,
+                        "name": name
+                    }
+                    
+                    if channel_type == "npn_input":
+                        channel_data["pullup"] = pullup
+                        channel_data["debounce_ms"] = debounce_ms
+                        npn_input.append(channel_data)
+                    elif channel_type == "npn_output":
+                        channel_data["initial_state"] = initial_state
+                        npn_output.append(channel_data)
+                    elif channel_type == "pnp_input":
+                        channel_data["pullup"] = pullup
+                        channel_data["debounce_ms"] = debounce_ms
+                        pnp_input.append(channel_data)
+                    elif channel_type == "pnp_output":
+                        channel_data["initial_state"] = initial_state
+                        pnp_output.append(channel_data)
+                    elif channel_type == "relay":
+                        channel_data["initial_state"] = initial_state
+                        relay.append(channel_data)
+            
+            if not npn_input and not npn_output and not pnp_input and not pnp_output and not relay:
+                return None
+            
+            config = {
+                "npn_input": npn_input,
+                "npn_output": npn_output,
+                "pnp_input": pnp_input,
+                "pnp_output": pnp_output,
+                "relay": relay
+            }
+            
+            # Add scan_rate if available
+            if scan_rate:
+                config["scan_rate"] = scan_rate
+            
+            return config
+            
+        except Exception as e:
+            logger.error(f"Error getting digital config: {e}")
+            return None
+    
+    def get_modbus_config(self, device_id: str) -> Optional[Dict[str, Any]]:
+        """Get latest MODBUS configuration from Device_Config_MODBUS table"""
+        if not self.connected or not device_id or not device_id.strip():
+            return None
+        
+        try:
+            query = f'''
+                from(bucket: "{self.bucket}")
+                |> range(start: -365d)
+                |> filter(fn: (r) => r._measurement == "Device_Config_MODBUS")
+                |> filter(fn: (r) => r.device_id == "{device_id}")
+                |> sort(columns: ["_time"], desc: true)
+                |> group()
+            '''
+            
+            result = self.query_api.query(org=self.org, query=query)
+            
+            settings = {}
+            slave_devices = []
+            
+            for table in result:
+                for record in table.records:
+                    config_type = record.values.get("config_type", "")
+                    
+                    if config_type == "settings":
+                        settings = {
+                            "enabled": record.values.get("enabled", False),
+                            "communication_settings": {
+                                "baud_rate": record.values.get("baud_rate", 9600),
+                                "data_bits": record.values.get("data_bits", 8),
+                                "parity": record.values.get("parity", "None"),
+                                "stop_bits": record.values.get("stop_bits", 1)
+                            },
+                            "protocol_settings": {
+                                "mode": record.values.get("mode", "RTU"),
+                                "role": record.values.get("role", "Master")
+                            },
+                            "polling_interval_ms": record.values.get("polling_interval_ms", 1000)
+                        }
+                    elif config_type == "slave_device":
+                        slave_devices.append({
+                            "index": record.values.get("index", 0),
+                            "slave_id": record.values.get("slave_id", "1"),
+                            "function_code": record.values.get("function_code", "0x03"),
+                            "register_address": record.values.get("register_address", "0"),
+                            "data_type": record.values.get("data_type", "int8"),
+                            "endianness": record.values.get("endianness", "Big Endian"),
+                            "variable_name": record.values.get("variable_name", ""),
+                            "register_count": record.values.get("register_count", 1)
+                        })
+            
+            if not settings:
+                return None
+            
+            settings["slave_devices"] = slave_devices
+            return settings
+            
+        except Exception as e:
+            logger.error(f"Error getting MODBUS config: {e}")
+            return None
+    
+    def get_can_bus_config(self, device_id: str) -> Optional[Dict[str, Any]]:
+        """Get latest CAN Bus configuration from Device_Config_CANBus table"""
+        if not self.connected or not device_id or not device_id.strip():
+            return None
+        
+        try:
+            query = f'''
+                from(bucket: "{self.bucket}")
+                |> range(start: -365d)
+                |> filter(fn: (r) => r._measurement == "Device_Config_CANBus")
+                |> filter(fn: (r) => r.device_id == "{device_id}")
+                |> sort(columns: ["_time"], desc: true)
+                |> group()
+            '''
+            
+            result = self.query_api.query(org=self.org, query=query)
+            
+            settings = {}
+            can_messages = []
+            data_mapping = []
+            
+            for table in result:
+                for record in table.records:
+                    config_type = record.values.get("config_type", "")
+                    
+                    if config_type == "settings":
+                        settings = {
+                            "enabled": record.values.get("enabled", False),
+                            "communication_settings": {
+                                "baud_rate": record.values.get("baud_rate", 125),
+                                "identifier_length": record.values.get("identifier_length", "11-bit"),
+                                "can_mode": record.values.get("can_mode", "Normal"),
+                                "filter_mode": record.values.get("filter_mode", "None"),
+                                "filter_id": record.values.get("filter_id", "0x123"),
+                                "filter_mask": record.values.get("filter_mask", "0x7FF")
+                            }
+                        }
+                    elif config_type == "can_message":
+                        can_messages.append({
+                            "index": record.values.get("index", 0),
+                            "can_id": record.values.get("can_id", "0x123"),
+                            "direction": record.values.get("direction", "TX"),
+                            "period_ms": record.values.get("period_ms", 100),
+                            "variable_name": record.values.get("variable_name", ""),
+                            "data_length": record.values.get("data_length", 8)
+                        })
+                    elif config_type == "data_mapping":
+                        data_mapping.append({
+                            "index": record.values.get("index", 0),
+                            "can_id": record.values.get("can_id", "0x123"),
+                            "byte_position": record.values.get("byte_position", "Byte 0"),
+                            "data_length": record.values.get("data_length", "1 Byte"),
+                            "data_type": record.values.get("data_type", "int8"),
+                            "endianness": record.values.get("endianness", "Big Endian"),
+                            "variable_name": record.values.get("variable_name", ""),
+                            "scale_factor": record.values.get("scale_factor", 1.0),
+                            "offset": record.values.get("offset", 0.0)
+                        })
+            
+            if not settings:
+                return None
+            
+            settings["can_messages"] = can_messages
+            settings["data_mapping"] = data_mapping
+            return settings
+            
+        except Exception as e:
+            logger.error(f"Error getting CAN Bus config: {e}")
+            return None
+    
+    def get_complete_config_from_tables(self, device_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get complete configuration by combining data from all individual tables
+        This is used when a user saves one section - we need to rebuild the complete config
+        """
+        if not device_id or not device_id.strip():
+            return None
+        
+        analog_config = self.get_analog_config(device_id)
+        digital_config = self.get_digital_config(device_id)
+        modbus_config = self.get_modbus_config(device_id)
+        can_bus_config = self.get_can_bus_config(device_id)
+        
+        # Build complete config
+        complete_config = {
+            "device_id": device_id
+        }
+        
+        if analog_config:
+            complete_config["analog"] = analog_config
+        if digital_config:
+            complete_config["digital"] = digital_config
+        if modbus_config:
+            complete_config["rs485_modbus"] = modbus_config
+        if can_bus_config:
+            complete_config["can_bus"] = can_bus_config
+        
+        # Return None if no config found
+        if len(complete_config) == 1:  # Only device_id
+            return None
+        
+        return complete_config
     
     def is_connected(self) -> bool:
         """Check if InfluxDB client is connected"""

@@ -170,6 +170,15 @@ def create_rs485_modbus_layout():
             ]),
         ], className='stat-card p-4 mb-4'),
         
+        # Save Configuration Button for RS485 MODBUS Tab
+        html.Div([
+            dbc.Button([
+                html.I(className="fas fa-save me-2"),
+                "Save Configuration"
+            ], id='save-modbus-config-btn', color='primary', size='lg', className='mt-3'),
+            html.Div(id='save-modbus-status-message', className='d-inline-block ms-3 mt-3'),
+        ], className='text-end'),
+        
         # Store for device data
         dcc.Store(id='modbus-devices-store', data=[{"index": 0, "slave_id": "1", "function_code": "0x03", "register_addr": "0", "data_type": "int8", "endianness": "Big Endian", "var_name": "Variable Name"}]),
         # Hidden trigger store to force updates

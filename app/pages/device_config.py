@@ -2,7 +2,7 @@
 Device Configuration Page
 Configure Analog, Digital, and Communication settings for IoT devices
 """
-from dash import html, dcc, Input, Output, State, ALL, callback, ctx
+from dash import html, dcc, Input, Output, State, ALL, callback, ctx, clientside_callback, ClientsideFunction, no_update
 import dash_bootstrap_components as dbc
 import time
 
@@ -21,33 +21,19 @@ def create_device_config_layout():
             dbc.Col([
                 html.Div([
                     html.Label("Select Device", className='fw-bold mb-2'),
+                    html.Div([
                     dcc.Dropdown(
                         id='device-selector',
-                        options=[],
-                        value=None,
-                        placeholder='Loading devices...',
+                            options=[],
+                            value=None,
+                            placeholder='Loading devices...',
                         className='mb-3',
-                        style={'borderRadius': '8px'}
+                        style={'borderRadius': '8px', 'minWidth': '400px', 'width': '100%'}
                     ),
+                        html.Div(id='device-selector-loading', className='d-inline-block ms-2'),
+                    ], className='d-flex align-items-center'),
                 ], className='stat-card p-3'),
-            ], md=6),
-            
-            dbc.Col([
-                html.Div([
-                    html.Div([
-                        html.Span("Device Status: ", className='fw-bold'),
-                        html.Span([
-                            html.I(className="fas fa-circle me-2",
-                                   style={'color': '#4ade80', 'fontSize': '0.7rem'}),
-                            "Online"
-                        ], id='device-status-badge',
-                           className='badge bg-light text-success ms-2 px-3 py-2'),
-                    ], className='mb-2'),
-                    html.Small("Last seen: 2 seconds ago", 
-                              id='device-last-seen',
-                              className='text-muted'),
-                ], className='stat-card p-3'),
-            ], md=6),
+            ], md=12),
         ], className='mb-4'),
         
         # Configuration Tabs
@@ -87,13 +73,9 @@ def create_device_config_layout():
             ], id='config-tabs', active_tab='tab-analog'),
         ], className='stat-card p-4'),
         
-        # Action Buttons
+        # Legacy Action Buttons (kept for backward compatibility, but individual save buttons are in each tab)
+        # These buttons can be removed later if not needed
         html.Div([
-            dbc.Button([
-                html.I(className="fas fa-save me-2"),
-                "Save Configuration"
-            ], id='save-config-btn', color='primary', size='lg', className='me-2'),
-            
             dbc.Button([
                 html.I(className="fas fa-download me-2"),
                 "Load from Device"
@@ -213,6 +195,19 @@ def create_analog_config_tab():
                 ),
             ], md=9),
         ], className='mb-3'),
+        
+        # Save Configuration Button for Analog Tab
+        html.Div([
+            html.Div([
+                dbc.Button([
+                    html.Span(id='save-analog-btn-spinner', children=[
+                        html.I(className="fas fa-save me-2"),
+                    ]),
+                    html.Span(id='save-analog-btn-text', children="Save Configuration"),
+                ], id='save-analog-config-btn', color='primary', size='lg', className='mt-3'),
+            ], className='d-inline-block'),
+            html.Div(id='save-analog-status-message', className='d-inline-block ms-3 mt-3'),
+        ], className='text-end'),
     ])
 
 
@@ -458,6 +453,19 @@ def create_digital_config_tab():
                 ),
             ], md=9),
         ], className='mb-3'),
+        
+        # Save Configuration Button for Digital Tab
+        html.Div([
+            html.Div([
+                dbc.Button([
+                    html.Span(id='save-digital-btn-spinner', children=[
+                        html.I(className="fas fa-save me-2"),
+                    ]),
+                    html.Span(id='save-digital-btn-text', children="Save Configuration"),
+                ], id='save-digital-config-btn', color='primary', size='lg', className='mt-3'),
+            ], className='d-inline-block'),
+            html.Div(id='save-digital-status-message', className='d-inline-block ms-3 mt-3'),
+        ], className='text-end'),
     ])
 
 
@@ -503,8 +511,11 @@ def create_can_bus_content():
 # Callback to load device list (Serial Numbers) from Device_info on page load
 # Uses multiple triggers to ensure it runs immediately when the page loads
 @callback(
-    Output('device-selector', 'options'),
-    Output('device-selector', 'value'),
+    [
+        Output('device-selector', 'options'),
+        Output('device-selector', 'value'),
+        Output('device-selector-loading', 'children'),
+    ],
     Input('url', 'pathname'),
     Input('device-selector', 'id'),
     prevent_initial_call=False
@@ -513,30 +524,35 @@ def load_device_list(pathname, _):
     """Load Serial Numbers from Device_info measurement (optimized - single query with caching)"""
     global _device_list_cache, _cache_timestamp
     
+    # Show loading spinner while fetching
+    loading_spinner = dbc.Spinner(html.Div(), size="sm")
+    
     try:
         # Only run if we're on a devices-related page (or if triggered by device-selector)
         if pathname and '/devices' not in pathname and ctx.triggered_id == 'url':
             # Not on devices page, don't load
             if _device_list_cache:
-                return _device_list_cache
-            return [], None
+                return _device_list_cache[0], _device_list_cache[1], ""
+            return [], None, ""
         
         # Check cache first - return immediately if available and fresh
         current_time = time.time()
         if _device_list_cache and (current_time - _cache_timestamp) < _cache_ttl:
             # Return cached data immediately (no database query needed)
-            return _device_list_cache
+            return _device_list_cache[0], _device_list_cache[1], ""
         
         # Cache expired or not available, fetch from database
+        # Show loading spinner while fetching
         from app.services.device_info_service import DeviceInfoService
         device_info_service = DeviceInfoService()
         
         if not device_info_service.is_connected():
             error_options = (
                 [{'label': '⚠️ Database not connected', 'value': None, 'disabled': True}], 
-                None
+                None,
+                ""  # Hide spinner on error
             )
-            _device_list_cache = error_options
+            _device_list_cache = (error_options[0], error_options[1])
             _cache_timestamp = current_time
             return error_options
         
@@ -546,9 +562,10 @@ def load_device_list(pathname, _):
         if not all_devices_info:
             no_devices_options = (
                 [{'label': '⚠️ No devices found', 'value': None, 'disabled': True}], 
-                None
+                None,
+                ""  # Hide spinner
             )
-            _device_list_cache = no_devices_options
+            _device_list_cache = (no_devices_options[0], no_devices_options[1])
             _cache_timestamp = current_time
             return no_devices_options
         
@@ -568,8 +585,8 @@ def load_device_list(pathname, _):
         default_value = all_devices_info[0].get('Sr_No') if all_devices_info else None
         
         # Cache the results
-        result = (options, default_value)
-        _device_list_cache = result
+        result = (options, default_value, "")  # Hide spinner after loading
+        _device_list_cache = (options, default_value)
         _cache_timestamp = current_time
         
         return result
@@ -581,17 +598,134 @@ def load_device_list(pathname, _):
         logger.exception("Full error traceback:")
         error_result = (
             [{'label': '⚠️ Error loading devices', 'value': None, 'disabled': True}], 
-            None
+            None,
+            ""
         )
         # Don't cache errors
         return error_result
 
 
-# Callback for save configuration
+# Callback to load saved configuration when device is selected or page loads
 @callback(
-    Output('config-save-toast', 'is_open'),
-    Output('config-save-toast', 'children'),
-    Input('save-config-btn', 'n_clicks'),
+    [
+        # Analog inputs
+        Output({'type': 'analog-input-enable', 'index': ALL}, 'value', allow_duplicate=True),
+        Output({'type': 'analog-input-div', 'index': ALL}, 'value', allow_duplicate=True),
+        Output({'type': 'analog-input-mul', 'index': ALL}, 'value', allow_duplicate=True),
+        Output({'type': 'analog-input-name', 'index': ALL}, 'value', allow_duplicate=True),
+        # Analog outputs
+        Output({'type': 'analog-output-enable', 'index': ALL}, 'value', allow_duplicate=True),
+        Output({'type': 'analog-output-value', 'index': ALL}, 'value', allow_duplicate=True),
+        Output({'type': 'analog-output-name', 'index': ALL}, 'value', allow_duplicate=True),
+        # Scan rates
+        Output('analog-scan-rate', 'value', allow_duplicate=True),
+        Output('digital-scan-rate', 'value', allow_duplicate=True),
+        # Digital inputs/outputs (we'll need to add IDs for these)
+    ],
+    [
+        Input('device-selector', 'value'),
+        Input('url', 'pathname'),  # Also trigger on page load/navigation
+    ],
+    prevent_initial_call='initial_duplicate',  # Allow initial call on page load with duplicate outputs
+    allow_duplicate=True
+)
+def load_device_configuration(device_id, pathname):
+    """Load saved configuration for selected device and populate UI fields"""
+    # Don't load if not on devices page
+    if pathname and '/devices' not in pathname:
+        return [no_update] * 9
+    
+    if not device_id:
+        return [no_update] * 9  # Return no_update for all outputs
+    
+    try:
+        from app.services.device_config_db import DeviceConfigDBService
+        
+        db_service = DeviceConfigDBService()
+        
+        if not db_service.is_connected():
+            return [no_update] * 9
+        
+        # Load configurations from individual tables
+        analog_config = db_service.get_analog_config(device_id)
+        digital_config = db_service.get_digital_config(device_id)
+        
+        # Prepare output lists (4 channels for inputs, 2 for outputs)
+        analog_input_enable = [False] * 4
+        analog_input_div = [1] * 4
+        analog_input_mul = [1] * 4
+        analog_input_name = [''] * 4
+        
+        analog_output_enable = [False] * 2
+        analog_output_value = [0.0] * 2
+        analog_output_name = [''] * 2
+        
+        analog_scan_rate = 1000
+        digital_scan_rate = 1000
+        
+        # Populate Analog config
+        if analog_config:
+            # Input 4-20mA (channels 1-2)
+            for channel_data in analog_config.get("input_4_20ma", []):
+                ch = channel_data.get("channel", 0) - 1  # Convert to 0-based index
+                if 0 <= ch < 2:
+                    analog_input_enable[ch] = channel_data.get("enabled", False)
+                    analog_input_div[ch] = channel_data.get("divider", 1)
+                    analog_input_mul[ch] = channel_data.get("multiplier", 1)
+                    analog_input_name[ch] = channel_data.get("name", "")
+            
+            # Input 0-10V (channels 3-4)
+            for channel_data in analog_config.get("input_1_10v", []):
+                ch = channel_data.get("channel", 0) - 1  # Convert to 0-based index
+                if 2 <= ch < 4:
+                    analog_input_enable[ch] = channel_data.get("enabled", False)
+                    analog_input_div[ch] = channel_data.get("divider", 1)
+                    analog_input_mul[ch] = channel_data.get("multiplier", 1)
+                    analog_input_name[ch] = channel_data.get("name", "")
+            
+            # Output 0-10V (channels 1-2)
+            for channel_data in analog_config.get("output_0_10v", []):
+                ch = channel_data.get("channel", 0) - 1  # Convert to 0-based index
+                if 0 <= ch < 2:
+                    analog_output_enable[ch] = channel_data.get("enabled", False)
+                    analog_output_value[ch] = channel_data.get("value", 0.0)
+                    analog_output_name[ch] = channel_data.get("name", "")
+            
+            analog_scan_rate = analog_config.get("scan_rate", 1000)
+        
+        # Populate Digital config
+        if digital_config:
+            digital_scan_rate = digital_config.get("scan_rate", 1000)
+            # TODO: Populate digital I/O fields when we have the component IDs
+        
+        return (
+            analog_input_enable,
+            analog_input_div,
+            analog_input_mul,
+            analog_input_name,
+            analog_output_enable,
+            analog_output_value,
+            analog_output_name,
+            analog_scan_rate,
+            digital_scan_rate
+        )
+        
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error loading device configuration: {e}")
+        logger.exception("Full error traceback:")
+        return [no_update] * 9
+
+
+# Callback for save Analog configuration (inside Analog tab)
+@callback(
+    [
+        Output('save-analog-status-message', 'children'),
+        Output('save-analog-btn-spinner', 'children'),
+        Output('save-analog-config-btn', 'disabled'),
+    ],
+    Input('save-analog-config-btn', 'n_clicks'),
     # Analog Input States
     State({'type': 'analog-input-enable', 'index': ALL}, 'value'),
     State({'type': 'analog-input-div', 'index': ALL}, 'value'),
@@ -603,23 +737,31 @@ def load_device_list(pathname, _):
     State({'type': 'analog-output-name', 'index': ALL}, 'value'),
     # Scan Rate States
     State('analog-scan-rate', 'value'),
-    State('digital-scan-rate', 'value'),
     # Device Selection (Serial Number)
     State('device-selector', 'value'),
     prevent_initial_call=True
 )
-def save_configuration(
+def save_analog_configuration(
     n_clicks,
     analog_input_enable, analog_input_div, analog_input_mul, analog_input_name,
     analog_output_enable, analog_output_value, analog_output_name,
-    analog_scan_rate, digital_scan_rate,
+    analog_scan_rate,
     serial_number
 ):
     """Save device configuration with validation"""
     if not n_clicks:
-        return False, ""
+        return "", html.I(className="fas fa-save me-2"), False
+    
+    # IMPORTANT: For immediate UI feedback, we need to return disabled/spinner state
+    # However, Dash callbacks are synchronous, so UI updates only happen after callback completes
+    # The button will show spinner and be disabled during the save operation
+    loading_spinner = html.Span([
+        dbc.Spinner(html.I(className="fas fa-save me-2"), size="sm", spinner_style={"width": "1rem", "height": "1rem"}),
+    ])
     
     try:
+        # Return loading state immediately (button disabled + spinner visible)
+        # This will update UI after callback completes
         from app.services.config_json_builder import ConfigJSONBuilder
         from app.services.device_config import DeviceConfigService
         from app.services.device_config_db import DeviceConfigDBService
@@ -630,29 +772,99 @@ def save_configuration(
         
         # Validate Serial Number is selected
         if not serial_number:
-            return True, html.Div([
+            error_msg = html.Div([
                 html.Strong("Validation Error: "),
                 "Please select a device (Serial Number) from the dropdown."
-            ])
+            ], className='text-danger')
+            return error_msg, html.I(className="fas fa-save me-2"), False
         
-        # Validate Scan Rates
+        # Validate Scan Rate
         if analog_scan_rate is None or analog_scan_rate < 1000:
-            return True, html.Div([
+            error_msg = html.Div([
                 html.Strong("Validation Error: "),
                 "Analog Scan Rate must be at least 1000 seconds."
-            ])
+            ], className='text-danger')
+            return error_msg, html.I(className="fas fa-save me-2"), False
         
-        if digital_scan_rate is None or digital_scan_rate < 1000:
-            return True, html.Div([
-                html.Strong("Validation Error: "),
-                "Digital Scan Rate must be at least 1000 seconds."
-            ])
+        import logging
+        logger = logging.getLogger(__name__)
         
-        # Get device info for device name
-        from app.services.device_info_service import DeviceInfoService
-        device_info_service = DeviceInfoService()
-        device_info = device_info_service.get_device_info(serial_number)
-        device_name = device_info.get('Device_Name', serial_number) if device_info else serial_number
+        # IMPORTANT: Use ctx.states to get actual indices from pattern-matched values
+        # Dash pattern matching returns values as lists, but we need to map them by actual index
+        # Extract output values and names by their actual index from ctx.states
+        output_value_map = {}  # {index: value}
+        output_name_map = {}   # {index: name}
+        output_enable_map = {} # {index: enabled}
+        
+        # Debug: Log ctx.states structure
+        logger.info(f"🔍 DEBUG: ctx.states type: {type(ctx.states)}")
+        logger.info(f"🔍 DEBUG: ctx.states keys: {list(ctx.states.keys()) if ctx.states else 'None'}")
+        
+        # Get all pattern-matched states for outputs
+        if ctx.states:
+            # ctx.states is a dict where keys are State objects (or tuples) and values are the actual values
+            # When using pattern matching, keys might be tuples like (id_dict, 'value') or just the id_dict
+            for state_key, state_value in ctx.states.items():
+                logger.debug(f"🔍 DEBUG: state_key type: {type(state_key)}, state_key: {state_key}, state_value: {state_value}")
+                
+                # Handle different possible key formats
+                id_dict = None
+                prop = None
+                
+                if isinstance(state_key, dict):
+                    # Key is directly the ID dict
+                    id_dict = state_key
+                    prop = 'value'  # Assume it's the value property
+                elif isinstance(state_key, tuple) and len(state_key) == 2:
+                    # Key is tuple (id_dict, property)
+                    id_dict, prop = state_key
+                
+                if id_dict and isinstance(id_dict, dict):
+                    comp_type = id_dict.get('type')
+                    comp_index = id_dict.get('index')
+                    
+                    if comp_type == 'analog-output-value' and comp_index:
+                        output_value_map[comp_index] = state_value
+                        logger.info(f"✅ Found output value for index {comp_index}: {state_value}")
+                    
+                    elif comp_type == 'analog-output-name' and comp_index:
+                        output_name_map[comp_index] = state_value
+                        logger.info(f"✅ Found output name for index {comp_index}: {state_value}")
+                    
+                    elif comp_type == 'analog-output-enable' and comp_index:
+                        output_enable_map[comp_index] = state_value
+                        logger.info(f"✅ Found output enable for index {comp_index}: {state_value}")
+        
+        logger.info(f"✅ Output value map: {output_value_map}")
+        logger.info(f"✅ Output name map: {output_name_map}")
+        logger.info(f"✅ Output enable map: {output_enable_map}")
+        
+        # FALLBACK: If ctx.states didn't populate maps, try using the arrays directly
+        # Dash ALL returns values in DOM order, and we create channels in order 1, 2
+        # So array[0] should be channel 1, array[1] should be channel 2
+        if not output_value_map and analog_output_value:
+            logger.warning("⚠️ ctx.states didn't populate output_value_map, using array fallback")
+            for idx, val in enumerate(analog_output_value):
+                channel_num = idx + 1  # Channels are 1-indexed
+                if channel_num <= 2:  # Only channels 1 and 2 for outputs
+                    output_value_map[channel_num] = val
+                    logger.info(f"✅ Fallback: Mapped array[{idx}] to channel {channel_num}: {val}")
+        
+        if not output_name_map and analog_output_name:
+            logger.warning("⚠️ ctx.states didn't populate output_name_map, using array fallback")
+            for idx, name in enumerate(analog_output_name):
+                channel_num = idx + 1
+                if channel_num <= 2:
+                    output_name_map[channel_num] = name
+                    logger.info(f"✅ Fallback: Mapped array[{idx}] to channel {channel_num}: {name}")
+        
+        if not output_enable_map and analog_output_enable:
+            logger.warning("⚠️ ctx.states didn't populate output_enable_map, using array fallback")
+            for idx, enabled in enumerate(analog_output_enable):
+                channel_num = idx + 1
+                if channel_num <= 2:
+                    output_enable_map[channel_num] = enabled
+                    logger.info(f"✅ Fallback: Mapped array[{idx}] to channel {channel_num}: {enabled}")
         
         # IO Pin mapping for channels
         io_pins = {
@@ -678,10 +890,11 @@ def save_configuration(
             
             # Validation: All parameters must be filled
             if div is None or mul is None or not name or name.strip() == '':
-                return True, html.Div([
+                error_msg = html.Div([
                     html.Strong("Validation Error: "),
                     f"Please fill all parameters for Channel {channel} (4-20mA): Divider, Multiplier, and Name/Label are required."
-                ])
+                ], className='text-danger')
+                return error_msg, html.I(className="fas fa-save me-2"), False
             
             input_4_20ma_data.append({
                 "channel": channel,
@@ -707,10 +920,11 @@ def save_configuration(
             
             # Validation: All parameters must be filled
             if div is None or mul is None or not name or name.strip() == '':
-                return True, html.Div([
+                error_msg = html.Div([
                     html.Strong("Validation Error: "),
                     f"Please fill all parameters for Channel {channel} (0-10V): Divider, Multiplier, and Name/Label are required."
-                ])
+                ], className='text-danger')
+                return error_msg, html.I(className="fas fa-save me-2"), False
             
             input_1_10v_data.append({
                 "channel": channel,
@@ -721,24 +935,954 @@ def save_configuration(
                 "name": name.strip()
             })
         
-        # 0-10V Output
+        # 0-10V Output - SIMPLIFIED APPROACH: Use arrays directly (they come in DOM order)
+        # ROOT CAUSE: Dash ALL returns values in DOM order. We create rows as channel 1, then channel 2.
+        # So analog_output_value[0] = channel 1, analog_output_value[1] = channel 2
+        output_0_10v_data = []
+        
+        logger.info(f"🔍 STEP 1: Checking input arrays for outputs")
+        logger.info(f"🔍 analog_output_value: {analog_output_value} (type: {type(analog_output_value)}, length: {len(analog_output_value) if analog_output_value else 0})")
+        logger.info(f"🔍 analog_output_name: {analog_output_name} (type: {type(analog_output_name)}, length: {len(analog_output_name) if analog_output_name else 0})")
+        logger.info(f"🔍 analog_output_enable: {analog_output_enable} (type: {type(analog_output_enable)}, length: {len(analog_output_enable) if analog_output_enable else 0})")
+        
+        # Process 2 output channels (channels 1 and 2, indices 1 and 2 in UI)
+        # Arrays from State ALL come in DOM order, so index 0 = first row = channel 1, index 1 = second row = channel 2
+        for idx in range(2):
+            channel = idx + 1  # Channel number (1 or 2)
+            io_pin = f"DOUT{idx}"  # DOUT0 or DOUT1
+            
+            logger.info(f"🔍 STEP 2: Processing output channel {channel} (array index {idx})")
+            
+            # Get value from array - handle bounds checking
+            if not analog_output_value or idx >= len(analog_output_value):
+                raw_value = None
+                logger.error(f"❌ Channel {channel} - analog_output_value is None or index {idx} out of range")
+            else:
+                raw_value = analog_output_value[idx]
+                logger.info(f"🔍 Channel {channel} - raw_value from array[{idx}]: {raw_value} (type: {type(raw_value)})")
+            
+            # Convert to float - handle None, empty string, and numeric values (including 0)
+            if raw_value is None:
+                value = None
+                logger.warning(f"⚠️ Channel {channel} - raw_value is None")
+            elif isinstance(raw_value, str):
+                raw_value = raw_value.strip()
+                if raw_value == '' or raw_value.lower() == 'none':
+                    value = None
+                    logger.warning(f"⚠️ Channel {channel} - raw_value is empty string or 'none'")
+                else:
+                    try:
+                        value = float(raw_value)
+                        logger.info(f"✅ Channel {channel} - converted string '{raw_value}' to float: {value}")
+                    except (ValueError, TypeError) as e:
+                        value = None
+                        logger.error(f"❌ Channel {channel} - cannot convert '{raw_value}' to float: {e}")
+            elif isinstance(raw_value, (int, float)):
+                value = float(raw_value)  # Convert int/float to float
+                logger.info(f"✅ Channel {channel} - converted {raw_value} (type: {type(raw_value)}) to float: {value}")
+            else:
+                try:
+                    value = float(raw_value)
+                    logger.info(f"✅ Channel {channel} - converted {raw_value} (type: {type(raw_value)}) to float: {value}")
+                except (ValueError, TypeError) as e:
+                    value = None
+                    logger.error(f"❌ Channel {channel} - cannot convert {raw_value} (type: {type(raw_value)}) to float: {e}")
+            
+            # Get name from array
+            if not analog_output_name or idx >= len(analog_output_name):
+                raw_name = None
+                logger.warning(f"⚠️ Channel {channel} - analog_output_name is None or index {idx} out of range")
+            else:
+                raw_name = analog_output_name[idx]
+                logger.info(f"🔍 Channel {channel} - raw_name from array[{idx}]: {raw_name} (type: {type(raw_name)})")
+            
+            # Process name
+            if raw_name is None:
+                name = None
+            else:
+                name_str = str(raw_name).strip()
+                name = name_str if name_str != '' else None
+            
+            # Set default name to IO pin if empty
+            if not name or name.strip() == '':
+                name = io_pin
+                logger.info(f"✅ Channel {channel} - name was empty, set to default: {io_pin}")
+            
+            # Get enabled from array
+            if not analog_output_enable or idx >= len(analog_output_enable):
+                enabled = False
+                logger.warning(f"⚠️ Channel {channel} - analog_output_enable is None or index {idx} out of range, defaulting to False")
+            else:
+                enabled = bool(analog_output_enable[idx])
+                logger.info(f"🔍 Channel {channel} - enabled from array[{idx}]: {enabled}")
+            
+            logger.info(f"🔍 Channel {channel} - Final values: value={value} (type: {type(value)}), name={name}, enabled={enabled}")
+            
+            # Validation: Value must be provided (0.0 is a VALID value)
+            # IMPORTANT: We only fail if value is None, NOT if it's 0.0
+            if value is None:
+                logger.error(f"❌ VALIDATION FAILED: Channel {channel} - value is None")
+                logger.error(f"❌ analog_output_value array: {analog_output_value}")
+                logger.error(f"❌ array index {idx} value: {analog_output_value[idx] if analog_output_value and idx < len(analog_output_value) else 'OUT_OF_RANGE'}")
+                error_msg = html.Div([
+                    html.Strong("Validation Error: "),
+                    f"Please fill all parameters for Output Channel {channel}: Value is required (cannot be empty)."
+                ], className='text-danger')
+                return error_msg, html.I(className="fas fa-save me-2"), False
+            
+            # Validation: Name should be set (should have default by now, but double-check)
+            if not name or name.strip() == '':
+                logger.error(f"❌ VALIDATION FAILED: Channel {channel} - name is empty")
+                error_msg = html.Div([
+                    html.Strong("Validation Error: "),
+                    f"Please fill all parameters for Output Channel {channel}: Name/Label is required."
+                ], className='text-danger')
+                return error_msg, html.I(className="fas fa-save me-2"), False
+            
+            # Add to output data list
+            output_data = {
+                "channel": channel,
+                "enabled": enabled,
+                "value": value,  # This is now guaranteed to be a float (not None)
+                "io_pin": io_pin,
+                "name": name.strip()
+            }
+            output_0_10v_data.append(output_data)
+            logger.info(f"✅ Channel {channel} - added to output_0_10v_data: {output_data}")
+        
+        logger.info(f"✅ DEBUG: output_0_10v_data final list: {output_0_10v_data} (length: {len(output_0_10v_data)})")
+        
+        # Verify output_0_10v_data before building config
+        if not output_0_10v_data:
+            logger.warning(f"⚠️ WARNING: output_0_10v_data is EMPTY before building analog_config!")
+        else:
+            logger.info(f"✅ output_0_10v_data has {len(output_0_10v_data)} entries")
+        
+        analog_config = builder.build_analog_config(
+            input_4_20ma_data,
+            input_1_10v_data,
+            output_0_10v_data,
+            scan_rate=analog_scan_rate
+        )
+        
+        # Verify output_0_10v in built config
+        built_output_0_10v = analog_config.get("output_0_10v", [])
+        logger.info(f"✅ DEBUG: Built analog_config has output_0_10v with {len(built_output_0_10v)} entries")
+        logger.debug(f"🔍 DEBUG: Built analog_config['output_0_10v']: {built_output_0_10v}")
+        
+        # Build config with only analog section
+        config_with_analog_only = {
+            "device_id": serial_number,
+            "analog": analog_config
+        }
+        
+        # CRITICAL DEBUG: Log what we're about to save
+        logger.info(f"🔍 STEP 1 PREPARATION: About to save analog config for device: {serial_number}")
+        logger.info(f"🔍 config_with_analog_only keys: {list(config_with_analog_only.keys())}")
+        logger.info(f"🔍 analog_config keys: {list(analog_config.keys())}")
+        logger.info(f"🔍 analog_config['output_0_10v'] exists: {'output_0_10v' in analog_config}")
+        if 'output_0_10v' in analog_config:
+            output_list = analog_config.get('output_0_10v', [])
+            logger.info(f"🔍 analog_config['output_0_10v'] length: {len(output_list)}")
+            logger.info(f"🔍 analog_config['output_0_10v'] contents: {output_list}")
+        else:
+            logger.error(f"❌ CRITICAL: 'output_0_10v' key NOT FOUND in analog_config!")
+            logger.error(f"❌ analog_config full contents: {analog_config}")
+        
+        # Save to database - Only Device_Config_Analog table
+        if db_service.is_connected():
+            # STEP 1: Save only analog section to its individual table
+            # IMPORTANT: save_config_sections_only() will ONLY save sections that exist in the config dict
+            # Since config_with_analog_only only contains "analog", only analog section will be saved
+            logger.info(f"🔍 STEP 1: Calling save_config_sections_only() to save analog section to Device_Config_Analog table...")
+            try:
+                save_success = db_service.save_config_sections_only(serial_number, config_with_analog_only)
+                if not save_success:
+                    logger.error(f"❌ Failed to save analog config sections for device {serial_number}")
+                    error_msg = html.Div([
+                        html.Strong("Error: "),
+                        f"❌ Failed to save analog configuration to database."
+                    ], className='text-danger')
+                    return error_msg, html.I(className="fas fa-save me-2"), False
+                logger.info(f"✅ STEP 1: Successfully saved analog section to Device_Config_Analog")
+            except Exception as save_error:
+                logger.error(f"❌ Exception while saving analog config sections: {save_error}")
+                logger.exception("Full traceback:")
+                error_msg = html.Div([
+                    html.Strong("Error: "),
+                    f"❌ Error saving analog configuration: {str(save_error)}"
+                ], className='text-danger')
+                return error_msg, html.I(className="fas fa-save me-2"), False
+            
+            # STEP 2: Rebuild complete merged config from ALL tabs
+            # Get latest configs from other tabs (Digital, MODBUS, CAN Bus)
+            logger.info(f"🔍 STEP 2: Fetching latest configs from all tables...")
+            digital_config_db = db_service.get_digital_config(serial_number)
+            modbus_config_db = db_service.get_modbus_config(serial_number)
+            can_bus_config_db = db_service.get_can_bus_config(serial_number)
+            
+            logger.info(f"🔍 DEBUG: digital_config_db exists: {digital_config_db is not None}")
+            logger.info(f"🔍 DEBUG: modbus_config_db exists: {modbus_config_db is not None}")
+            logger.info(f"🔍 DEBUG: can_bus_config_db exists: {can_bus_config_db is not None}")
+            
+            # Build ONE merged complete config combining ALL sections
+            complete_config = {
+                "device_id": serial_number
+            }
+            
+            # Add new Analog config (just saved)
+            complete_config["analog"] = analog_config
+            
+            # Add other sections if they exist (from database)
+            if digital_config_db:
+                complete_config["digital"] = digital_config_db
+                logger.info(f"✅ Added digital config to merged config")
+            else:
+                logger.info(f"⚠️ No digital config found in database for device {serial_number}")
+            
+            if modbus_config_db:
+                complete_config["rs485_modbus"] = modbus_config_db
+                logger.info(f"✅ Added rs485_modbus config to merged config")
+            else:
+                logger.info(f"⚠️ No rs485_modbus config found in database for device {serial_number}")
+            
+            if can_bus_config_db:
+                complete_config["can_bus"] = can_bus_config_db
+                logger.info(f"✅ Added can_bus config to merged config")
+            else:
+                logger.info(f"⚠️ No can_bus config found in database for device {serial_number}")
+            
+            logger.info(f"✅ DEBUG: Complete merged config has sections: {list(complete_config.keys())}")
+            logger.debug(f"🔍 DEBUG: Complete merged config: {complete_config}")
+            
+            # STEP 3: Save ONE merged JSON to Device_Config
+            # IMPORTANT: save_device_config() ONLY saves the merged JSON, NOT individual sections
+            # This ensures Device_Config always contains ONE merged JSON per device
+            logger.info(f"🔍 STEP 3: Saving merged config to Device_Config table...")
+            try:
+                save_merged_success = db_service.save_device_config(serial_number, complete_config)
+                if not save_merged_success:
+                    logger.error(f"❌ Failed to save merged config to Device_Config for device {serial_number}")
+                else:
+                    logger.info(f"✅ STEP 3: Successfully saved merged config to Device_Config")
+            except Exception as merge_error:
+                logger.error(f"❌ Exception while saving merged config: {merge_error}")
+                logger.exception("Full traceback:")
+                # Don't fail the save, just log the error
+            
+            # Publish to MQTT
+            try:
+                from app.services.mqtt_client import MQTTClientService
+                mqtt_service = MQTTClientService()
+                if mqtt_service.is_connected():
+                    mqtt_service.publish_config(serial_number, complete_config)
+            except Exception as mqtt_error:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"MQTT publishing failed (non-critical): {mqtt_error}")
+        
+        # Also save to local JSON (for backup)
+        success = config_service.save_device_config(serial_number, config_with_analog_only)
+        
+        # Success - show message, restore icon, re-enable button
+        if success or db_service.is_connected():
+            success_msg = html.Div([
+                html.Span("✅ ", className='text-success'),
+                html.Strong("Saved! ", className='text-success'),
+                f"Device: {serial_number} | Complete config updated & published to MQTT"
+            ], className='text-success fw-bold')
+            # Return: status message, icon (no spinner), button enabled
+            return success_msg, html.I(className="fas fa-save me-2"), False
+        else:
+            # Error - show error message, restore icon, re-enable button
+            error_msg = html.Div([
+                html.Strong("Error: "),
+                f"❌ Error saving analog configuration for Serial Number: {serial_number}"
+            ], className='text-danger')
+            return error_msg, html.I(className="fas fa-save me-2"), False
+            
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error saving analog configuration: {e}")
+        logger.exception("Full error traceback:")
+        error_msg = html.Div([
+            html.Strong("Error: "),
+            f"❌ {str(e)}"
+        ], className='text-danger')
+        return error_msg, html.I(className="fas fa-save me-2"), False
+
+
+# Callback for save Digital configuration (inside Digital tab)
+@callback(
+    Output('config-save-toast', 'is_open', allow_duplicate=True),
+    Output('config-save-toast', 'children', allow_duplicate=True),
+    Input('save-digital-config-btn', 'n_clicks'),
+    # Digital I/O States
+    State({'type': 'npn-input-enable', 'index': ALL}, 'value'),
+    State({'type': 'npn-input-name', 'index': ALL}, 'value'),
+    State({'type': 'npn-output-enable', 'index': ALL}, 'value'),
+    State({'type': 'npn-output-name', 'index': ALL}, 'value'),
+    State({'type': 'pnp-input-enable', 'index': ALL}, 'value'),
+    State({'type': 'pnp-input-name', 'index': ALL}, 'value'),
+    State({'type': 'pnp-output-enable', 'index': ALL}, 'value'),
+    State({'type': 'pnp-output-name', 'index': ALL}, 'value'),
+    State({'type': 'relay-enable', 'index': ALL}, 'value'),
+    State({'type': 'relay-name', 'index': ALL}, 'value'),
+    # Scan Rate State
+    State('digital-scan-rate', 'value'),
+    # Device Selection (Serial Number)
+    State('device-selector', 'value'),
+    prevent_initial_call=True
+)
+def save_digital_configuration(
+    n_clicks,
+    npn_input_enable, npn_input_name,
+    npn_output_enable, npn_output_name,
+    pnp_input_enable, pnp_input_name,
+    pnp_output_enable, pnp_output_name,
+    relay_enable, relay_name,
+    digital_scan_rate,
+    serial_number
+):
+    """Save Digital configuration - saves only to Device_Config_Digital table"""
+    if not n_clicks:
+        return False, ""
+    
+    try:
+        from app.services.config_json_builder import ConfigJSONBuilder
+        from app.services.device_config import DeviceConfigService
+        from app.services.device_config_db import DeviceConfigDBService
+        
+        builder = ConfigJSONBuilder()
+        config_service = DeviceConfigService()
+        db_service = DeviceConfigDBService()
+        
+        # Validate Serial Number is selected
+        if not serial_number:
+            return True, html.Div([
+                html.Strong("Validation Error: "),
+                "Please select a device (Serial Number) from the dropdown."
+            ])
+        
+        # Validate Scan Rate
+        if digital_scan_rate is None or digital_scan_rate < 1000:
+            return True, html.Div([
+                html.Strong("Validation Error: "),
+                "Digital Scan Rate must be at least 1000 seconds."
+            ])
+        
+        # IO Pin mappings
+        digital_io_pins = {
+            'npn_input': {1: "INP1H", 2: "INP2H", 3: "INP3H", 4: "INP4H"},
+            'npn_output': {1: "OUTL1", 2: "OUTL2", 3: "OUTL3", 4: "OUTL4"},
+            'pnp_input': {1: "INP1L", 2: "INP2L", 3: "INP3L", 4: "INP4L"},
+            'pnp_output': {1: "OUTH1", 2: "OUTH2", 3: "OUTH3", 4: "OUTH4"},
+            'relay': {1: "RLY1", 2: "RLY2", 3: "RLY3", 4: "RLY4"}
+        }
+        
+        # Build Digital Config
+        npn_input_data = []
+        for idx in range(4):
+            channel = idx + 1
+            io_pin = digital_io_pins['npn_input'][channel]
+            name = npn_input_name[idx] if idx < len(npn_input_name) and npn_input_name[idx] else io_pin
+            if not name or name.strip() == '':
+                name = io_pin
+            
+            npn_input_data.append({
+                "channel": channel,
+                "enabled": npn_input_enable[idx] if idx < len(npn_input_enable) else False,
+                "io_pin": io_pin,
+                "name": name.strip()
+            })
+        
+        npn_output_data = []
+        for idx in range(4):
+            channel = idx + 1
+            io_pin = digital_io_pins['npn_output'][channel]
+            name = npn_output_name[idx] if idx < len(npn_output_name) and npn_output_name[idx] else io_pin
+            if not name or name.strip() == '':
+                name = io_pin
+            
+            npn_output_data.append({
+                "channel": channel,
+                "enabled": npn_output_enable[idx] if idx < len(npn_output_enable) else False,
+                "io_pin": io_pin,
+                "name": name.strip()
+            })
+        
+        pnp_input_data = []
+        for idx in range(4):
+            channel = idx + 1
+            io_pin = digital_io_pins['pnp_input'][channel]
+            name = pnp_input_name[idx] if idx < len(pnp_input_name) and pnp_input_name[idx] else io_pin
+            if not name or name.strip() == '':
+                name = io_pin
+            
+            pnp_input_data.append({
+                "channel": channel,
+                "enabled": pnp_input_enable[idx] if idx < len(pnp_input_enable) else False,
+                "io_pin": io_pin,
+                "name": name.strip()
+            })
+        
+        pnp_output_data = []
+        for idx in range(4):
+            channel = idx + 1
+            io_pin = digital_io_pins['pnp_output'][channel]
+            name = pnp_output_name[idx] if idx < len(pnp_output_name) and pnp_output_name[idx] else io_pin
+            if not name or name.strip() == '':
+                name = io_pin
+            
+            pnp_output_data.append({
+                "channel": channel,
+                "enabled": pnp_output_enable[idx] if idx < len(pnp_output_enable) else False,
+                "io_pin": io_pin,
+                "name": name.strip()
+            })
+        
+        relay_data = []
+        for idx in range(4):
+            channel = idx + 1
+            io_pin = digital_io_pins['relay'][channel]
+            name = relay_name[idx] if idx < len(relay_name) and relay_name[idx] else io_pin
+            if not name or name.strip() == '':
+                name = io_pin
+            
+            relay_data.append({
+                "channel": channel,
+                "enabled": relay_enable[idx] if idx < len(relay_enable) else False,
+                "io_pin": io_pin,
+                "name": name.strip()
+            })
+        
+        digital_config = builder.build_digital_config(
+            npn_input_data,
+            npn_output_data,
+            pnp_input_data,
+            pnp_output_data,
+            relay_data
+        )
+        digital_config["scan_rate"] = digital_scan_rate
+        
+        # Build config with only digital section
+        config_with_digital_only = {
+            "device_id": serial_number,
+            "digital": digital_config
+        }
+        
+        # Save to database - Only Device_Config_Digital table
+        if db_service.is_connected():
+            # Save only digital section to its table
+            db_service.save_config_sections_only(serial_number, config_with_digital_only)
+            
+            # Rebuild complete config from all tabs (new Digital + existing Analog/MODBUS/CAN Bus)
+            analog_config_db = db_service.get_analog_config(serial_number)
+            modbus_config_db = db_service.get_modbus_config(serial_number)
+            can_bus_config_db = db_service.get_can_bus_config(serial_number)
+            
+            # Build complete config
+            complete_config = {
+                "device_id": serial_number
+            }
+            
+            if analog_config_db:
+                complete_config["analog"] = analog_config_db
+            complete_config["digital"] = digital_config  # New Digital config
+            if modbus_config_db:
+                complete_config["rs485_modbus"] = modbus_config_db
+            if can_bus_config_db:
+                complete_config["can_bus"] = can_bus_config_db
+            
+            # Save complete config to Device_Config
+            db_service.save_device_config(serial_number, complete_config)
+            
+            # Publish to MQTT
+            try:
+                from app.services.mqtt_client import MQTTClientService
+                mqtt_service = MQTTClientService()
+                if mqtt_service.is_connected():
+                    mqtt_service.publish_config(serial_number, complete_config)
+            except Exception as mqtt_error:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"MQTT publishing failed (non-critical): {mqtt_error}")
+        
+        # Also save to local JSON (for backup)
+        success = config_service.save_device_config(serial_number, config_with_digital_only)
+        
+        if success or db_service.is_connected():
+            success_msg = html.Div([
+                html.Span("✅ ", className='text-success'),
+                html.Strong("Saved! ", className='text-success'),
+                f"Device: {serial_number} | Complete config updated & published to MQTT"
+            ], className='text-success fw-bold')
+            return True, success_msg
+        else:
+            return True, html.Div([
+                html.Strong("Error: "),
+                f"❌ Error saving digital configuration for Serial Number: {serial_number}"
+            ])
+            
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error saving digital configuration: {e}")
+        logger.exception("Full error traceback:")
+        return True, html.Div([
+            html.Strong("Error: "),
+            f"❌ {str(e)}"
+        ])
+
+
+# Callback for save RS485 MODBUS configuration (inside RS485 MODBUS tab)
+@callback(
+    Output('config-save-toast', 'is_open', allow_duplicate=True),
+    Output('config-save-toast', 'children', allow_duplicate=True),
+    Input('save-modbus-config-btn', 'n_clicks'),
+    # RS485 MODBUS States
+    State('modbus-baud-rate', 'value'),
+    State('modbus-data-bits', 'value'),
+    State('modbus-parity', 'value'),
+    State('modbus-stop-bits', 'value'),
+    State('modbus-mode', 'value'),
+    State('modbus-role', 'value'),
+    State('modbus-polling-interval', 'value'),
+    State('modbus-devices-store', 'data'),
+    # Device Selection (Serial Number)
+    State('device-selector', 'value'),
+    prevent_initial_call=True
+)
+def save_modbus_configuration(
+    n_clicks,
+    modbus_baud_rate, modbus_data_bits, modbus_parity, modbus_stop_bits,
+    modbus_mode, modbus_role, modbus_polling_interval, modbus_devices_store,
+    serial_number
+):
+    """Save RS485 MODBUS configuration - saves only to Device_Config_MODBUS table"""
+    if not n_clicks:
+        return False, ""
+    
+    try:
+        from app.services.config_json_builder import ConfigJSONBuilder
+        from app.services.device_config import DeviceConfigService
+        from app.services.device_config_db import DeviceConfigDBService
+        
+        builder = ConfigJSONBuilder()
+        config_service = DeviceConfigService()
+        db_service = DeviceConfigDBService()
+        
+        # Validate Serial Number is selected
+        if not serial_number:
+            return True, html.Div([
+                html.Strong("Validation Error: "),
+                "Please select a device (Serial Number) from the dropdown."
+            ])
+        
+        # Validate required fields
+        if not modbus_baud_rate:
+            return True, html.Div([
+                html.Strong("Validation Error: "),
+                "Please configure MODBUS communication settings."
+            ])
+        
+        # Build RS485 MODBUS Config
+        modbus_slave_devices = modbus_devices_store if modbus_devices_store else []
+        modbus_config = builder.build_modbus_config(
+            baud_rate=modbus_baud_rate,
+            data_bits=modbus_data_bits or "8",
+            parity=modbus_parity or "None",
+            stop_bits=modbus_stop_bits or "1",
+            mode=modbus_mode or "RTU",
+            role=modbus_role or "Master",
+            polling_interval=int(modbus_polling_interval) if modbus_polling_interval else 1000,
+            slave_devices=modbus_slave_devices
+        )
+        
+        # Build config with only MODBUS section
+        config_with_modbus_only = {
+            "device_id": serial_number,
+            "rs485_modbus": modbus_config
+        }
+        
+        # Save to database - Only Device_Config_MODBUS table
+        if db_service.is_connected():
+            # Save only MODBUS section to its table
+            db_service.save_config_sections_only(serial_number, config_with_modbus_only)
+            
+            # Rebuild complete config from all tabs (new MODBUS + existing Analog/Digital/CAN Bus)
+            analog_config_db = db_service.get_analog_config(serial_number)
+            digital_config_db = db_service.get_digital_config(serial_number)
+            can_bus_config_db = db_service.get_can_bus_config(serial_number)
+            
+            # Build complete config
+            complete_config = {
+                "device_id": serial_number
+            }
+            
+            if analog_config_db:
+                complete_config["analog"] = analog_config_db
+            if digital_config_db:
+                complete_config["digital"] = digital_config_db
+            complete_config["rs485_modbus"] = modbus_config  # New MODBUS config
+            if can_bus_config_db:
+                complete_config["can_bus"] = can_bus_config_db
+            
+            # Save complete config to Device_Config
+            db_service.save_device_config(serial_number, complete_config)
+            
+            # Publish to MQTT
+            try:
+                from app.services.mqtt_client import MQTTClientService
+                mqtt_service = MQTTClientService()
+                if mqtt_service.is_connected():
+                    mqtt_service.publish_config(serial_number, complete_config)
+            except Exception as mqtt_error:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"MQTT publishing failed (non-critical): {mqtt_error}")
+        
+        # Also save to local JSON (for backup)
+        success = config_service.save_device_config(serial_number, config_with_modbus_only)
+        
+        if success or db_service.is_connected():
+            success_msg = html.Div([
+                html.Span("✅ ", className='text-success'),
+                html.Strong("Saved! ", className='text-success'),
+                f"Device: {serial_number} | Complete config updated & published to MQTT"
+            ], className='text-success fw-bold')
+            return True, success_msg
+        else:
+            return True, html.Div([
+                html.Strong("Error: "),
+                f"❌ Error saving MODBUS configuration for Serial Number: {serial_number}"
+            ])
+            
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error saving MODBUS configuration: {e}")
+        logger.exception("Full error traceback:")
+        return True, html.Div([
+            html.Strong("Error: "),
+            f"❌ {str(e)}"
+        ])
+
+
+# Callback for save CAN Bus configuration (inside CAN Bus tab)
+@callback(
+    Output('config-save-toast', 'is_open', allow_duplicate=True),
+    Output('config-save-toast', 'children', allow_duplicate=True),
+    Input('save-canbus-config-btn', 'n_clicks'),
+    # CAN Bus States
+    State('can-baud-rate', 'value'),
+    State('can-identifier-length', 'value'),
+    State('can-mode', 'value'),
+    State('can-filter-mode', 'value'),
+    State('can-filter-id', 'value'),
+    State('can-filter-mask', 'value'),
+    State('can-messages-store', 'data'),
+    State('can-data-mapping-store', 'data'),
+    # Device Selection (Serial Number)
+    State('device-selector', 'value'),
+    prevent_initial_call=True
+)
+def save_canbus_configuration(
+    n_clicks,
+    can_baud_rate, can_identifier_length, can_mode, can_filter_mode,
+    can_filter_id, can_filter_mask, can_messages_store, can_data_mapping_store,
+    serial_number
+):
+    """Save CAN Bus configuration - saves only to Device_Config_CANBus table"""
+    if not n_clicks:
+        return False, ""
+    
+    try:
+        from app.services.config_json_builder import ConfigJSONBuilder
+        from app.services.device_config import DeviceConfigService
+        from app.services.device_config_db import DeviceConfigDBService
+        
+        builder = ConfigJSONBuilder()
+        config_service = DeviceConfigService()
+        db_service = DeviceConfigDBService()
+        
+        # Validate Serial Number is selected
+        if not serial_number:
+            return True, html.Div([
+                html.Strong("Validation Error: "),
+                "Please select a device (Serial Number) from the dropdown."
+            ])
+        
+        # Validate required fields
+        if not can_baud_rate:
+            return True, html.Div([
+                html.Strong("Validation Error: "),
+                "Please configure CAN Bus communication settings."
+            ])
+        
+        # Build CAN Bus Config
+        can_messages = can_messages_store if can_messages_store else []
+        can_data_mappings = can_data_mapping_store if can_data_mapping_store else []
+        can_bus_config = builder.build_can_bus_config(
+            baud_rate=can_baud_rate,
+            identifier_length=can_identifier_length or "11-bit",
+            can_mode=can_mode or "Normal",
+            filter_mode=can_filter_mode or "None",
+            filter_id=can_filter_id or "0x000",
+            filter_mask=can_filter_mask or "0x000",
+            can_messages=can_messages,
+            data_mappings=can_data_mappings
+        )
+        
+        # Build config with only CAN Bus section
+        config_with_canbus_only = {
+            "device_id": serial_number,
+            "can_bus": can_bus_config
+        }
+        
+        # Save to database - Only Device_Config_CANBus table
+        if db_service.is_connected():
+            # Save only CAN Bus section to its table
+            db_service.save_config_sections_only(serial_number, config_with_canbus_only)
+            
+            # Rebuild complete config from all tabs (new CAN Bus + existing Analog/Digital/MODBUS)
+            analog_config_db = db_service.get_analog_config(serial_number)
+            digital_config_db = db_service.get_digital_config(serial_number)
+            modbus_config_db = db_service.get_modbus_config(serial_number)
+            
+            # Build complete config
+            complete_config = {
+                "device_id": serial_number
+            }
+            
+            if analog_config_db:
+                complete_config["analog"] = analog_config_db
+            if digital_config_db:
+                complete_config["digital"] = digital_config_db
+            if modbus_config_db:
+                complete_config["rs485_modbus"] = modbus_config_db
+            complete_config["can_bus"] = can_bus_config  # New CAN Bus config
+            
+            # Save complete config to Device_Config
+            db_service.save_device_config(serial_number, complete_config)
+            
+            # Publish to MQTT
+            try:
+                from app.services.mqtt_client import MQTTClientService
+                mqtt_service = MQTTClientService()
+                if mqtt_service.is_connected():
+                    mqtt_service.publish_config(serial_number, complete_config)
+            except Exception as mqtt_error:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"MQTT publishing failed (non-critical): {mqtt_error}")
+        
+        # Also save to local JSON (for backup)
+        success = config_service.save_device_config(serial_number, config_with_canbus_only)
+        
+        if success or db_service.is_connected():
+            success_msg = html.Div([
+                html.Span("✅ ", className='text-success'),
+                html.Strong("Saved! ", className='text-success'),
+                f"Device: {serial_number} | Complete config updated & published to MQTT"
+            ], className='text-success fw-bold')
+            return True, success_msg
+        else:
+            return True, html.Div([
+                html.Strong("Error: "),
+                f"❌ Error saving CAN Bus configuration for Serial Number: {serial_number}"
+            ])
+            
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error saving CAN Bus configuration: {e}")
+        logger.exception("Full error traceback:")
+        return True, html.Div([
+            html.Strong("Error: "),
+            f"❌ {str(e)}"
+        ])
+
+
+# Callback for "Save All Configuration" button - saves to Device_Config table
+@callback(
+    [
+        Output('save-all-status-message', 'children'),
+        Output('save-all-btn-spinner', 'children'),
+        Output('save-all-config-btn', 'disabled'),
+        Output('config-save-toast', 'is_open', allow_duplicate=True),
+        Output('config-save-toast', 'children', allow_duplicate=True),
+    ],
+    Input('save-all-config-btn', 'n_clicks'),
+    # Analog Input States
+    State({'type': 'analog-input-enable', 'index': ALL}, 'value'),
+    State({'type': 'analog-input-div', 'index': ALL}, 'value'),
+    State({'type': 'analog-input-mul', 'index': ALL}, 'value'),
+    State({'type': 'analog-input-name', 'index': ALL}, 'value'),
+    # Analog Output States
+    State({'type': 'analog-output-enable', 'index': ALL}, 'value'),
+    State({'type': 'analog-output-value', 'index': ALL}, 'value'),
+    State({'type': 'analog-output-name', 'index': ALL}, 'value'),
+    # Scan Rate States
+    State('analog-scan-rate', 'value'),
+    State('digital-scan-rate', 'value'),
+    # Digital I/O States
+    State({'type': 'npn-input-enable', 'index': ALL}, 'value'),
+    State({'type': 'npn-input-name', 'index': ALL}, 'value'),
+    State({'type': 'npn-output-enable', 'index': ALL}, 'value'),
+    State({'type': 'npn-output-name', 'index': ALL}, 'value'),
+    State({'type': 'pnp-input-enable', 'index': ALL}, 'value'),
+    State({'type': 'pnp-input-name', 'index': ALL}, 'value'),
+    State({'type': 'pnp-output-enable', 'index': ALL}, 'value'),
+    State({'type': 'pnp-output-name', 'index': ALL}, 'value'),
+    State({'type': 'relay-enable', 'index': ALL}, 'value'),
+    State({'type': 'relay-name', 'index': ALL}, 'value'),
+    # RS485 MODBUS States
+    State('modbus-baud-rate', 'value'),
+    State('modbus-data-bits', 'value'),
+    State('modbus-parity', 'value'),
+    State('modbus-stop-bits', 'value'),
+    State('modbus-mode', 'value'),
+    State('modbus-role', 'value'),
+    State('modbus-polling-interval', 'value'),
+    State('modbus-devices-store', 'data'),
+    # CAN Bus States
+    State('can-baud-rate', 'value'),
+    State('can-identifier-length', 'value'),
+    State('can-mode', 'value'),
+    State('can-filter-mode', 'value'),
+    State('can-filter-id', 'value'),
+    State('can-filter-mask', 'value'),
+    State('can-messages-store', 'data'),
+    State('can-data-mapping-store', 'data'),
+    # Device Selection (Serial Number)
+    State('device-selector', 'value'),
+    prevent_initial_call=True
+)
+def save_all_configuration(
+    n_clicks,
+    # Analog inputs
+    analog_input_enable, analog_input_div, analog_input_mul, analog_input_name,
+    # Analog outputs
+    analog_output_enable, analog_output_value, analog_output_name,
+    # Scan rates
+    analog_scan_rate, digital_scan_rate,
+    # Digital I/O
+    npn_input_enable, npn_input_name,
+    npn_output_enable, npn_output_name,
+    pnp_input_enable, pnp_input_name,
+    pnp_output_enable, pnp_output_name,
+    relay_enable, relay_name,
+    # RS485 MODBUS
+    modbus_baud_rate, modbus_data_bits, modbus_parity, modbus_stop_bits,
+    modbus_mode, modbus_role, modbus_polling_interval, modbus_devices_store,
+    # CAN Bus
+    can_baud_rate, can_identifier_length, can_mode, can_filter_mode,
+    can_filter_id, can_filter_mask, can_messages_store, can_data_mapping_store,
+    # Device
+    serial_number
+):
+    """Save all configurations (Analog, Digital, RS485 MODBUS, CAN Bus) to Device_Config table"""
+    if not n_clicks:
+        return "", html.I(className="fas fa-save me-2"), False, False, ""
+    
+    try:
+        from app.services.config_json_builder import ConfigJSONBuilder
+        from app.services.device_config import DeviceConfigService
+        from app.services.device_config_db import DeviceConfigDBService
+        from app.services.mqtt_client import MQTTClientService
+        
+        builder = ConfigJSONBuilder()
+        config_service = DeviceConfigService()
+        db_service = DeviceConfigDBService()
+        
+        # Validate Serial Number is selected
+        if not serial_number:
+            error_msg = html.Div([
+                html.Strong("Validation Error: "),
+                "Please select a device (Serial Number) from the dropdown."
+            ], className='text-danger')
+            return error_msg, html.I(className="fas fa-save me-2"), False, True, error_msg
+        
+        # Validate Scan Rates
+        if analog_scan_rate is None or analog_scan_rate < 1000:
+            error_msg = html.Div([
+                html.Strong("Validation Error: "),
+                "Analog Scan Rate must be at least 1000 seconds."
+            ], className='text-danger')
+            return error_msg, html.I(className="fas fa-save me-2"), False, True, error_msg
+        
+        if digital_scan_rate is None or digital_scan_rate < 1000:
+            error_msg = html.Div([
+                html.Strong("Validation Error: "),
+                "Digital Scan Rate must be at least 1000 seconds."
+            ], className='text-danger')
+            return error_msg, html.I(className="fas fa-save me-2"), False, True, error_msg
+        
+        # Get device info for device name
+        from app.services.device_info_service import DeviceInfoService
+        device_info_service = DeviceInfoService()
+        device_info = device_info_service.get_device_info(serial_number)
+        device_name = device_info.get('Device_Name', serial_number) if device_info else serial_number
+        
+        # IO Pin mappings
+        analog_io_pins = {1: "AIN0", 2: "AIN1", 3: "AIN2", 4: "AIN3"}
+        digital_io_pins = {
+            'npn_input': {1: "INP1H", 2: "INP2H", 3: "INP3H", 4: "INP4H"},
+            'npn_output': {1: "OUTL1", 2: "OUTL2", 3: "OUTL3", 4: "OUTL4"},
+            'pnp_input': {1: "INP1L", 2: "INP2L", 3: "INP3L", 4: "INP4L"},
+            'pnp_output': {1: "OUTH1", 2: "OUTH2", 3: "OUTH3", 4: "OUTH4"},
+            'relay': {1: "RLY1", 2: "RLY2", 3: "RLY3", 4: "RLY4"}
+        }
+        
+        # Build Analog Config
+        input_4_20ma_data = []
+        for idx in range(2):
+            channel = idx + 1
+            io_pin = analog_io_pins[channel]
+            div = analog_input_div[idx] if idx < len(analog_input_div) and analog_input_div[idx] is not None else 1
+            mul = analog_input_mul[idx] if idx < len(analog_input_mul) and analog_input_mul[idx] is not None else 1
+            name = analog_input_name[idx] if idx < len(analog_input_name) and analog_input_name[idx] else io_pin
+            if not name or name.strip() == '':
+                name = io_pin
+            
+            input_4_20ma_data.append({
+                "channel": channel,
+                "enabled": analog_input_enable[idx] if idx < len(analog_input_enable) else False,
+                "divider": div,
+                "multiplier": mul,
+                "io_pin": io_pin,
+                "name": name.strip()
+            })
+        
+        input_1_10v_data = []
+        for idx in range(2):
+            channel = idx + 3
+            io_pin = analog_io_pins[channel]
+            div = analog_input_div[idx + 2] if idx + 2 < len(analog_input_div) and analog_input_div[idx + 2] is not None else 1
+            mul = analog_input_mul[idx + 2] if idx + 2 < len(analog_input_mul) and analog_input_mul[idx + 2] is not None else 1
+            name = analog_input_name[idx + 2] if idx + 2 < len(analog_input_name) and analog_input_name[idx + 2] else io_pin
+            if not name or name.strip() == '':
+                name = io_pin
+            
+            input_1_10v_data.append({
+                "channel": channel,
+                "enabled": analog_input_enable[idx + 2] if idx + 2 < len(analog_input_enable) else False,
+                "divider": div,
+                "multiplier": mul,
+                "io_pin": io_pin,
+                "name": name.strip()
+            })
+        
         output_0_10v_data = []
         for idx in range(2):
             channel = idx + 1
             io_pin = f"DOUT{idx}"
-            value = analog_output_value[idx] if idx < len(analog_output_value) and analog_output_value[idx] is not None else None
-            name = analog_output_name[idx] if idx < len(analog_output_name) and analog_output_name[idx] else None
-            
-            # Set default name to IO pin if empty (before validation)
+            value = analog_output_value[idx] if idx < len(analog_output_value) and analog_output_value[idx] is not None else 0.0
+            name = analog_output_name[idx] if idx < len(analog_output_name) and analog_output_name[idx] else io_pin
             if not name or name.strip() == '':
                 name = io_pin
-            
-            # Validation: All parameters must be filled
-            if value is None or not name or name.strip() == '':
-                return True, html.Div([
-                    html.Strong("Validation Error: "),
-                    f"Please fill all parameters for Output Channel {channel}: Value and Name/Label are required."
-                ])
             
             output_0_10v_data.append({
                 "channel": channel,
@@ -755,49 +1899,183 @@ def save_configuration(
             scan_rate=analog_scan_rate
         )
         
-        # Build digital config (for now empty, but include scan_rate)
-        digital_config = {
-            "npn_input": [],
-            "npn_output": [],
-            "pnp_input": [],
-            "pnp_output": [],
-            "relay": [],
-            "scan_rate": digital_scan_rate
-        }
+        # Build Digital Config
+        npn_input_data = []
+        for idx in range(4):
+            channel = idx + 1
+            io_pin = digital_io_pins['npn_input'][channel]
+            name = npn_input_name[idx] if idx < len(npn_input_name) and npn_input_name[idx] else io_pin
+            if not name or name.strip() == '':
+                name = io_pin
+            
+            npn_input_data.append({
+                "channel": channel,
+                "enabled": npn_input_enable[idx] if idx < len(npn_input_enable) else False,
+                "io_pin": io_pin,
+                "name": name.strip()
+            })
         
-        # Build complete config
+        npn_output_data = []
+        for idx in range(4):
+            channel = idx + 1
+            io_pin = digital_io_pins['npn_output'][channel]
+            name = npn_output_name[idx] if idx < len(npn_output_name) and npn_output_name[idx] else io_pin
+            if not name or name.strip() == '':
+                name = io_pin
+            
+            npn_output_data.append({
+                "channel": channel,
+                "enabled": npn_output_enable[idx] if idx < len(npn_output_enable) else False,
+                "io_pin": io_pin,
+                "name": name.strip()
+            })
+        
+        pnp_input_data = []
+        for idx in range(4):
+            channel = idx + 1
+            io_pin = digital_io_pins['pnp_input'][channel]
+            name = pnp_input_name[idx] if idx < len(pnp_input_name) and pnp_input_name[idx] else io_pin
+            if not name or name.strip() == '':
+                name = io_pin
+            
+            pnp_input_data.append({
+                "channel": channel,
+                "enabled": pnp_input_enable[idx] if idx < len(pnp_input_enable) else False,
+                "io_pin": io_pin,
+                "name": name.strip()
+            })
+        
+        pnp_output_data = []
+        for idx in range(4):
+            channel = idx + 1
+            io_pin = digital_io_pins['pnp_output'][channel]
+            name = pnp_output_name[idx] if idx < len(pnp_output_name) and pnp_output_name[idx] else io_pin
+            if not name or name.strip() == '':
+                name = io_pin
+            
+            pnp_output_data.append({
+                "channel": channel,
+                "enabled": pnp_output_enable[idx] if idx < len(pnp_output_enable) else False,
+                "io_pin": io_pin,
+                "name": name.strip()
+            })
+        
+        relay_data = []
+        for idx in range(4):
+            channel = idx + 1
+            io_pin = digital_io_pins['relay'][channel]
+            name = relay_name[idx] if idx < len(relay_name) and relay_name[idx] else io_pin
+            if not name or name.strip() == '':
+                name = io_pin
+            
+            relay_data.append({
+                "channel": channel,
+                "enabled": relay_enable[idx] if idx < len(relay_enable) else False,
+                "io_pin": io_pin,
+                "name": name.strip()
+            })
+        
+        digital_config = builder.build_digital_config(
+            npn_input_data,
+            npn_output_data,
+            pnp_input_data,
+            pnp_output_data,
+            relay_data
+        )
+        digital_config["scan_rate"] = digital_scan_rate
+        
+        # Build RS485 MODBUS Config
+        modbus_config = None
+        if modbus_baud_rate and modbus_polling_interval:
+            modbus_slave_devices = modbus_devices_store if modbus_devices_store else []
+            modbus_config = builder.build_modbus_config(
+                baud_rate=modbus_baud_rate,
+                data_bits=modbus_data_bits or "8",
+                parity=modbus_parity or "None",
+                stop_bits=modbus_stop_bits or "1",
+                mode=modbus_mode or "RTU",
+                role=modbus_role or "Master",
+                polling_interval=int(modbus_polling_interval) if modbus_polling_interval else 1000,
+                slave_devices=modbus_slave_devices
+            )
+        
+        # Build CAN Bus Config
+        can_bus_config = None
+        if can_baud_rate:
+            can_messages = can_messages_store if can_messages_store else []
+            can_data_mappings = can_data_mapping_store if can_data_mapping_store else []
+            can_bus_config = builder.build_can_bus_config(
+                baud_rate=can_baud_rate,
+                identifier_length=can_identifier_length or "11-bit",
+                can_mode=can_mode or "Normal",
+                filter_mode=can_filter_mode or "None",
+                filter_id=can_filter_id or "0x000",
+                filter_mask=can_filter_mask or "0x000",
+                can_messages=can_messages,
+                data_mappings=can_data_mappings
+            )
+        
+        # Build complete config (without mqtt and network sections, as per documentation)
         complete_config = builder.build_complete_config(
             device_id=serial_number,
             device_name=device_name,
             analog_config=analog_config,
-            digital_config=digital_config
+            digital_config=digital_config,
+            modbus_config=modbus_config,
+            can_bus_config=can_bus_config,
+            mqtt_config=None,  # Not included
+            network_config=None  # Not included
         )
         
-        # Save Configuration (using Serial Number)
+        # Remove mqtt and network from config (as per documentation requirements)
+        complete_config.pop('mqtt', None)
+        complete_config.pop('network', None)
+        
+        # Also remove metadata wrapper - move fields to top level (as per documentation)
+        if 'metadata' in complete_config:
+            metadata = complete_config.pop('metadata')
+            # We only keep device_id at top level (no device_name, created_at, updated_at)
+            # These were already in metadata, so we just remove it
+        
+        # Save to local JSON file
         success = config_service.save_device_config(serial_number, complete_config)
         
-        # Also save to database (using Serial Number)
+        # Save to database - this will save to Device_Config AND individual tables
         if db_service.is_connected():
             db_service.save_device_config(serial_number, complete_config)
         
+        # Publish to MQTT (if MQTT service is available)
+        try:
+            mqtt_service = MQTTClientService()
+            if mqtt_service.is_connected():
+                mqtt_service.publish_config(serial_number, complete_config)
+        except Exception as mqtt_error:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"MQTT publishing failed (non-critical): {mqtt_error}")
+        
         if success:
-            return True, html.Div([
-                html.Strong("Success: "),
-                f"✅ Configuration saved successfully for Serial Number: {serial_number}"
-            ])
+            success_msg = html.Div([
+                html.Span("✅ ", className='text-success'),
+                html.Strong("All configurations saved! ", className='text-success'),
+                f"Device: {serial_number} | Published to MQTT"
+            ], className='text-success fw-bold')
+            return success_msg, html.I(className="fas fa-save me-2"), False, True, success_msg
         else:
-            return True, html.Div([
+            error_msg = html.Div([
                 html.Strong("Error: "),
-                f"❌ Error saving configuration for Serial Number: {serial_number}"
-            ])
+                f"❌ Error saving all configurations for Serial Number: {serial_number}"
+            ], className='text-danger')
+            return error_msg, html.I(className="fas fa-save me-2"), False, True, error_msg
             
     except Exception as e:
         import logging
         logger = logging.getLogger(__name__)
-        logger.error(f"Error saving configuration: {e}")
+        logger.error(f"Error saving all configurations: {e}")
         logger.exception("Full error traceback:")
-        return True, html.Div([
+        error_msg = html.Div([
             html.Strong("Error: "),
             f"❌ {str(e)}"
-        ])
+        ], className='text-danger')
+        return error_msg, html.I(className="fas fa-save me-2"), False, True, error_msg
 

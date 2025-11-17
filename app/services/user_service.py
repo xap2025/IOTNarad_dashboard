@@ -1,8 +1,9 @@
 """
 User Service for managing user data in InfluxDB
 
-IMPORTANT: Using InfluxDB Cloud Serverless (v3) - SQL queries required
-Note: Python client's query_api uses Flux, but documentation should show SQL equivalents
+IMPORTANT: Using Self-Hosted InfluxDB 2.x
+- Supports Flux queries via Python client
+- Local instance running via Docker
 """
 import os
 import logging
@@ -18,20 +19,21 @@ class UserService:
     """Service for managing user data in InfluxDB"""
     
     def __init__(self):
-        self.url = os.getenv('INFLUXDB_URL', 'https://us-east-1-1.aws.cloud2.influxdata.com')
-        self.token = os.getenv('INFLUXDB_TOKEN', 'T0ZoSucqSCbNtgfcZSYE81-vYA7DdXpPFRb17vc2iUZsUZ0CsebGlOTpr9XTGFjlaiyqI5bwUhtqLQe2zU7wnA==')
-        self.org = os.getenv('INFLUXDB_ORG', 'iot-narad-gcp')
-        self.bucket = os.getenv('INFLUXDB_BUCKET', 'iot_data_gcp')
+        # Self-Hosted InfluxDB 2.x Configuration
+        self.url = os.getenv('INFLUXDB_URL', 'http://influxdb:8086')
+        self.token = os.getenv('INFLUXDB_TOKEN', '')
+        self.org = os.getenv('INFLUXDB_ORG', 'iotnarad')
+        self.bucket = os.getenv('INFLUXDB_BUCKET', 'iotnarad-bucket')
         
         try:
             self.client = InfluxDBClient(url=self.url, token=self.token, org=self.org, timeout=30000)
             self.write_api = self.client.write_api(write_options=SYNCHRONOUS)
             self.query_api = self.client.query_api()
-            # IMPORTANT: InfluxDB Cloud Serverless (v3) uses SQL, not Flux
-            # Note: Python client's query_api uses Flux, but we document SQL equivalents
+            # Self-Hosted InfluxDB 2.x supports Flux queries via Python client
             self.connected = True
             logger.info(f"✅ User Service connected to InfluxDB: {self.url}")
-            logger.info(f"   Database: InfluxDB Cloud Serverless (v3) - SQL queries required")
+            logger.info(f"   Database: Self-Hosted InfluxDB 2.x")
+            logger.info(f"   Bucket: {self.bucket}, Org: {self.org}")
         except Exception as e:
             self.connected = False
             logger.error(f"❌ Failed to connect User Service to InfluxDB: {e}")
@@ -87,8 +89,7 @@ class UserService:
             return None
         
         try:
-            # NOTE: SQL equivalent: SELECT * FROM "User_info" WHERE "User_Id" = '{user_id}' AND "Phone_No" = '{phone_no}' AND time > now() - interval '1 year' ORDER BY time DESC LIMIT 1
-            # Using Flux here due to Python client limitation
+            # Flux query for Self-Hosted InfluxDB 2.x
             query = f'''
                 from(bucket: "{self.bucket}")
                 |> range(start: -365d)
@@ -362,7 +363,7 @@ class UserService:
             return None
         
         try:
-            # Flux query with 1 year time range (as suggested for InfluxDB Cloud Serverless)
+            # Flux query with 1 year time range for Self-Hosted InfluxDB 2.x
             flux_query = f'''
                 from(bucket: "{self.bucket}")
                 |> range(start: -365d)

@@ -2,8 +2,9 @@
 InfluxDB Service
 Handles time-series data storage and retrieval
 
-IMPORTANT: Using InfluxDB Cloud Serverless (v3) - SQL queries required
-Note: Python client's query_api uses Flux, but documentation should show SQL equivalents
+IMPORTANT: Using Self-Hosted InfluxDB 2.x
+- Supports Flux queries via Python client
+- Local instance running via Docker
 """
 import os
 import logging
@@ -18,11 +19,11 @@ logger = logging.getLogger(__name__)
 class InfluxDBService:
     """
     InfluxDB Service for time-series data storage
-    Supports both local InfluxDB and InfluxDB Cloud
+    Uses Self-Hosted InfluxDB 2.x
     """
     
     def __init__(self):
-        # InfluxDB Configuration
+        # Self-Hosted InfluxDB 2.x Configuration
         self.url = os.getenv('INFLUXDB_URL', 'http://influxdb:8086')
         self.token = os.getenv('INFLUXDB_TOKEN', '')
         self.org = os.getenv('INFLUXDB_ORG', 'iotnarad')
@@ -120,8 +121,7 @@ class InfluxDBService:
             return []
         
         try:
-            # NOTE: SQL equivalent: SELECT * FROM "device_data" WHERE "device_id" = '{device_id}' AND time > now() - interval '{time_range}' ORDER BY time DESC
-            # Using Flux here due to Python client limitation
+            # Flux query for Self-Hosted InfluxDB 2.x
             query = f'''
             from(bucket: "{self.bucket}")
               |> range(start: -{time_range})

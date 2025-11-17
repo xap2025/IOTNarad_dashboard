@@ -26,12 +26,15 @@ class MQTTClientService:
         
         # MQTT Topics
         self.topic_device_data = os.getenv('MQTT_TOPIC_DEVICE_DATA', 'iotnarad/devices/+/data')
-        self.topic_device_config = os.getenv('MQTT_TOPIC_DEVICE_CONFIG', 'iotnarad/devices/+/config')
+        # Device subscribes to: Dev/Checksum/<Device ID>
+        # Server publishes to: Dev/Checksum/<Device ID>
+        self.topic_device_checksum = os.getenv('MQTT_TOPIC_DEVICE_CHECKSUM', 'Dev/Checksum')
+        # Device publishes to: Dev/Init/Reg/<Device ID>
+        # Server subscribes to: Dev/Init/Reg/#
+        self.topic_device_init_reg = os.getenv('MQTT_TOPIC_DEVICE_INIT_REG', 'Dev/Init/Reg/#')
         self.topic_device_status = os.getenv('MQTT_TOPIC_DEVICE_STATUS', 'iotnarad/devices/+/status')
-        # Subscribe to Dev/Init/+ to receive device initialization messages
-        # Acknowledgments are published to Dev/Ack/<SerialNumber> (separate topic)
-        # + matches single level, # matches multiple levels
-        self.topic_device_init = os.getenv('MQTT_TOPIC_DEVICE_INIT', 'Dev/Init/+')
+        # Legacy topic (keep for backward compatibility)
+        self.topic_device_config_ack = os.getenv('MQTT_TOPIC_DEVICE_CONFIG_ACK', 'Dev/ConfigACK/#')
         
         # Initialize MQTT client
         self.client = mqtt.Client(client_id=self.client_id, clean_session=True)
@@ -61,10 +64,12 @@ class MQTTClientService:
             # Subscribe to topics
             self.client.subscribe(self.topic_device_data)
             self.client.subscribe(self.topic_device_status)
-            self.client.subscribe(self.topic_device_init)
+            self.client.subscribe(self.topic_device_init_reg)  # Subscribe to device init/registration messages
+            self.client.subscribe(self.topic_device_config_ack)  # Subscribe to config acknowledgements (legacy)
             logger.info(f"📡 Subscribed to: {self.topic_device_data}")
             logger.info(f"📡 Subscribed to: {self.topic_device_status}")
-            logger.info(f"📡 Subscribed to: {self.topic_device_init}")
+            logger.info(f"📡 Subscribed to: {self.topic_device_init_reg}")
+            logger.info(f"📡 Subscribed to: {self.topic_device_config_ack}")
         else:
             self.connected = False
             logger.error(f"❌ Failed to connect to MQTT Broker. Return code: {rc}")
@@ -124,6 +129,27 @@ class MQTTClientService:
                     self.init_callback(topic, data)
                 else:
                     logger.warning(f"⚠️ Init callback not registered!")
+            elif topic.startswith('Dev/Init/Reg/'):
+                # Device publishes registration/initialization messages
+                # Extract device ID from topic: Dev/Init/Reg/<Device ID>
+                device_id = topic.split('/')[-1] if '/' in topic else None
+                logger.info(f"📨 Device Init/Registration received from: {device_id}")
+                logger.debug(f"   Topic: {topic}, Payload: {payload[:200]}...")
+                
+                # Call init callback if set
+                if self.init_callback:
+                    try:
+                        self.init_callback(topic, payload, device_id)
+                    except Exception as e:
+                        logger.error(f"Error in init callback: {e}")
+            
+            elif topic.startswith('Dev/ConfigACK/') or topic.startswith('Dev/Checksum/'):
+                # Configuration acknowledgement from hardware
+                logger.info(f"✅ Configuration acknowledgement received from: {device_id}")
+                logger.info(f"   Topic: {topic}, Payload: {payload[:200]}...")
+                # Extract device ID from topic (e.g., Dev/ConfigACK/TEST78787)
+                ack_device_id = topic.split('/')[-1] if '/' in topic else device_id
+                # You can add a callback for config acknowledgements here if needed
             elif '/data' in topic and self.data_callback:
                 self.data_callback(device_id, data)
             elif '/status' in topic and self.status_callback:
@@ -189,13 +215,14 @@ class MQTTClientService:
     
     def publish_config(self, device_id: str, config: Dict[str, Any]):
         """
-        Publish device configuration
+        Publish device configuration to Dev/Checksum/<Device ID>
+        Device subscribes to this topic to receive configuration updates
         
         Args:
             device_id: Device Serial Number (Sr_No) from Device_info measurement
             config: Configuration dictionary
         """
-        topic = f"iotnarad/devices/{device_id}/config"
+        topic = f"{self.topic_device_checksum}/{device_id}"
         return self.publish(topic, config, qos=1, retain=True)
     
     def publish_command(self, device_id: str, command: str, params: Dict[str, Any] = None):
