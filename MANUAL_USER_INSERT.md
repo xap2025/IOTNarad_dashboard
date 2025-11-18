@@ -33,6 +33,12 @@ INFLUXDB_URL=http://influxdb:8086
 INFLUXDB_TOKEN=your_token_here
 INFLUXDB_ORG=iot-narad-production
 INFLUXDB_BUCKET=iot_data_production
+
+
+INFLUXDB_URL=http://influxdb:8086
+INFLUXDB_TOKEN=YJrPDGIfrM9ql_fZWyeNFOp-MEr0vC5XmQPW1eR7dCoNCAi72ZjjrpFt63CHPF1DrhEaW9O67ZYsUMPTDc57rg==
+INFLUXDB_ORG=iot-narad-gcp
+INFLUXDB_BUCKET=iot_data_gcp
 ```
 
 **Note these values** - we'll need them for CLI command.
@@ -45,9 +51,9 @@ INFLUXDB_BUCKET=iot_data_production
 
 ```bash
 docker exec -it iotnarad_influxdb influx write \
-  --org YOUR_ORG \
-  --bucket YOUR_BUCKET \
-  --token YOUR_TOKEN \
+  --org iot-narad-gcp \
+  --bucket iot_data_gcp \
+  --token YJrPDGIfrM9ql_fZWyeNFOp-MEr0vC5XmQPW1eR7dCoNCAi72ZjjrpFt63CHPF1DrhEaW9O67ZYsUMPTDc57rg== \
   --precision ns \
   'User_info,Company_Name=Xaptronics,Email_Id=xaptronicsindia.com,Phone_No=7042703926,User_Id=admin,User_Type=admin,status=active Password="admin"'
 ```
@@ -81,6 +87,12 @@ export INFLUXDB_ORG=$(grep INFLUXDB_ORG .env | cut -d '=' -f2)
 export INFLUXDB_BUCKET=$(grep INFLUXDB_BUCKET .env | cut -d '=' -f2)
 export INFLUXDB_TOKEN=$(grep INFLUXDB_TOKEN .env | cut -d '=' -f2)
 
+# Get values from .env in ✅ CMD Equivalent (Windows)
+for /f "tokens=1,* delims==" %a in ('findstr "INFLUXDB_ORG" .env') do set INFLUXDB_ORG=%b
+for /f "tokens=1,* delims==" %a in ('findstr "INFLUXDB_BUCKET" .env') do set INFLUXDB_BUCKET=%b
+for /f "tokens=1,* delims==" %a in ('findstr "INFLUXDB_TOKEN" .env') do set INFLUXDB_TOKEN=%b
+
+
 # Insert user via Docker exec
 docker exec -i iotnarad_influxdb influx write \
   --org "$INFLUXDB_ORG" \
@@ -90,6 +102,11 @@ docker exec -i iotnarad_influxdb influx write \
   'User_info,Company_Name=Xaptronics,Email_Id=xaptronicsindia.com,Phone_No=7042703926,User_Id=admin,User_Type=admin,status=active Password="admin"'
 ```
 
+'''bash
+
+docker exec -i iotnarad_influxdb influx write --org "iot-narad-gcp" --bucket "iot_data_gcp" --token "oEqUMh9hvVbgeTn9BBOlG8Pqz-EBbKojjyMRdGWvYhtCroBBNmI8dEn44nXXRGT6e-A5MKvk6JaYN_O_LVJHnw==" --precision ns "User_info,Company_Name=Xaptronics,Email_Id=xaptronicsindia.com,Phone_No=7042703926,User_Id=admin,User_Type=admin,status=active Password=\"admin\""
+
+'''
 ### **Method 2: One-Line Command (Replace values manually)**
 
 ```bash

@@ -432,6 +432,19 @@ from(bucket: "iotnarad-bucket")
 
 ---
 
-**Document Version:** 1.0  
+---
+
+## 🔍 InfluxDB UI Verification Queries
+
+For checking database tables/measurements in InfluxDB UI, see: `INFLUXDB_UI_CHECK_QUERIES.md`
+
+Quick reference:
+- **Check all measurements:** `schema.measurements(bucket: "iotnarad-bucket")`
+- **Check all devices:** `schema.tagValues(bucket: "iotnarad-bucket", tag: "Sr_No", predicate: (r) => r._measurement == "Device_info")`
+- **Check specific device:** Filter by `Sr_No == "0x7f3b"` in Device_info measurement
+
+---
+
+**Document Version:** 1.1  
 **Last Review:** November 18, 2025
 

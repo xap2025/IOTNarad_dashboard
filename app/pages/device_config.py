@@ -524,13 +524,20 @@ def load_device_list(pathname, _):
     """Load Serial Numbers from Device_info measurement (optimized - single query with caching)"""
     global _device_list_cache, _cache_timestamp
     
+    import logging
+    logger = logging.getLogger(__name__)
+    
     # Show loading spinner while fetching
     loading_spinner = dbc.Spinner(html.Div(), size="sm")
     
     try:
-        # Only run if we're on a devices-related page (or if triggered by device-selector)
-        if pathname and '/devices' not in pathname and ctx.triggered_id == 'url':
-            # Not on devices page, don't load
+        logger.info(f"🔄 load_device_list called - Pathname: {pathname}, Triggered ID: {ctx.triggered_id}")
+        
+        # Allow loading on dashboard page or any authenticated page (device config is embedded in dashboard)
+        # Only skip if explicitly on login/logout page
+        skip_paths = ['/login', '/logout', '/']
+        if pathname in skip_paths and ctx.triggered_id == 'url':
+            logger.info(f"⏭️ Skipping device list load for pathname: {pathname}")
             if _device_list_cache:
                 return _device_list_cache[0], _device_list_cache[1], ""
             return [], None, ""
@@ -538,8 +545,11 @@ def load_device_list(pathname, _):
         # Check cache first - return immediately if available and fresh
         current_time = time.time()
         if _device_list_cache and (current_time - _cache_timestamp) < _cache_ttl:
+            logger.info(f"✅ Returning cached device list (age: {current_time - _cache_timestamp:.1f}s)")
             # Return cached data immediately (no database query needed)
             return _device_list_cache[0], _device_list_cache[1], ""
+        
+        logger.info("📡 Fetching device list from database (cache expired or not available)")
         
         # Cache expired or not available, fetch from database
         # Show loading spinner while fetching
@@ -547,6 +557,7 @@ def load_device_list(pathname, _):
         device_info_service = DeviceInfoService()
         
         if not device_info_service.is_connected():
+            logger.error("❌ Device Info Service not connected to database")
             error_options = (
                 [{'label': '⚠️ Database not connected', 'value': None, 'disabled': True}], 
                 None,
@@ -559,7 +570,12 @@ def load_device_list(pathname, _):
         # Get all devices with their info in a single optimized query
         all_devices_info = device_info_service.get_all_devices_info()
         
+        logger.info(f"📊 Device query result: {len(all_devices_info) if all_devices_info else 0} devices found")
+        if all_devices_info:
+            logger.info(f"   Devices: {[d.get('Sr_No') for d in all_devices_info]}")
+        
         if not all_devices_info:
+            logger.warning("⚠️ No devices found in database")
             no_devices_options = (
                 [{'label': '⚠️ No devices found', 'value': None, 'disabled': True}], 
                 None,
@@ -581,8 +597,12 @@ def load_device_list(pathname, _):
                 'value': sr_no
             })
         
+        logger.info(f"✅ Built {len(options)} dropdown options")
+        
         # Set default value to first device
         default_value = all_devices_info[0].get('Sr_No') if all_devices_info else None
+        
+        logger.info(f"🎯 Default device selected: {default_value}")
         
         # Cache the results
         result = (options, default_value, "")  # Hide spinner after loading
@@ -592,8 +612,6 @@ def load_device_list(pathname, _):
         return result
         
     except Exception as e:
-        import logging
-        logger = logging.getLogger(__name__)
         logger.error(f"Error loading device list: {e}")
         logger.exception("Full error traceback:")
         error_result = (

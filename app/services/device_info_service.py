@@ -248,17 +248,19 @@ class DeviceInfoService:
         
         try:
             # Get all records, pivot to wide format, group by Sr_No, take latest
+            # Fixed: pivot after group, and use correct rowKey (Sr_No is a tag, not in rowKey before group)
             query = f'''
                 from(bucket: "{self.bucket}")
                 |> range(start: -365d)
                 |> filter(fn: (r) => r._measurement == "Device_info")
-                |> pivot(rowKey: ["_time", "Sr_No"], columnKey: ["_field"], valueColumn: "_value")
+                |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
                 |> group(columns: ["Sr_No"])
                 |> sort(columns: ["_time"], desc: true)
                 |> keep(columns: ["_time", "Sr_No", "Owner", "Device_Name", "Date_Of_Register"])
                 |> first()
             '''
             
+            logger.debug(f"🔍 Executing Flux query for all devices info:\n{query}")
             result = self.query_api.query(org=self.org, query=query)
             
             # Process results
@@ -267,7 +269,12 @@ class DeviceInfoService:
             
             for table in result:
                 for record in table.records:
+                    # Sr_No is a tag, so get it from record.values
                     sr_no = record.values.get('Sr_No')
+                    if not sr_no:
+                        # Also try getting from record directly
+                        sr_no = getattr(record, 'Sr_No', None)
+                    
                     if not sr_no or sr_no in seen_serials:
                         continue
                     
@@ -279,6 +286,8 @@ class DeviceInfoService:
                         'Date_Of_Register': record.values.get('Date_Of_Register', ''),
                         'timestamp': record.get_time().isoformat() if record.get_time() else datetime.utcnow().isoformat()
                     })
+            
+            logger.info(f"✅ Found {len(devices)} devices in database")
             
             # Sort by Serial Number
             return sorted(devices, key=lambda x: x['Sr_No'])
