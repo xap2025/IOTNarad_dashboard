@@ -10,6 +10,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Import server session storage (defined in main.py)
+try:
+    from app.main import _server_sessions
+except ImportError:
+    # Fallback if import fails (shouldn't happen in normal operation)
+    _server_sessions = {}
+
 def create_change_password_layout():
     """Create change password page layout"""
     
@@ -222,18 +229,32 @@ def handle_change_password(n_clicks, current_password, new_password, confirm_pas
         success = user_service.change_password(user_id, current_password, new_password)
         
         if success:
+            # CRITICAL: Clear all sessions when password changes successfully
+            # This forces user to login again with new password
+            # Note: user_service.change_password() already calls invalidate_user_sessions()
+            # But we also clear current Flask session here for immediate effect
+            from flask import session as flask_session
+            
+            # Clear Flask session
+            flask_session.clear()
+            flask_session.permanent = False
+            flask_session.modified = True
+            
+            logger.info(f"🔒 Flask session cleared for user '{user_id}' after password change")
+            
             return dbc.Alert([
                 html.H4([
                     html.I(className="fas fa-check-circle me-2"),
                     "Password Changed Successfully!"
                 ], className='fw-bold'),
-                html.P("Your password has been updated. Please use your new password for future logins."),
+                html.P("Your password has been updated. All existing sessions have been invalidated for security."),
+                html.P("Please login again with your new password.", className='fw-bold mt-2'),
                 html.Hr(),
                 html.Div([
                     dbc.Button([
-                        html.I(className="fas fa-arrow-left me-2"),
-                        "Back to Profile"
-                    ], id='success-back-btn', href='/dashboard', color='primary', className='me-2'),
+                        html.I(className="fas fa-sign-in-alt me-2"),
+                        "Go to Login"
+                    ], id='success-back-btn', href='/login', color='primary', className='me-2'),
                 ], className='mb-0')
             ], color='success'), '', '', '', False
         else:

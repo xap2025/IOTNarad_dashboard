@@ -490,8 +490,7 @@ class DeviceConfigDBService:
             return None
         
         try:
-            # NOTE: SQL equivalent: SELECT * FROM "Device_Config" WHERE "device_id" = '{device_id}' AND time > now() - interval '1 year' ORDER BY time DESC LIMIT 1
-            # Using Flux here due to Python client limitation
+            # Flux query for Self-Hosted InfluxDB 2.x
             query = f'''
                 from(bucket: "{self.bucket}")
                 |> range(start: -365d)
@@ -521,7 +520,7 @@ class DeviceConfigDBService:
             return []
         
         try:
-            # NOTE: SQL equivalent: SELECT DISTINCT "device_id" FROM "Device_Config" WHERE time > now() - interval '1 year' ORDER BY "device_id"
+            # Flux query for Self-Hosted InfluxDB 2.x - Get distinct device IDs
             query = f'''
                 import "influxdata/influxdb/schema"
                 

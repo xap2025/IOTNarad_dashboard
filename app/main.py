@@ -11,6 +11,7 @@ from flask import Flask, session, request
 from flask_socketio import SocketIO, emit
 import logging
 import time
+from datetime import datetime
 from typing import Dict, Any
 from threading import Lock
 
@@ -93,6 +94,51 @@ ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'iotnarad@2025')
 # Key: session_id (from Flask session), Value: session data dict
 _server_sessions: Dict[str, Dict[str, Any]] = {}
 
+def invalidate_user_sessions(user_id: str, reason: str = "User data changed"):
+    """Invalidate all sessions for a specific user ID
+    
+    This function should be called whenever user data is modified or deleted
+    to ensure old sessions become invalid immediately.
+    
+    Args:
+        user_id: The User ID whose sessions should be invalidated
+        reason: Reason for invalidation (for logging)
+    
+    Returns:
+        int: Number of sessions invalidated
+    """
+    global _server_sessions
+    from flask import session as flask_session, has_request_context
+    
+    sessions_invalidated = 0
+    
+    # Clear all server-side sessions for this user
+    sessions_to_delete = [
+        k for k, v in _server_sessions.items() 
+        if v.get('username') == user_id
+    ]
+    
+    for key in sessions_to_delete:
+        del _server_sessions[key]
+        sessions_invalidated += 1
+        logger.info(f"🔒 Invalidated session: {key[:20]}... for user '{user_id}' - Reason: {reason}")
+    
+    if has_request_context():
+        # If current request is from this user, clear their Flask session too
+        current_user = flask_session.get('username')
+        if current_user == user_id:
+            flask_session.clear()
+            flask_session.permanent = False
+            flask_session.modified = True
+            logger.info(f"🔒 Cleared Flask session for current user '{user_id}' - Reason: {reason}")
+    
+    if sessions_invalidated > 0:
+        logger.warning(f"🚨 Invalidated {sessions_invalidated} session(s) for user '{user_id}' - Reason: {reason}")
+    else:
+        logger.debug(f"ℹ️ No active sessions found for user '{user_id}' to invalidate")
+    
+    return sessions_invalidated
+
 # ==================== LAYOUT ====================
 app.layout = dbc.Container([
     dcc.Location(id='url', refresh=False, pathname='/'),
@@ -150,6 +196,7 @@ def display_page(pathname, session_data):
     flask_user_type = 'user'
     flask_username = ''
     server_session_id = None
+    recent_failed_login = False  # Initialize outside try block so it's accessible later
     
     # CRITICAL FIX: Access Flask session using request context
     # Dash callbacks run in Flask request context, so we can access session directly
@@ -157,40 +204,187 @@ def display_page(pathname, session_data):
         # Get Flask session cookie from request
         session_cookie = request.cookies.get('session', '')
         
-        # Check Flask session directly
-        flask_authenticated = flask_session.get('authenticated', False)
-        flask_user_type = flask_session.get('user_type', 'user')
-        flask_username = flask_session.get('username', '')
+        # CRITICAL: Check for failed login flag FIRST - if login just failed, ignore any old session
+        # This MUST be checked before reading any other session data
+        recent_failed_login = flask_session.get('_login_failed', False)
+        if recent_failed_login:
+            failed_user = flask_session.get('_failed_login_user', 'unknown')
+            logger.warning(f"🚫 Recent failed login detected for user '{failed_user}' - Ignoring old session cookie for security")
+            # Clear the failed login flag after using it (but keep session cleared)
+            flask_session.pop('_login_failed', None)
+            flask_session.pop('_failed_login_user', None)
+            flask_session.modified = True
+            # Don't read any other session data if login failed
+            flask_authenticated = False
+            flask_username = ''
+            flask_user_type = 'user'
+        else:
+            # Only read session data if no failed login flag
+            # Check Flask session directly
+            flask_authenticated = flask_session.get('authenticated', False)
+            flask_user_type = flask_session.get('user_type', 'user')
+            flask_username = flask_session.get('username', '')
+            
+            # Also check server-side session storage (backup for IP address access)
+            if session_cookie and session_cookie in _server_sessions:
+                server_session = _server_sessions[session_cookie]
+                if not flask_authenticated and server_session.get('authenticated'):
+                    flask_authenticated = True
+                    flask_user_type = server_session.get('user_type', 'user')
+                    flask_username = server_session.get('username', '')
+                    logger.info(f"✅ Using server-side session backup - User: {flask_username}, Type: {flask_user_type}")
         
-        # Also check server-side session storage (backup for IP address access)
-        if session_cookie and session_cookie in _server_sessions:
-            server_session = _server_sessions[session_cookie]
-            if not flask_authenticated and server_session.get('authenticated'):
-                flask_authenticated = True
-                flask_user_type = server_session.get('user_type', 'user')
-                flask_username = server_session.get('username', '')
-                logger.info(f"✅ Using server-side session backup - User: {flask_username}, Type: {flask_user_type}")
+        logger.info(f"🔐 Flask session check - Cookie: {session_cookie[:20] if session_cookie else 'None'}..., Auth: {flask_authenticated}, User: {flask_username}, Type: {flask_user_type}, Failed Login: {recent_failed_login}")
         
-        logger.info(f"🔐 Flask session check - Cookie: {session_cookie[:20] if session_cookie else 'None'}..., Auth: {flask_authenticated}, User: {flask_username}, Type: {flask_user_type}")
+        # CRITICAL: Verify user exists in database if session says authenticated
+        # This prevents access with old/invalid session cookies
+        if flask_authenticated and flask_username:
+            # Log that we're using an existing session (user didn't explicitly login just now)
+            session_created_at = flask_session.get('session_created_at')
+            if session_created_at:
+                session_age_seconds = time.time() - session_created_at
+                session_age_hours = session_age_seconds / 3600
+                logger.info(f"📝 Using existing session cookie (Age: {session_age_hours:.2f} hours) - User didn't login in this request")
+            
+            # CRITICAL: Expire very old sessions (e.g., older than 30 days) for security
+            # This prevents indefinitely stale sessions
+            SESSION_MAX_AGE_HOURS = 30 * 24  # 30 days
+            if session_created_at:
+                session_age_seconds = time.time() - session_created_at
+                session_age_hours = session_age_seconds / 3600
+                if session_age_hours > SESSION_MAX_AGE_HOURS:
+                    logger.warning(f"⏰ Session expired due to age ({session_age_hours:.2f} hours > {SESSION_MAX_AGE_HOURS} hours) - Clearing old session")
+                    flask_authenticated = False
+                    flask_username = ''
+                    flask_user_type = 'user'
+                    flask_session.clear()
+                    flask_session.permanent = False
+                    flask_session.modified = True
+                    if session_cookie and session_cookie in _server_sessions:
+                        del _server_sessions[session_cookie]
+                    logger.info(f"🔒 Old session cleared - User must login again")
+            
+            if flask_authenticated:  # Only continue validation if session not expired
+                try:
+                    db_user = user_service.get_user_by_id(flask_username)
+                    logger.info(f"🔍 Database verification for session user '{flask_username}': user_service returned: {type(db_user)}, exists: {db_user is not None}")
+                    
+                    if db_user is None or not isinstance(db_user, dict) or db_user.get('User_Id') != flask_username:
+                        logger.warning(f"❌ Session user '{flask_username}' not found in database - Invalidating session")
+                        logger.warning(f"   db_user type: {type(db_user)}, value: {db_user}")
+                        flask_authenticated = False
+                        flask_username = ''
+                        flask_user_type = 'user'
+                        # Clear invalid session completely
+                        flask_session.clear()
+                        flask_session.permanent = False
+                        flask_session.modified = True
+                        # Clear server-side storage
+                        if session_cookie and session_cookie in _server_sessions:
+                            del _server_sessions[session_cookie]
+                        # Also clear any matching sessions
+                        cookie_prefix = session_cookie[:20] if session_cookie else ''
+                        sessions_to_delete = [k for k in list(_server_sessions.keys()) if k.startswith(cookie_prefix) or cookie_prefix in k]
+                        for key in sessions_to_delete:
+                            del _server_sessions[key]
+                    else:
+                        # CRITICAL: Check if user data was changed after session was created
+                        # This invalidates sessions when ANY user data changes (password, permissions, deletion, etc.)
+                        db_user_updated_at = db_user.get('User_Updated_At')
+                        session_user_updated_at = flask_session.get('user_updated_at')
+                        
+                        # Also check password changed timestamp for backward compatibility
+                        db_password_changed_at = db_user.get('Password_Changed_At')
+                        session_password_changed_at = flask_session.get('password_changed_at')
+                        
+                        # Priority: User_Updated_At > Password_Changed_At (User_Updated_At is more comprehensive)
+                        user_data_changed = False
+                        reason = ""
+                        
+                        if db_user_updated_at is not None:
+                            # Use User_Updated_At (tracks ALL user data changes)
+                            if session_user_updated_at is None or session_user_updated_at != db_user_updated_at:
+                                user_data_changed = True
+                                reason = f"User data changed (DB User_Updated_At: {db_user_updated_at}, Session: {session_user_updated_at})"
+                        elif db_password_changed_at is not None:
+                            # Fallback to Password_Changed_At for older records
+                            if session_password_changed_at is None or session_password_changed_at != db_password_changed_at:
+                                user_data_changed = True
+                                reason = f"Password changed (DB Password_Changed_At: {db_password_changed_at}, Session: {session_password_changed_at})"
+                        
+                        if user_data_changed:
+                            # User data was changed after session was created, invalidate ALL sessions for this user
+                            logger.warning(f"🔒 User data changed for user '{flask_username}' - Invalidating old session")
+                            logger.warning(f"   Reason: {reason}")
+                            
+                            flask_authenticated = False
+                            flask_username = ''
+                            flask_user_type = 'user'
+                            
+                            # Clear invalid session completely
+                            flask_session.clear()
+                            flask_session.permanent = False
+                            flask_session.modified = True
+                            
+                            # Clear ALL server-side sessions for this user (not just current cookie)
+                            if session_cookie and session_cookie in _server_sessions:
+                                del _server_sessions[session_cookie]
+                            
+                            # Clear all sessions matching this user ID
+                            user_sessions_to_delete = [
+                                k for k, v in _server_sessions.items() 
+                                if v.get('username') == flask_username
+                            ]
+                            for key in user_sessions_to_delete:
+                                del _server_sessions[key]
+                                logger.info(f"   🗑️ Deleted session: {key[:20]}...")
+                            
+                            # Also clear any matching sessions by cookie prefix
+                            cookie_prefix = session_cookie[:20] if session_cookie else ''
+                            if cookie_prefix:
+                                sessions_to_delete = [k for k in list(_server_sessions.keys()) if k.startswith(cookie_prefix) or cookie_prefix in k]
+                                for key in sessions_to_delete:
+                                    del _server_sessions[key]
+                        else:
+                            logger.info(f"✅ Session validated - User '{flask_username}' exists and data unchanged (User_Id: {db_user.get('User_Id')}, User_Updated_At: {db_user_updated_at})")
+                except Exception as e:
+                    logger.error(f"❌ Error verifying session user in database: {e}")
+                    # On error, invalidate session for security
+                    flask_authenticated = False
+                    flask_username = ''
+                    flask_user_type = 'user'
+                    flask_session.clear()
+                    if session_cookie and session_cookie in _server_sessions:
+                        del _server_sessions[session_cookie]
     except Exception as e:
         logger.error(f"❌ Error accessing Flask session: {e}", exc_info=True)
         flask_authenticated = False
         flask_user_type = 'user'
         flask_username = ''
     
-    # Sync Flask session with client-side store
-    if flask_authenticated:
+    # Sync Flask session with client-side store (only if validated and not failed login)
+    # Note: recent_failed_login is already checked above, and flask_authenticated is set to False if it was True
+    if flask_authenticated and flask_username and not recent_failed_login:
         session_data['authenticated'] = True
         session_data['username'] = flask_username
         session_data['user_type'] = flask_user_type
         if has_request_context() and flask_session.get('user_data'):
             session_data['user_data'] = flask_session.get('user_data')
+    else:
+        # Clear invalid session data from client store
+        session_data.pop('authenticated', None)
+        session_data.pop('username', None)
+        session_data.pop('user_type', None)
+        session_data.pop('user_data', None)
+        session_data.pop('_login_failed', None)  # Also remove failed login flag from client store
     
     # Check if user is logged in (prefer Flask session, fallback to client store)
-    is_authenticated = flask_authenticated or session_data.get('authenticated', False)
-    user_type = flask_user_type if flask_authenticated else session_data.get('user_type', 'user')
+    # But only trust client store if we don't have Flask session (for initial login)
+    # AND ensure we don't use old session if login just failed
+    is_authenticated = (flask_authenticated and not recent_failed_login) or (not flask_username and session_data.get('authenticated', False) and not session_data.get('_login_failed', False))
+    user_type = flask_user_type if (flask_authenticated and not recent_failed_login) else session_data.get('user_type', 'user')
     
-    logger.info(f"🔍 Page routing - Path: {pathname}, Flask Auth: {flask_authenticated}, Client Auth: {session_data.get('authenticated', False)}, User Type: {user_type}, Username: {flask_username or session_data.get('username', 'N/A')}")
+    logger.info(f"🔍 Page routing - Path: {pathname}, Flask Auth: {flask_authenticated}, Client Auth: {session_data.get('authenticated', False)}, Failed Login Flag: {recent_failed_login}, User Type: {user_type}, Username: {flask_username or session_data.get('username', 'N/A')}")
     
     # Handle logout
     if pathname == '/logout':
@@ -268,6 +462,8 @@ def display_page(pathname, session_data):
 )
 def login_user(n_clicks, username, password, session_data, current_path):
     """Handle user login - Database authentication only"""
+    global _server_sessions  # Declare global at the start of the function
+    
     if not n_clicks:
         return session_data or {}, '', current_path or '/'
     
@@ -306,44 +502,114 @@ def login_user(n_clicks, username, password, session_data, current_path):
         # On any error, authentication fails
         user = None
     
-    # STRICT CHECK: Only set authenticated if user is valid
-    if user is not None and isinstance(user, dict) and user.get('User_Id') == username:
-        # Double-check password was actually verified
-        logger.info(f"✅ User {username} authenticated successfully (Type: {user.get('User_Type', 'user')})")
+    # CRITICAL STRICT CHECK: Only set authenticated if user is valid and returned from database
+    # User must be a dict with all required fields
+    if (user is not None and 
+        isinstance(user, dict) and 
+        user.get('User_Id') is not None and
+        user.get('User_Id') == username and
+        len(str(user.get('User_Id', ''))) > 0):
         
-        # CRITICAL: Store in Flask server-side session (more reliable)
-        from flask import session as flask_session, has_request_context
-        global _server_sessions
+        # Additional validation: Ensure user has required fields
+        required_fields = ['User_Id', 'User_Type']
+        has_all_fields = all(user.get(field) is not None for field in required_fields)
         
-        if has_request_context():
-            flask_session.permanent = True
-            flask_session['authenticated'] = True
-            flask_session['username'] = username
-            flask_session['user_type'] = user.get('User_Type', 'user')
-            flask_session['user_data'] = user
+        if has_all_fields:
+            logger.info(f"✅ User {username} authenticated successfully (Type: {user.get('User_Type', 'user')})")
             
-            # Also store in server-side backup storage (keyed by session cookie)
-            # This ensures session works even when browser sessionStorage fails on IP addresses
-            session_cookie = request.cookies.get('session') or flask_session.get('_id') or str(id(flask_session))
-            _server_sessions[session_cookie] = {
-                'authenticated': True,
-                'username': username,
-                'user_type': user.get('User_Type', 'user'),
-                'user_data': user
-            }
-            logger.info(f"💾 Stored session in server-side storage: {session_cookie[:20]}... (User: {username}, Type: {user.get('User_Type', 'user')})")
-        
-        # Also update client-side store
-        session_data['authenticated'] = True
-        session_data['username'] = username
-        session_data['user_type'] = user.get('User_Type', 'user')
-        session_data['user_data'] = user
-        
-        # Redirect to dashboard after successful login
-        return session_data, '', '/dashboard'
+            # CRITICAL: Store in Flask server-side session (more reliable)
+            from flask import session as flask_session, has_request_context
+            
+            if has_request_context():
+                flask_session.permanent = True
+                flask_session['authenticated'] = True
+                flask_session['username'] = username
+                flask_session['user_type'] = user.get('User_Type', 'user')
+                flask_session['user_data'] = user
+                
+                # CRITICAL: Store user updated timestamp in session
+                # This allows us to verify if user data was changed after session creation
+                # Priority: User_Updated_At > Password_Changed_At (User_Updated_At tracks ALL changes)
+                user_updated_at = user.get('User_Updated_At')
+                password_changed_at = user.get('Password_Changed_At')
+                
+                if user_updated_at is not None:
+                    flask_session['user_updated_at'] = user_updated_at
+                elif password_changed_at is not None:
+                    # Fallback for older records without User_Updated_At
+                    flask_session['password_changed_at'] = password_changed_at
+                
+                flask_session['session_created_at'] = datetime.utcnow().timestamp()
+                
+                # Also store in server-side backup storage (keyed by session cookie)
+                # This ensures session works even when browser sessionStorage fails on IP addresses
+                session_cookie = request.cookies.get('session') or flask_session.get('_id') or str(id(flask_session))
+                _server_sessions[session_cookie] = {
+                    'authenticated': True,
+                    'username': username,
+                    'user_type': user.get('User_Type', 'user'),
+                    'user_data': user,
+                    'user_updated_at': user_updated_at,
+                    'password_changed_at': password_changed_at,
+                    'session_created_at': datetime.utcnow().timestamp()
+                }
+                logger.info(f"💾 Stored session in server-side storage: {session_cookie[:20]}... (User: {username}, Type: {user.get('User_Type', 'user')}, User_Updated_At: {user_updated_at}, Password_Changed_At: {password_changed_at})")
+            
+            # Also update client-side store
+            session_data['authenticated'] = True
+            session_data['username'] = username
+            session_data['user_type'] = user.get('User_Type', 'user')
+            session_data['user_data'] = user
+            
+            # Redirect to dashboard after successful login
+            return session_data, '', '/dashboard'
+        else:
+            logger.warning(f"❌ Authentication failed - User object missing required fields: {user}")
+    else:
+        logger.warning(f"❌ Authentication failed - Invalid user object for User ID: '{username}' - User: {user}")
     
     # Authentication failed - log and return error
-    logger.warning(f"❌ Authentication failed for User ID: '{username}' - User object: {user}")
+    # CRITICAL: Clear Flask session and server-side session storage on failed login
+    # This prevents old session cookies from being used after failed login
+    from flask import session as flask_session, has_request_context
+    from flask import session as flask_session_modify
+    
+    if has_request_context():
+        # Get session cookie BEFORE clearing (to identify which session to remove)
+        session_cookie = request.cookies.get('session', '') or flask_session.get('_id', '') or str(id(flask_session))
+        
+        # Clear Flask session completely BUT keep a flag to indicate failed login
+        # This flag prevents old sessions from being used after failed login
+        old_session_data = dict(flask_session)  # Save old data to clear selectively
+        flask_session.clear()
+        flask_session.permanent = False  # Disable permanent session
+        
+        # Set a flag to indicate login failed (prevents using old session on next request)
+        # This MUST be set after clear() so it persists
+        flask_session['_login_failed'] = True
+        flask_session['_failed_login_user'] = username  # Store which user failed for logging
+        flask_session.modified = True  # Mark as modified to ensure cookie is updated
+        
+        # Clear server-side session storage
+        if session_cookie and session_cookie in _server_sessions:
+            del _server_sessions[session_cookie]
+            logger.info(f"🔒 Cleared server-side session storage for cookie: {session_cookie[:20]}...")
+        
+        # Also clear any sessions that might match the current cookie pattern
+        cookie_prefix = session_cookie[:20] if session_cookie else ''
+        sessions_to_delete = [k for k in list(_server_sessions.keys()) if k.startswith(cookie_prefix) or cookie_prefix in k]
+        for key in sessions_to_delete:
+            del _server_sessions[key]
+        
+        logger.info("🔒 Cleared Flask session due to failed login and set failed login flag")
+    
+    # Clear any existing authentication state to prevent session hijacking
+    session_data = {}  # Reset to empty dict instead of just clearing fields
+    session_data['authenticated'] = False
+    session_data['_login_failed'] = True  # Set flag in client store too
+    
+    logger.warning(f"❌ Login failed for User ID: '{username}' - All sessions cleared and failed login flag set")
+    
     return session_data, dbc.Alert(
         "Invalid User ID or Password!",
         color="danger",

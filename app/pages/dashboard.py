@@ -1205,7 +1205,7 @@ def create_help_content():
                 dbc.AccordionItem([
                     html.P("The system uses the following architecture:"),
                     html.Pre("""
-IoT Devices → Mosquitto MQTT → Docker App → InfluxDB Cloud → Dashboard
+IoT Devices → Mosquitto MQTT → Docker App → InfluxDB 2.x → Dashboard
      ↓              ↓                ↓              ↓              ↓
   Sensors    Local Broker      GCP VM App   Cloud Database  Plotly Dash
                 (GCP VM)         (GCP VM)                    + WebSocket
