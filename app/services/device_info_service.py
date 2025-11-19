@@ -236,9 +236,14 @@ class DeviceInfoService:
             logger.error(f"Error listing devices: {e}")
             return []
     
-    def get_all_devices_info(self) -> List[Dict[str, Any]]:
+    def get_all_devices_info(self, owner_filter: Optional[str] = None, is_admin: bool = False) -> List[Dict[str, Any]]:
         """
         Get all devices with their information in a single optimized query
+        
+        Args:
+            owner_filter: Optional owner name to filter devices. If None, returns all devices.
+                         If provided, only returns devices where Owner == owner_filter.
+            is_admin: If True, ignore owner_filter and return all devices (admin sees all)
         
         Returns:
             List of device info dictionaries with Sr_No, Device_Name, Owner, etc.
@@ -247,20 +252,34 @@ class DeviceInfoService:
             return []
         
         try:
-            # Get all records, pivot to wide format, group by Sr_No, take latest
-            # Fixed: pivot after group, and use correct rowKey (Sr_No is a tag, not in rowKey before group)
-            query = f'''
-                from(bucket: "{self.bucket}")
-                |> range(start: -365d)
-                |> filter(fn: (r) => r._measurement == "Device_info")
-                |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
-                |> group(columns: ["Sr_No"])
-                |> sort(columns: ["_time"], desc: true)
-                |> keep(columns: ["_time", "Sr_No", "Owner", "Device_Name", "Date_Of_Register"])
-                |> first()
-            '''
+            # Build query with optional owner filter
+            if is_admin or not owner_filter:
+                # Admin or no filter - get all devices
+                query = f'''
+                    from(bucket: "{self.bucket}")
+                    |> range(start: -365d)
+                    |> filter(fn: (r) => r._measurement == "Device_info")
+                    |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+                    |> group(columns: ["Sr_No"])
+                    |> sort(columns: ["_time"], desc: true)
+                    |> keep(columns: ["_time", "Sr_No", "Owner", "Device_Name", "Date_Of_Register"])
+                    |> first()
+                '''
+            else:
+                # Filter by owner
+                query = f'''
+                    from(bucket: "{self.bucket}")
+                    |> range(start: -365d)
+                    |> filter(fn: (r) => r._measurement == "Device_info")
+                    |> filter(fn: (r) => r.Owner == "{owner_filter}")
+                    |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+                    |> group(columns: ["Sr_No"])
+                    |> sort(columns: ["_time"], desc: true)
+                    |> keep(columns: ["_time", "Sr_No", "Owner", "Device_Name", "Date_Of_Register"])
+                    |> first()
+                '''
             
-            logger.debug(f"🔍 Executing Flux query for all devices info:\n{query}")
+            logger.debug(f"🔍 Executing Flux query for devices info (owner_filter: {owner_filter}, is_admin: {is_admin}):\n{query}")
             result = self.query_api.query(org=self.org, query=query)
             
             # Process results
@@ -279,15 +298,21 @@ class DeviceInfoService:
                         continue
                     
                     seen_serials.add(sr_no)
+                    owner = record.values.get('Owner', 'Unassigned')
+                    
+                    # Double-check owner filter (in case filter didn't work in Flux)
+                    if not is_admin and owner_filter and owner != owner_filter:
+                        continue
+                    
                     devices.append({
                         'Sr_No': sr_no,
                         'Device_Name': record.values.get('Device_Name', 'Unnamed'),
-                        'Owner': record.values.get('Owner', 'Unassigned'),
+                        'Owner': owner,
                         'Date_Of_Register': record.values.get('Date_Of_Register', ''),
                         'timestamp': record.get_time().isoformat() if record.get_time() else datetime.utcnow().isoformat()
                     })
             
-            logger.info(f"✅ Found {len(devices)} devices in database")
+            logger.info(f"✅ Found {len(devices)} devices in database (owner_filter: {owner_filter}, is_admin: {is_admin})")
             
             # Sort by Serial Number
             return sorted(devices, key=lambda x: x['Sr_No'])
@@ -302,6 +327,10 @@ class DeviceInfoService:
                 for sr_no in serial_numbers:
                     device_info = self.get_device_info(sr_no)
                     if device_info:
+                        # Apply owner filter in fallback too
+                        if not is_admin and owner_filter:
+                            if device_info.get('Owner') != owner_filter:
+                                continue
                         devices.append(device_info)
                 return sorted(devices, key=lambda x: x.get('Sr_No', ''))
             except Exception as fallback_error:

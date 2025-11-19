@@ -16,6 +16,11 @@ def create_device_config_layout():
     """Create device configuration page with tabs"""
     
     return html.Div([
+        # Hidden store to trigger config reload after save
+        dcc.Store(id='config-reload-trigger', data={'timestamp': 0}),
+        # Session store to access logged-in user info
+        dcc.Store(id='device-config-session-store', storage_type='session'),
+        
         # Device Selection
         dbc.Row([
             dbc.Col([
@@ -508,6 +513,32 @@ def create_can_bus_content():
     return create_can_bus_layout()
 
 
+# Callback to sync session data to device config page
+@callback(
+    Output('device-config-session-store', 'data'),
+    Input('url', 'pathname'),
+    State('session-store', 'data'),
+    prevent_initial_call=False
+)
+def sync_session_data(pathname, session_data):
+    """Sync session data from main session store to device config session store"""
+    if session_data:
+        return session_data
+    # Try to get from Flask session as fallback
+    try:
+        from flask import session as flask_session
+        if flask_session.get('authenticated'):
+            return {
+                'authenticated': True,
+                'username': flask_session.get('username', ''),
+                'user_type': flask_session.get('user_type', 'user'),
+                'user_data': flask_session.get('user_data', {})
+            }
+    except Exception:
+        pass
+    return {}
+
+
 # Callback to load device list (Serial Numbers) from Device_info on page load
 # Uses multiple triggers to ensure it runs immediately when the page loads
 @callback(
@@ -518,10 +549,11 @@ def create_can_bus_content():
     ],
     Input('url', 'pathname'),
     Input('device-selector', 'id'),
+    State('device-config-session-store', 'data'),
     prevent_initial_call=False
 )
-def load_device_list(pathname, _):
-    """Load Serial Numbers from Device_info measurement (optimized - single query with caching)"""
+def load_device_list(pathname, _, session_data):
+    """Load Serial Numbers from Device_info measurement filtered by logged-in user (optimized - single query with caching)"""
     global _device_list_cache, _cache_timestamp
     
     import logging
@@ -531,25 +563,40 @@ def load_device_list(pathname, _):
     loading_spinner = dbc.Spinner(html.Div(), size="sm")
     
     try:
-        logger.info(f"🔄 load_device_list called - Pathname: {pathname}, Triggered ID: {ctx.triggered_id}")
+        from dash import ctx
+        logger.info(f"🔄 load_device_list called - Pathname: {pathname}, Triggered ID: {ctx.triggered_id if hasattr(ctx, 'triggered_id') else 'None'}")
         
         # Allow loading on dashboard page or any authenticated page (device config is embedded in dashboard)
         # Only skip if explicitly on login/logout page
         skip_paths = ['/login', '/logout', '/']
-        if pathname in skip_paths and ctx.triggered_id == 'url':
+        triggered_id = ctx.triggered_id if hasattr(ctx, 'triggered_id') else None
+        if pathname in skip_paths and triggered_id == 'url':
             logger.info(f"⏭️ Skipping device list load for pathname: {pathname}")
             if _device_list_cache:
                 return _device_list_cache[0], _device_list_cache[1], ""
             return [], None, ""
         
-        # Check cache first - return immediately if available and fresh
-        current_time = time.time()
-        if _device_list_cache and (current_time - _cache_timestamp) < _cache_ttl:
-            logger.info(f"✅ Returning cached device list (age: {current_time - _cache_timestamp:.1f}s)")
-            # Return cached data immediately (no database query needed)
-            return _device_list_cache[0], _device_list_cache[1], ""
+        # Get logged-in user info
+        username = None
+        is_admin = False
+        if session_data:
+            username = session_data.get('username', '')
+            user_type = session_data.get('user_type', 'user')
+            is_admin = (username == 'admin')  # Admin is identified by username == 'admin'
+            logger.info(f"👤 Loading devices for user: {username}, Is Admin: {is_admin}")
         
-        logger.info("📡 Fetching device list from database (cache expired or not available)")
+        # Build cache key that includes user info (different users see different devices)
+        cache_key = f"{username}_{is_admin}"
+        current_time = time.time()
+        
+        # Check cache first - but only if same user
+        if _device_list_cache and (current_time - _cache_timestamp) < _cache_ttl:
+            cached_key = getattr(_device_list_cache, '_cache_user_key', None)
+            if cached_key == cache_key:
+                logger.info(f"✅ Returning cached device list for user {username} (age: {current_time - _cache_timestamp:.1f}s)")
+                return _device_list_cache[0], _device_list_cache[1], ""
+        
+        logger.info(f"📡 Fetching device list from database (cache expired or different user)")
         
         # Cache expired or not available, fetch from database
         # Show loading spinner while fetching
@@ -564,11 +611,15 @@ def load_device_list(pathname, _):
                 ""  # Hide spinner on error
             )
             _device_list_cache = (error_options[0], error_options[1])
+            _device_list_cache._cache_user_key = cache_key
             _cache_timestamp = current_time
             return error_options
         
-        # Get all devices with their info in a single optimized query
-        all_devices_info = device_info_service.get_all_devices_info()
+        # Get devices filtered by owner (admin sees all, regular users see only their devices)
+        all_devices_info = device_info_service.get_all_devices_info(
+            owner_filter=username if not is_admin and username else None,
+            is_admin=is_admin
+        )
         
         logger.info(f"📊 Device query result: {len(all_devices_info) if all_devices_info else 0} devices found")
         if all_devices_info:
@@ -604,10 +655,13 @@ def load_device_list(pathname, _):
         
         logger.info(f"🎯 Default device selected: {default_value}")
         
-        # Cache the results
+        # Cache the results (with user key for cache invalidation)
         result = (options, default_value, "")  # Hide spinner after loading
         _device_list_cache = (options, default_value)
+        _device_list_cache._cache_user_key = cache_key
         _cache_timestamp = current_time
+        
+        logger.info(f"✅ Built {len(options)} dropdown options for user: {username} (is_admin: {is_admin})")
         
         return result
         
@@ -642,31 +696,84 @@ def load_device_list(pathname, _):
     ],
     [
         Input('device-selector', 'value'),
-        Input('url', 'pathname'),  # Also trigger on page load/navigation
+        Input('url', 'pathname'),  # Trigger on page load/navigation
+        Input('config-reload-trigger', 'data'),  # Trigger after successful save
     ],
+    State('device-config-session-store', 'data'),
     prevent_initial_call='initial_duplicate',  # Allow initial call on page load with duplicate outputs
     allow_duplicate=True
 )
-def load_device_configuration(device_id, pathname):
-    """Load saved configuration for selected device and populate UI fields"""
-    # Don't load if not on devices page
-    if pathname and '/devices' not in pathname:
+def load_device_configuration(device_id, pathname, reload_trigger, session_data):
+    """Load saved configuration for selected device and populate UI fields
+    
+    Triggers on:
+    - Device selection change
+    - Page load/navigation (pathname change)
+    - After successful save (config-reload-trigger timestamp update)
+    - Browser refresh (pathname change)
+    - Login/logout (pathname change)
+    
+    Loads configuration based on:
+    - Logged-in user (User ID)
+    - Device-User ownership mapping
+    - Admin users see all devices
+    - Regular users see only their assigned devices
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Allow loading on dashboard page (device config is embedded in dashboard)
+    # Only skip if explicitly on login/logout page
+    skip_paths = ['/login', '/logout', '/']
+    if pathname in skip_paths:
+        logger.debug(f"⏭️ Skipping config load for pathname: {pathname}")
         return [no_update] * 9
     
     if not device_id:
         return [no_update] * 9  # Return no_update for all outputs
     
     try:
+        # Get logged-in user info
+        username = None
+        is_admin = False
+        if session_data:
+            username = session_data.get('username', '')
+            user_type = session_data.get('user_type', 'user')
+            is_admin = (username == 'admin')
+        
+        logger.info(f"🔄 Loading configuration for device: {device_id}, user: {username}, is_admin: {is_admin}")
+        
+        # Verify device ownership (unless admin)
+        if not is_admin and username:
+            from app.services.device_info_service import DeviceInfoService
+            device_info_service = DeviceInfoService()
+            device_info = device_info_service.get_device_info(device_id)
+            
+            if not device_info:
+                logger.warning(f"⚠️ Device {device_id} not found in database")
+                return [no_update] * 9
+            
+            device_owner = device_info.get('Owner', 'Unassigned')
+            if device_owner != username:
+                logger.warning(f"⚠️ User {username} attempted to access device {device_id} owned by {device_owner} - Access denied")
+                return [no_update] * 9  # Don't show config for devices user doesn't own
+        
         from app.services.device_config_db import DeviceConfigDBService
         
         db_service = DeviceConfigDBService()
         
         if not db_service.is_connected():
+            logger.warning("⚠️ Database not connected, cannot load configuration")
             return [no_update] * 9
         
-        # Load configurations from individual tables
+        # Load configurations from individual tables (always get latest from database)
         analog_config = db_service.get_analog_config(device_id)
         digital_config = db_service.get_digital_config(device_id)
+        
+        logger.info(f"📊 Loaded config - Analog: {analog_config is not None}, Digital: {digital_config is not None}")
+        
+        # If no configuration exists, use default values (don't reset to factory defaults)
+        # Default values are already set in the initialization below
         
         # Prepare output lists (4 channels for inputs, 2 for outputs)
         analog_input_enable = [False] * 4
@@ -742,6 +849,7 @@ def load_device_configuration(device_id, pathname):
         Output('save-analog-status-message', 'children'),
         Output('save-analog-btn-spinner', 'children'),
         Output('save-analog-config-btn', 'disabled'),
+        Output('config-reload-trigger', 'data', allow_duplicate=True),
     ],
     Input('save-analog-config-btn', 'n_clicks'),
     # Analog Input States
@@ -757,6 +865,7 @@ def load_device_configuration(device_id, pathname):
     State('analog-scan-rate', 'value'),
     # Device Selection (Serial Number)
     State('device-selector', 'value'),
+    State('device-config-session-store', 'data'),
     prevent_initial_call=True
 )
 def save_analog_configuration(
@@ -764,11 +873,54 @@ def save_analog_configuration(
     analog_input_enable, analog_input_div, analog_input_mul, analog_input_name,
     analog_output_enable, analog_output_value, analog_output_name,
     analog_scan_rate,
-    serial_number
+    serial_number,
+    session_data
 ):
-    """Save device configuration with validation"""
+    """Save device configuration with validation and ownership check"""
     if not n_clicks:
-        return "", html.I(className="fas fa-save me-2"), False
+        return "", html.I(className="fas fa-save me-2"), False, no_update
+    
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Get logged-in user info
+    username = None
+    is_admin = False
+    if session_data:
+        username = session_data.get('username', '')
+        user_type = session_data.get('user_type', 'user')
+        is_admin = (username == 'admin')
+    
+    # Validate Serial Number is selected
+    if not serial_number:
+        error_msg = html.Div([
+            html.Strong("Validation Error: "),
+            "Please select a device (Serial Number) from the dropdown."
+        ], className='text-danger')
+        return error_msg, html.I(className="fas fa-save me-2"), False, no_update
+    
+    # Verify device ownership before saving (unless admin)
+    if not is_admin and username and serial_number:
+        from app.services.device_info_service import DeviceInfoService
+        device_info_service = DeviceInfoService()
+        device_info = device_info_service.get_device_info(serial_number)
+        
+        if device_info:
+            device_owner = device_info.get('Owner', 'Unassigned')
+            if device_owner != username:
+                logger.warning(f"⚠️ User {username} attempted to save config for device {serial_number} owned by {device_owner} - Access denied")
+                error_msg = html.Div([
+                    html.Strong("Access Denied: "),
+                    f"❌ You don't have permission to save configuration for device {serial_number}. This device is owned by {device_owner}."
+                ], className='text-danger')
+                return error_msg, html.I(className="fas fa-save me-2"), False, no_update
+        else:
+            logger.warning(f"⚠️ Device {serial_number} not found in database")
+            error_msg = html.Div([
+                html.Strong("Error: "),
+                f"❌ Device {serial_number} not found in database."
+            ], className='text-danger')
+            return error_msg, html.I(className="fas fa-save me-2"), False, no_update
     
     # IMPORTANT: For immediate UI feedback, we need to return disabled/spinner state
     # However, Dash callbacks are synchronous, so UI updates only happen after callback completes
@@ -788,24 +940,13 @@ def save_analog_configuration(
         config_service = DeviceConfigService()
         db_service = DeviceConfigDBService()
         
-        # Validate Serial Number is selected
-        if not serial_number:
-            error_msg = html.Div([
-                html.Strong("Validation Error: "),
-                "Please select a device (Serial Number) from the dropdown."
-            ], className='text-danger')
-            return error_msg, html.I(className="fas fa-save me-2"), False
-        
         # Validate Scan Rate
         if analog_scan_rate is None or analog_scan_rate < 1000:
             error_msg = html.Div([
                 html.Strong("Validation Error: "),
                 "Analog Scan Rate must be at least 1000 seconds."
             ], className='text-danger')
-            return error_msg, html.I(className="fas fa-save me-2"), False
-        
-        import logging
-        logger = logging.getLogger(__name__)
+            return error_msg, html.I(className="fas fa-save me-2"), False, no_update
         
         # IMPORTANT: Use ctx.states to get actual indices from pattern-matched values
         # Dash pattern matching returns values as lists, but we need to map them by actual index
@@ -1209,15 +1350,20 @@ def save_analog_configuration(
                 html.Strong("Saved! ", className='text-success'),
                 f"Device: {serial_number} | Complete config updated & published to MQTT"
             ], className='text-success fw-bold')
-            # Return: status message, icon (no spinner), button enabled
-            return success_msg, html.I(className="fas fa-save me-2"), False
+            
+            # Trigger config reload by updating the store timestamp
+            import time
+            reload_timestamp = {'timestamp': time.time()}
+            
+            # Return: status message, icon (no spinner), button enabled, reload trigger
+            return success_msg, html.I(className="fas fa-save me-2"), False, reload_timestamp
         else:
             # Error - show error message, restore icon, re-enable button
             error_msg = html.Div([
                 html.Strong("Error: "),
                 f"❌ Error saving analog configuration for Serial Number: {serial_number}"
             ], className='text-danger')
-            return error_msg, html.I(className="fas fa-save me-2"), False
+            return error_msg, html.I(className="fas fa-save me-2"), False, no_update
             
     except Exception as e:
         import logging
@@ -1228,13 +1374,16 @@ def save_analog_configuration(
             html.Strong("Error: "),
             f"❌ {str(e)}"
         ], className='text-danger')
-        return error_msg, html.I(className="fas fa-save me-2"), False
+        return error_msg, html.I(className="fas fa-save me-2"), False, no_update
 
 
 # Callback for save Digital configuration (inside Digital tab)
 @callback(
-    Output('config-save-toast', 'is_open', allow_duplicate=True),
-    Output('config-save-toast', 'children', allow_duplicate=True),
+    [
+        Output('config-save-toast', 'is_open', allow_duplicate=True),
+        Output('config-save-toast', 'children', allow_duplicate=True),
+        Output('config-reload-trigger', 'data', allow_duplicate=True),
+    ],
     Input('save-digital-config-btn', 'n_clicks'),
     # Digital I/O States
     State({'type': 'npn-input-enable', 'index': ALL}, 'value'),
@@ -1251,6 +1400,7 @@ def save_analog_configuration(
     State('digital-scan-rate', 'value'),
     # Device Selection (Serial Number)
     State('device-selector', 'value'),
+    State('device-config-session-store', 'data'),
     prevent_initial_call=True
 )
 def save_digital_configuration(
@@ -1261,11 +1411,23 @@ def save_digital_configuration(
     pnp_output_enable, pnp_output_name,
     relay_enable, relay_name,
     digital_scan_rate,
-    serial_number
+    serial_number,
+    session_data
 ):
     """Save Digital configuration - saves only to Device_Config_Digital table"""
     if not n_clicks:
-        return False, ""
+        return False, "", no_update
+    
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Get logged-in user info
+    username = None
+    is_admin = False
+    if session_data:
+        username = session_data.get('username', '')
+        user_type = session_data.get('user_type', 'user')
+        is_admin = (username == 'admin')
     
     try:
         from app.services.config_json_builder import ConfigJSONBuilder
@@ -1281,14 +1443,35 @@ def save_digital_configuration(
             return True, html.Div([
                 html.Strong("Validation Error: "),
                 "Please select a device (Serial Number) from the dropdown."
-            ])
+            ]), no_update
+        
+        # Verify device ownership before saving (unless admin)
+        if not is_admin and username and serial_number:
+            from app.services.device_info_service import DeviceInfoService
+            device_info_service = DeviceInfoService()
+            device_info = device_info_service.get_device_info(serial_number)
+            
+            if device_info:
+                device_owner = device_info.get('Owner', 'Unassigned')
+                if device_owner != username:
+                    logger.warning(f"⚠️ User {username} attempted to save config for device {serial_number} owned by {device_owner} - Access denied")
+                    return True, html.Div([
+                        html.Strong("Access Denied: "),
+                        f"❌ You don't have permission to save configuration for device {serial_number}. This device is owned by {device_owner}."
+                    ], className='text-danger'), no_update
+            else:
+                logger.warning(f"⚠️ Device {serial_number} not found in database")
+                return True, html.Div([
+                    html.Strong("Error: "),
+                    f"❌ Device {serial_number} not found in database."
+                ], className='text-danger'), no_update
         
         # Validate Scan Rate
         if digital_scan_rate is None or digital_scan_rate < 1000:
             return True, html.Div([
                 html.Strong("Validation Error: "),
                 "Digital Scan Rate must be at least 1000 seconds."
-            ])
+            ]), no_update
         
         # IO Pin mappings
         digital_io_pins = {
@@ -1436,12 +1619,15 @@ def save_digital_configuration(
                 html.Strong("Saved! ", className='text-success'),
                 f"Device: {serial_number} | Complete config updated & published to MQTT"
             ], className='text-success fw-bold')
-            return True, success_msg
+            # Trigger config reload by updating the store timestamp
+            import time
+            reload_timestamp = {'timestamp': time.time()}
+            return True, success_msg, reload_timestamp
         else:
             return True, html.Div([
                 html.Strong("Error: "),
                 f"❌ Error saving digital configuration for Serial Number: {serial_number}"
-            ])
+            ]), no_update
             
     except Exception as e:
         import logging
@@ -1451,13 +1637,16 @@ def save_digital_configuration(
         return True, html.Div([
             html.Strong("Error: "),
             f"❌ {str(e)}"
-        ])
+        ]), no_update
 
 
 # Callback for save RS485 MODBUS configuration (inside RS485 MODBUS tab)
 @callback(
-    Output('config-save-toast', 'is_open', allow_duplicate=True),
-    Output('config-save-toast', 'children', allow_duplicate=True),
+    [
+        Output('config-save-toast', 'is_open', allow_duplicate=True),
+        Output('config-save-toast', 'children', allow_duplicate=True),
+        Output('config-reload-trigger', 'data', allow_duplicate=True),
+    ],
     Input('save-modbus-config-btn', 'n_clicks'),
     # RS485 MODBUS States
     State('modbus-baud-rate', 'value'),
@@ -1470,17 +1659,30 @@ def save_digital_configuration(
     State('modbus-devices-store', 'data'),
     # Device Selection (Serial Number)
     State('device-selector', 'value'),
+    State('device-config-session-store', 'data'),
     prevent_initial_call=True
 )
 def save_modbus_configuration(
     n_clicks,
     modbus_baud_rate, modbus_data_bits, modbus_parity, modbus_stop_bits,
     modbus_mode, modbus_role, modbus_polling_interval, modbus_devices_store,
-    serial_number
+    serial_number,
+    session_data
 ):
     """Save RS485 MODBUS configuration - saves only to Device_Config_MODBUS table"""
     if not n_clicks:
-        return False, ""
+        return False, "", no_update
+    
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Get logged-in user info
+    username = None
+    is_admin = False
+    if session_data:
+        username = session_data.get('username', '')
+        user_type = session_data.get('user_type', 'user')
+        is_admin = (username == 'admin')
     
     try:
         from app.services.config_json_builder import ConfigJSONBuilder
@@ -1496,7 +1698,28 @@ def save_modbus_configuration(
             return True, html.Div([
                 html.Strong("Validation Error: "),
                 "Please select a device (Serial Number) from the dropdown."
-            ])
+            ]), no_update
+        
+        # Verify device ownership before saving (unless admin)
+        if not is_admin and username and serial_number:
+            from app.services.device_info_service import DeviceInfoService
+            device_info_service = DeviceInfoService()
+            device_info = device_info_service.get_device_info(serial_number)
+            
+            if device_info:
+                device_owner = device_info.get('Owner', 'Unassigned')
+                if device_owner != username:
+                    logger.warning(f"⚠️ User {username} attempted to save config for device {serial_number} owned by {device_owner} - Access denied")
+                    return True, html.Div([
+                        html.Strong("Access Denied: "),
+                        f"❌ You don't have permission to save configuration for device {serial_number}. This device is owned by {device_owner}."
+                    ], className='text-danger'), no_update
+            else:
+                logger.warning(f"⚠️ Device {serial_number} not found in database")
+                return True, html.Div([
+                    html.Strong("Error: "),
+                    f"❌ Device {serial_number} not found in database."
+                ], className='text-danger'), no_update
         
         # Validate required fields
         if not modbus_baud_rate:
@@ -1570,12 +1793,15 @@ def save_modbus_configuration(
                 html.Strong("Saved! ", className='text-success'),
                 f"Device: {serial_number} | Complete config updated & published to MQTT"
             ], className='text-success fw-bold')
-            return True, success_msg
+            # Trigger config reload by updating the store timestamp
+            import time
+            reload_timestamp = {'timestamp': time.time()}
+            return True, success_msg, reload_timestamp
         else:
             return True, html.Div([
                 html.Strong("Error: "),
                 f"❌ Error saving MODBUS configuration for Serial Number: {serial_number}"
-            ])
+            ]), no_update
             
     except Exception as e:
         import logging
@@ -1585,13 +1811,16 @@ def save_modbus_configuration(
         return True, html.Div([
             html.Strong("Error: "),
             f"❌ {str(e)}"
-        ])
+        ]), no_update
 
 
 # Callback for save CAN Bus configuration (inside CAN Bus tab)
 @callback(
-    Output('config-save-toast', 'is_open', allow_duplicate=True),
-    Output('config-save-toast', 'children', allow_duplicate=True),
+    [
+        Output('config-save-toast', 'is_open', allow_duplicate=True),
+        Output('config-save-toast', 'children', allow_duplicate=True),
+        Output('config-reload-trigger', 'data', allow_duplicate=True),
+    ],
     Input('save-canbus-config-btn', 'n_clicks'),
     # CAN Bus States
     State('can-baud-rate', 'value'),
@@ -1604,17 +1833,30 @@ def save_modbus_configuration(
     State('can-data-mapping-store', 'data'),
     # Device Selection (Serial Number)
     State('device-selector', 'value'),
+    State('device-config-session-store', 'data'),
     prevent_initial_call=True
 )
 def save_canbus_configuration(
     n_clicks,
     can_baud_rate, can_identifier_length, can_mode, can_filter_mode,
     can_filter_id, can_filter_mask, can_messages_store, can_data_mapping_store,
-    serial_number
+    serial_number,
+    session_data
 ):
     """Save CAN Bus configuration - saves only to Device_Config_CANBus table"""
     if not n_clicks:
-        return False, ""
+        return False, "", no_update
+    
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Get logged-in user info
+    username = None
+    is_admin = False
+    if session_data:
+        username = session_data.get('username', '')
+        user_type = session_data.get('user_type', 'user')
+        is_admin = (username == 'admin')
     
     try:
         from app.services.config_json_builder import ConfigJSONBuilder
@@ -1630,7 +1872,28 @@ def save_canbus_configuration(
             return True, html.Div([
                 html.Strong("Validation Error: "),
                 "Please select a device (Serial Number) from the dropdown."
-            ])
+            ]), no_update
+        
+        # Verify device ownership before saving (unless admin)
+        if not is_admin and username and serial_number:
+            from app.services.device_info_service import DeviceInfoService
+            device_info_service = DeviceInfoService()
+            device_info = device_info_service.get_device_info(serial_number)
+            
+            if device_info:
+                device_owner = device_info.get('Owner', 'Unassigned')
+                if device_owner != username:
+                    logger.warning(f"⚠️ User {username} attempted to save config for device {serial_number} owned by {device_owner} - Access denied")
+                    return True, html.Div([
+                        html.Strong("Access Denied: "),
+                        f"❌ You don't have permission to save configuration for device {serial_number}. This device is owned by {device_owner}."
+                    ], className='text-danger'), no_update
+            else:
+                logger.warning(f"⚠️ Device {serial_number} not found in database")
+                return True, html.Div([
+                    html.Strong("Error: "),
+                    f"❌ Device {serial_number} not found in database."
+                ], className='text-danger'), no_update
         
         # Validate required fields
         if not can_baud_rate:
@@ -1705,12 +1968,15 @@ def save_canbus_configuration(
                 html.Strong("Saved! ", className='text-success'),
                 f"Device: {serial_number} | Complete config updated & published to MQTT"
             ], className='text-success fw-bold')
-            return True, success_msg
+            # Trigger config reload by updating the store timestamp
+            import time
+            reload_timestamp = {'timestamp': time.time()}
+            return True, success_msg, reload_timestamp
         else:
             return True, html.Div([
                 html.Strong("Error: "),
                 f"❌ Error saving CAN Bus configuration for Serial Number: {serial_number}"
-            ])
+            ]), no_update
             
     except Exception as e:
         import logging
@@ -1720,7 +1986,7 @@ def save_canbus_configuration(
         return True, html.Div([
             html.Strong("Error: "),
             f"❌ {str(e)}"
-        ])
+        ]), no_update
 
 
 # Callback for "Save All Configuration" button - saves to Device_Config table
@@ -1731,6 +1997,7 @@ def save_canbus_configuration(
         Output('save-all-config-btn', 'disabled'),
         Output('config-save-toast', 'is_open', allow_duplicate=True),
         Output('config-save-toast', 'children', allow_duplicate=True),
+        Output('config-reload-trigger', 'data', allow_duplicate=True),
     ],
     Input('save-all-config-btn', 'n_clicks'),
     # Analog Input States
@@ -1776,6 +2043,7 @@ def save_canbus_configuration(
     State('can-data-mapping-store', 'data'),
     # Device Selection (Serial Number)
     State('device-selector', 'value'),
+    State('device-config-session-store', 'data'),
     prevent_initial_call=True
 )
 def save_all_configuration(
@@ -1799,11 +2067,23 @@ def save_all_configuration(
     can_baud_rate, can_identifier_length, can_mode, can_filter_mode,
     can_filter_id, can_filter_mask, can_messages_store, can_data_mapping_store,
     # Device
-    serial_number
+    serial_number,
+    session_data
 ):
     """Save all configurations (Analog, Digital, RS485 MODBUS, CAN Bus) to Device_Config table"""
     if not n_clicks:
-        return "", html.I(className="fas fa-save me-2"), False, False, ""
+        return "", html.I(className="fas fa-save me-2"), False, False, "", no_update
+    
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Get logged-in user info
+    username = None
+    is_admin = False
+    if session_data:
+        username = session_data.get('username', '')
+        user_type = session_data.get('user_type', 'user')
+        is_admin = (username == 'admin')
     
     try:
         from app.services.config_json_builder import ConfigJSONBuilder
@@ -1821,7 +2101,30 @@ def save_all_configuration(
                 html.Strong("Validation Error: "),
                 "Please select a device (Serial Number) from the dropdown."
             ], className='text-danger')
-            return error_msg, html.I(className="fas fa-save me-2"), False, True, error_msg
+            return error_msg, html.I(className="fas fa-save me-2"), False, no_update, True, error_msg, no_update
+        
+        # Verify device ownership before saving (unless admin)
+        if not is_admin and username and serial_number:
+            from app.services.device_info_service import DeviceInfoService
+            device_info_service = DeviceInfoService()
+            device_info = device_info_service.get_device_info(serial_number)
+            
+            if device_info:
+                device_owner = device_info.get('Owner', 'Unassigned')
+                if device_owner != username:
+                    logger.warning(f"⚠️ User {username} attempted to save config for device {serial_number} owned by {device_owner} - Access denied")
+                    error_msg = html.Div([
+                        html.Strong("Access Denied: "),
+                        f"❌ You don't have permission to save configuration for device {serial_number}. This device is owned by {device_owner}."
+                    ], className='text-danger')
+                    return error_msg, html.I(className="fas fa-save me-2"), False, no_update, True, error_msg, no_update
+            else:
+                logger.warning(f"⚠️ Device {serial_number} not found in database")
+                error_msg = html.Div([
+                    html.Strong("Error: "),
+                    f"❌ Device {serial_number} not found in database."
+                ], className='text-danger')
+                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, True, error_msg, no_update
         
         # Validate Scan Rates
         if analog_scan_rate is None or analog_scan_rate < 1000:
@@ -1829,14 +2132,14 @@ def save_all_configuration(
                 html.Strong("Validation Error: "),
                 "Analog Scan Rate must be at least 1000 seconds."
             ], className='text-danger')
-            return error_msg, html.I(className="fas fa-save me-2"), False, True, error_msg
+            return error_msg, html.I(className="fas fa-save me-2"), False, True, error_msg, no_update
         
         if digital_scan_rate is None or digital_scan_rate < 1000:
             error_msg = html.Div([
                 html.Strong("Validation Error: "),
                 "Digital Scan Rate must be at least 1000 seconds."
             ], className='text-danger')
-            return error_msg, html.I(className="fas fa-save me-2"), False, True, error_msg
+            return error_msg, html.I(className="fas fa-save me-2"), False, True, error_msg, no_update
         
         # Get device info for device name
         from app.services.device_info_service import DeviceInfoService
@@ -2078,13 +2381,16 @@ def save_all_configuration(
                 html.Strong("All configurations saved! ", className='text-success'),
                 f"Device: {serial_number} | Published to MQTT"
             ], className='text-success fw-bold')
-            return success_msg, html.I(className="fas fa-save me-2"), False, True, success_msg
+            # Trigger config reload by updating the store timestamp
+            import time
+            reload_timestamp = {'timestamp': time.time()}
+            return success_msg, html.I(className="fas fa-save me-2"), False, True, success_msg, reload_timestamp
         else:
             error_msg = html.Div([
                 html.Strong("Error: "),
                 f"❌ Error saving all configurations for Serial Number: {serial_number}"
             ], className='text-danger')
-            return error_msg, html.I(className="fas fa-save me-2"), False, True, error_msg
+            return error_msg, html.I(className="fas fa-save me-2"), False, True, error_msg, no_update
             
     except Exception as e:
         import logging
@@ -2095,5 +2401,5 @@ def save_all_configuration(
             html.Strong("Error: "),
             f"❌ {str(e)}"
         ], className='text-danger')
-        return error_msg, html.I(className="fas fa-save me-2"), False, True, error_msg
+        return error_msg, html.I(className="fas fa-save me-2"), False, True, error_msg, no_update
 
