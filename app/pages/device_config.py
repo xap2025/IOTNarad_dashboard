@@ -547,9 +547,11 @@ def sync_session_data(pathname, session_data):
         Output('device-selector', 'value'),
         Output('device-selector-loading', 'children'),
     ],
-    Input('url', 'pathname'),
-    Input('device-selector', 'id'),
-    State('device-config-session-store', 'data'),
+    [
+        Input('url', 'pathname'),
+        Input('device-selector', 'id'),
+        Input('device-config-session-store', 'data'),  # Changed from State to Input - triggers when session data changes
+    ],
     prevent_initial_call=False
 )
 def load_device_list(pathname, _, session_data):
@@ -580,23 +582,32 @@ def load_device_list(pathname, _, session_data):
         username = None
         user_type = 'user'
         is_admin = False
-        if session_data:
+        
+        # Check session_data first - but verify it has actual data, not just empty dict
+        if session_data and isinstance(session_data, dict) and session_data.get('authenticated'):
             username = session_data.get('username', '')
             user_type = session_data.get('user_type', 'user')
         else:
+            # Fallback to Flask session directly
             try:
                 from flask import session as flask_session
                 if flask_session.get('authenticated'):
                     username = flask_session.get('username', '')
                     user_type = flask_session.get('user_type', 'user')
-            except Exception:
+                    logger.info(f"🔍 Got user info from Flask session: {username}, {user_type}")
+            except Exception as e:
+                logger.warning(f"⚠️ Could not get Flask session: {e}")
                 pass
-        if user_type and user_type.lower() == 'admin':
-            is_admin = True
-        elif username == 'admin':
-            is_admin = True
         
-        logger.info(f"👤 Loading devices for user: {username}, User Type: {user_type}, Is Admin: {is_admin}, Session Data: {session_data}")
+        # Determine if admin (check both user_type and username)
+        if user_type and str(user_type).lower() == 'admin':
+            is_admin = True
+            logger.info(f"✅ Admin detected via user_type: {user_type}")
+        elif username and str(username).lower() == 'admin':
+            is_admin = True
+            logger.info(f"✅ Admin detected via username: {username}")
+        
+        logger.info(f"👤 Loading devices - Username: {username}, User Type: {user_type}, Is Admin: {is_admin}, Session Data: {session_data if session_data else 'None/Empty'}")
         
         # Build cache key that includes user info (different users see different devices)
         cache_key = f"{username}_{is_admin}"

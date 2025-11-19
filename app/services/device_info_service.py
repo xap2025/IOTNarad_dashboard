@@ -109,12 +109,14 @@ class DeviceInfoService:
             # Get current date
             current_date = datetime.utcnow().strftime("%Y-%m-%d")
             timestamp = datetime.utcnow()
-            owner_value = owner.strip() if owner else "admin"
+            # Owner defaults to "admin" if not provided
+            owner_value = owner.strip() if owner and isinstance(owner, str) else "admin"
             
             # Create point for Device_info measurement
+            # Owner is a TAG (not field) for efficient filtering by user
             point = Point("Device_info") \
                 .tag("Sr_No", serial_number) \
-                .field("Owner", owner_value) \
+                .tag("Owner", owner_value) \
                 .field("Date_Of_Register", current_date) \
                 .field("Device_Name", "Unnamed") \
                 .time(timestamp, WritePrecision.NS)
@@ -174,6 +176,7 @@ class DeviceInfoService:
         
         try:
             # Flux query for Self-Hosted InfluxDB 2.x
+            # Owner is a TAG, so it's accessible directly (no pivot needed for tags)
             query = f'''
                 from(bucket: "{self.bucket}")
                 |> range(start: -365d)
@@ -188,9 +191,11 @@ class DeviceInfoService:
             
             for table in result:
                 for record in table.records:
+                    # Owner is a TAG, accessible from record.values
+                    # After pivot, fields are also in record.values
                     return {
                         'Sr_No': record.values.get('Sr_No'),
-                        'Owner': record.values.get('Owner', 'Unassigned'),
+                        'Owner': record.values.get('Owner', 'Unassigned'),  # TAG - accessible before/after pivot
                         'Date_Of_Register': record.values.get('Date_Of_Register', ''),
                         'Device_Name': record.values.get('Device_Name', 'Unnamed'),
                         'timestamp': record.get_time().isoformat()
@@ -255,6 +260,7 @@ class DeviceInfoService:
         
         try:
             # Build query with optional owner filter
+            # Owner is a TAG, so we can filter it directly BEFORE pivot (more efficient)
             if is_admin or not owner_filter:
                 # Admin or no filter - get all devices
                 query = f'''
@@ -262,27 +268,29 @@ class DeviceInfoService:
                     |> range(start: -365d)
                     |> filter(fn: (r) => r._measurement == "Device_info")
                     |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
-                    |> group(columns: ["Sr_No"])
+                    |> group(columns: ["Sr_No", "Owner"])
                     |> sort(columns: ["_time"], desc: true)
                     |> keep(columns: ["_time", "Sr_No", "Owner", "Device_Name", "Date_Of_Register"])
                     |> first()
                 '''
             else:
-                # Filter by owner - Owner is a FIELD, so filter after pivot
+                # Filter by owner - Owner is a TAG, so filter BEFORE pivot (more efficient)
                 query = f'''
                     from(bucket: "{self.bucket}")
                     |> range(start: -365d)
                     |> filter(fn: (r) => r._measurement == "Device_info")
-                    |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
                     |> filter(fn: (r) => r.Owner == "{owner_filter}")
-                    |> group(columns: ["Sr_No"])
+                    |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+                    |> group(columns: ["Sr_No", "Owner"])
                     |> sort(columns: ["_time"], desc: true)
                     |> keep(columns: ["_time", "Sr_No", "Owner", "Device_Name", "Date_Of_Register"])
                     |> first()
                 '''
             
-            logger.debug(f"🔍 Executing Flux query for devices info (owner_filter: {owner_filter}, is_admin: {is_admin}):\n{query}")
+            logger.info(f"🔍 Executing Flux query for devices info (owner_filter: {owner_filter}, is_admin: {is_admin})")
+            logger.debug(f"   Query:\n{query}")
             result = self.query_api.query(org=self.org, query=query)
+            logger.info(f"   Query executed successfully, processing results...")
             
             # Process results
             devices = []
@@ -300,10 +308,13 @@ class DeviceInfoService:
                         continue
                     
                     seen_serials.add(sr_no)
+                    # Owner is a TAG, accessible from record.values
                     owner = record.values.get('Owner', 'Unassigned')
                     
                     # Double-check owner filter (in case filter didn't work in Flux)
+                    # This shouldn't be needed if Owner is a tag, but keeping as safety check
                     if not is_admin and owner_filter and owner != owner_filter:
+                        logger.debug(f"   Skipping device {sr_no} - Owner '{owner}' != filter '{owner_filter}'")
                         continue
                     
                     devices.append({
@@ -367,9 +378,10 @@ class DeviceInfoService:
             date_of_register = device_info.get('Date_Of_Register', datetime.utcnow().strftime("%Y-%m-%d"))
             
             # Create updated point
+            # Owner is a TAG (not field) for efficient filtering by user
             point = Point("Device_info") \
                 .tag("Sr_No", serial_number) \
-                .field("Owner", new_owner) \
+                .tag("Owner", new_owner) \
                 .field("Date_Of_Register", date_of_register) \
                 .field("Device_Name", new_device_name) \
                 .time(datetime.utcnow(), WritePrecision.NS)
