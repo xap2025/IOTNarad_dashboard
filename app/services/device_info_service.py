@@ -80,12 +80,13 @@ class DeviceInfoService:
             logger.error(f"Error checking serial number: {e}")
             return False
     
-    def register_device(self, serial_number: str) -> bool:
+    def register_device(self, serial_number: str, owner: Optional[str] = None) -> bool:
         """
         Register a new device in the database
         
         Args:
             serial_number: Device serial number
+            owner: Optional owner/user ID. Defaults to 'admin' when not provided.
             
         Returns:
             True if registered successfully, False otherwise
@@ -108,11 +109,12 @@ class DeviceInfoService:
             # Get current date
             current_date = datetime.utcnow().strftime("%Y-%m-%d")
             timestamp = datetime.utcnow()
+            owner_value = owner.strip() if owner else "admin"
             
             # Create point for Device_info measurement
             point = Point("Device_info") \
                 .tag("Sr_No", serial_number) \
-                .field("Owner", "Unassigned") \
+                .field("Owner", owner_value) \
                 .field("Date_Of_Register", current_date) \
                 .field("Device_Name", "Unnamed") \
                 .time(timestamp, WritePrecision.NS)
@@ -147,7 +149,7 @@ class DeviceInfoService:
             logger.info(f"✅ Device registered successfully!")
             logger.info(f"   Serial Number: {serial_number}")
             logger.info(f"   Measurement: Device_info")
-            logger.info(f"   Owner: Unassigned")
+            logger.info(f"   Owner: {owner_value}")
             logger.info(f"   Date of Register: {current_date}")
             logger.info(f"   Device Name: Unnamed")
             return True
