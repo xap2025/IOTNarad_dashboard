@@ -576,13 +576,25 @@ def load_device_list(pathname, _, session_data):
                 return _device_list_cache[0], _device_list_cache[1], ""
             return [], None, ""
         
-        # Get logged-in user info
+        # Get logged-in user info (fallback to Flask session if needed)
         username = None
+        user_type = 'user'
         is_admin = False
         if session_data:
             username = session_data.get('username', '')
             user_type = session_data.get('user_type', 'user')
-            is_admin = (username == 'admin')  # Admin is identified by username == 'admin'
+        else:
+            try:
+                from flask import session as flask_session
+                if flask_session.get('authenticated'):
+                    username = flask_session.get('username', '')
+                    user_type = flask_session.get('user_type', 'user')
+            except Exception:
+                pass
+        if user_type and user_type.lower() == 'admin':
+            is_admin = True
+        elif username == 'admin':
+            is_admin = True
             logger.info(f"👤 Loading devices for user: {username}, Is Admin: {is_admin}")
         
         # Build cache key that includes user info (different users see different devices)
