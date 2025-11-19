@@ -595,7 +595,8 @@ def load_device_list(pathname, _, session_data):
             is_admin = True
         elif username == 'admin':
             is_admin = True
-            logger.info(f"👤 Loading devices for user: {username}, Is Admin: {is_admin}")
+        
+        logger.info(f"👤 Loading devices for user: {username}, User Type: {user_type}, Is Admin: {is_admin}, Session Data: {session_data}")
         
         # Build cache key that includes user info (different users see different devices)
         cache_key = f"{username}_{is_admin}"

@@ -268,13 +268,13 @@ class DeviceInfoService:
                     |> first()
                 '''
             else:
-                # Filter by owner
+                # Filter by owner - Owner is a FIELD, so filter after pivot
                 query = f'''
                     from(bucket: "{self.bucket}")
                     |> range(start: -365d)
                     |> filter(fn: (r) => r._measurement == "Device_info")
-                    |> filter(fn: (r) => r.Owner == "{owner_filter}")
                     |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+                    |> filter(fn: (r) => r.Owner == "{owner_filter}")
                     |> group(columns: ["Sr_No"])
                     |> sort(columns: ["_time"], desc: true)
                     |> keep(columns: ["_time", "Sr_No", "Owner", "Device_Name", "Date_Of_Register"])

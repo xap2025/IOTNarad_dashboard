@@ -55,6 +55,13 @@ from(bucket: "iot_data_gcp")
   |> filter(fn: (r) => r._measurement == "Device_info")
   |> distinct(column: "Sr_No")
   |> sort(columns: ["Sr_No"])
+
+  from(bucket: "iot_data_gcp")
+  |> range(start: -365d)
+  |> filter(fn: (r) => r._measurement == "Device_info")
+  |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+  |> group()
+
 ```
 
 ### User_info Measurement
