@@ -203,7 +203,27 @@ def create_analog_config_tab():
         ], className='mb-3'),
         
         # Save Configuration Button for Analog Tab
+        # Hidden store to track message hide timer
+        dcc.Store(id='save-analog-message-timer', data={'hide_at': 0}),
+        # Interval to check if message should be hidden (check every 100ms)
+        dcc.Interval(id='save-analog-hide-interval', interval=100, n_intervals=0, disabled=True),
+        
+        # Container with flexbox to keep button position fixed while message appears/disappears
         html.Div([
+            # Status message on the left (fixed width to prevent shifting)
+            html.Div(
+                id='save-analog-status-message',
+                style={
+                    'display': 'inline-block',
+                    'marginRight': '15px',
+                    'marginTop': '15px',
+                    'minWidth': '0px',
+                    'maxWidth': '500px',
+                    'verticalAlign': 'middle',
+                    'textAlign': 'right'
+                }
+            ),
+            # Button container (always in same position)
             html.Div([
                 dbc.Button([
                     html.Span(id='save-analog-btn-spinner', children=[
@@ -211,9 +231,8 @@ def create_analog_config_tab():
                     ]),
                     html.Span(id='save-analog-btn-text', children="Save Configuration"),
                 ], id='save-analog-config-btn', color='primary', size='lg', className='mt-3'),
-            ], className='d-inline-block'),
-            html.Div(id='save-analog-status-message', className='d-inline-block ms-3 mt-3'),
-        ], className='text-end'),
+            ], style={'display': 'inline-block', 'verticalAlign': 'top'}),
+        ], className='text-end', style={'position': 'relative'}),
     ])
 
 
@@ -910,6 +929,8 @@ def load_device_configuration(device_id, pathname, reload_trigger, session_data)
         Output('save-analog-btn-spinner', 'children'),
         Output('save-analog-config-btn', 'disabled'),
         Output('config-reload-trigger', 'data', allow_duplicate=True),
+        Output('save-analog-message-timer', 'data', allow_duplicate=True),
+        Output('save-analog-hide-interval', 'disabled', allow_duplicate=True),
     ],
     Input('save-analog-config-btn', 'n_clicks'),
     # Analog Input States
@@ -938,7 +959,7 @@ def save_analog_configuration(
 ):
     """Save device configuration with validation and ownership check"""
     if not n_clicks:
-        return "", html.I(className="fas fa-save me-2"), False, no_update
+        return "", html.I(className="fas fa-save me-2"), False, no_update, no_update, True
     
     import logging
     logger = logging.getLogger(__name__)
@@ -957,7 +978,7 @@ def save_analog_configuration(
             html.Strong("Validation Error: "),
             "Please select a device (Serial Number) from the dropdown."
         ], className='text-danger')
-        return error_msg, html.I(className="fas fa-save me-2"), False, no_update
+        return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True
     
     # Verify device ownership before saving (unless admin)
     if not is_admin and username and serial_number:
@@ -973,14 +994,14 @@ def save_analog_configuration(
                     html.Strong("Access Denied: "),
                     f"❌ You don't have permission to save configuration for device {serial_number}. This device is owned by {device_owner}."
                 ], className='text-danger')
-                return error_msg, html.I(className="fas fa-save me-2"), False, no_update
+                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True
         else:
             logger.warning(f"⚠️ Device {serial_number} not found in database")
             error_msg = html.Div([
                 html.Strong("Error: "),
                 f"❌ Device {serial_number} not found in database."
             ], className='text-danger')
-            return error_msg, html.I(className="fas fa-save me-2"), False, no_update
+            return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True
     
     # IMPORTANT: For immediate UI feedback, we need to return disabled/spinner state
     # However, Dash callbacks are synchronous, so UI updates only happen after callback completes
@@ -1006,7 +1027,7 @@ def save_analog_configuration(
                 html.Strong("Validation Error: "),
                 "Analog Scan Rate must be at least 1000 seconds."
             ], className='text-danger')
-            return error_msg, html.I(className="fas fa-save me-2"), False, no_update
+            return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True
         
         # IMPORTANT: Use ctx.states to get actual indices from pattern-matched values
         # Dash pattern matching returns values as lists, but we need to map them by actual index
@@ -1113,7 +1134,7 @@ def save_analog_configuration(
                     html.Strong("Validation Error: "),
                     f"Please fill all parameters for Channel {channel} (4-20mA): Divider, Multiplier, and Name/Label are required."
                 ], className='text-danger')
-                return error_msg, html.I(className="fas fa-save me-2"), False, no_update
+                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True
             
             input_4_20ma_data.append({
                 "channel": channel,
@@ -1143,7 +1164,7 @@ def save_analog_configuration(
                     html.Strong("Validation Error: "),
                     f"Please fill all parameters for Channel {channel} (0-10V): Divider, Multiplier, and Name/Label are required."
                 ], className='text-danger')
-                return error_msg, html.I(className="fas fa-save me-2"), False, no_update
+                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True
             
             input_1_10v_data.append({
                 "channel": channel,
@@ -1247,7 +1268,7 @@ def save_analog_configuration(
                     html.Strong("Validation Error: "),
                     f"Please fill all parameters for Output Channel {channel}: Value is required (cannot be empty)."
                 ], className='text-danger')
-                return error_msg, html.I(className="fas fa-save me-2"), False, no_update
+                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True
             
             # Validation: Name should be set (should have default by now, but double-check)
             if not name or name.strip() == '':
@@ -1256,7 +1277,7 @@ def save_analog_configuration(
                     html.Strong("Validation Error: "),
                     f"Please fill all parameters for Output Channel {channel}: Name/Label is required."
                 ], className='text-danger')
-                return error_msg, html.I(className="fas fa-save me-2"), False, no_update
+                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True
             
             # Add to output data list
             output_data = {
@@ -1322,7 +1343,7 @@ def save_analog_configuration(
                         html.Strong("Error: "),
                         f"❌ Failed to save analog configuration to database."
                     ], className='text-danger')
-                    return error_msg, html.I(className="fas fa-save me-2"), False, no_update
+                    return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True
                 logger.info(f"✅ STEP 1: Successfully saved analog section to Device_Config_Analog")
             except Exception as save_error:
                 logger.error(f"❌ Exception while saving analog config sections: {save_error}")
@@ -1331,7 +1352,7 @@ def save_analog_configuration(
                     html.Strong("Error: "),
                     f"❌ Error saving analog configuration: {str(save_error)}"
                 ], className='text-danger')
-                return error_msg, html.I(className="fas fa-save me-2"), False, no_update
+                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True
             
             # STEP 2: Rebuild complete merged config from ALL tabs
             # Get latest configs from other tabs (Digital, MODBUS, CAN Bus)
@@ -1413,17 +1434,22 @@ def save_analog_configuration(
             
             # Trigger config reload by updating the store timestamp
             import time
-            reload_timestamp = {'timestamp': time.time()}
+            current_time = time.time()
+            reload_timestamp = {'timestamp': current_time}
             
-            # Return: status message, icon (no spinner), button enabled, reload trigger
-            return success_msg, html.I(className="fas fa-save me-2"), False, reload_timestamp
+            # Set timer to hide message after 1 second (1000ms)
+            # Store the timestamp when message should be hidden
+            message_timer = {'hide_at': current_time + 1.0}
+            
+            # Return: status message, icon (no spinner), button enabled, reload trigger, message timer, interval enabled
+            return success_msg, html.I(className="fas fa-save me-2"), False, reload_timestamp, message_timer, False
         else:
             # Error - show error message, restore icon, re-enable button
             error_msg = html.Div([
                 html.Strong("Error: "),
                 f"❌ Error saving analog configuration for Serial Number: {serial_number}"
             ], className='text-danger')
-            return error_msg, html.I(className="fas fa-save me-2"), False, no_update
+            return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True
             
     except Exception as e:
         import logging
@@ -1434,7 +1460,38 @@ def save_analog_configuration(
             html.Strong("Error: "),
             f"❌ {str(e)}"
         ], className='text-danger')
-        return error_msg, html.I(className="fas fa-save me-2"), False, no_update
+        return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True
+
+
+# Callback to auto-hide success message after 1 second
+@callback(
+    [
+        Output('save-analog-status-message', 'children', allow_duplicate=True),
+        Output('save-analog-hide-interval', 'disabled', allow_duplicate=True),
+    ],
+    Input('save-analog-hide-interval', 'n_intervals'),
+    State('save-analog-message-timer', 'data'),
+    State('save-analog-status-message', 'children'),
+    prevent_initial_call=True
+)
+def auto_hide_analog_message(n_intervals, timer_data, current_message):
+    """Auto-hide success message after 1 second"""
+    import time
+    
+    # If no timer data or no message, do nothing
+    if not timer_data or not current_message:
+        return no_update, True  # Disable interval
+    
+    hide_at = timer_data.get('hide_at', 0)
+    current_time = time.time()
+    
+    # Check if 1 second has passed
+    if current_time >= hide_at:
+        # Clear message and disable interval
+        return "", True
+    else:
+        # Keep checking - interval will trigger again
+        return no_update, False
 
 
 # Callback for save Digital configuration (inside Digital tab)
@@ -2161,7 +2218,7 @@ def save_all_configuration(
                 html.Strong("Validation Error: "),
                 "Please select a device (Serial Number) from the dropdown."
             ], className='text-danger')
-            return error_msg, html.I(className="fas fa-save me-2"), False, no_update, True, error_msg, no_update
+            return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True, True, error_msg, no_update
         
         # Verify device ownership before saving (unless admin)
         if not is_admin and username and serial_number:
@@ -2177,14 +2234,14 @@ def save_all_configuration(
                         html.Strong("Access Denied: "),
                         f"❌ You don't have permission to save configuration for device {serial_number}. This device is owned by {device_owner}."
                     ], className='text-danger')
-                    return error_msg, html.I(className="fas fa-save me-2"), False, no_update, True, error_msg, no_update
+                    return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True, True, error_msg, no_update
             else:
                 logger.warning(f"⚠️ Device {serial_number} not found in database")
                 error_msg = html.Div([
                     html.Strong("Error: "),
                     f"❌ Device {serial_number} not found in database."
                 ], className='text-danger')
-                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, True, error_msg, no_update
+                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True, True, error_msg, no_update
         
         # Validate Scan Rates
         if analog_scan_rate is None or analog_scan_rate < 1000:
