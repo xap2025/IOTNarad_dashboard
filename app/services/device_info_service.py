@@ -287,29 +287,55 @@ class DeviceInfoService:
                     |> first()
                 '''
             
-            logger.info(f"🔍 Executing Flux query for devices info (owner_filter: {owner_filter}, is_admin: {is_admin})")
+            logger.info(f"🔍 Executing Flux query for devices info (owner_filter: '{owner_filter}', is_admin: {is_admin})")
+            logger.info(f"   Bucket: {self.bucket}, Org: {self.org}")
             logger.debug(f"   Query:\n{query}")
+            
             result = self.query_api.query(org=self.org, query=query)
             logger.info(f"   Query executed successfully, processing results...")
             
             # Process results
             devices = []
             seen_serials = set()
+            table_count = 0
+            record_count = 0
             
             for table in result:
+                table_count += 1
+                logger.debug(f"   Processing table {table_count}, columns: {table.columns}")
                 for record in table.records:
-                    # Sr_No is a tag, so get it from record.values
-                    sr_no = record.values.get('Sr_No')
-                    if not sr_no:
-                        # Also try getting from record directly
-                        sr_no = getattr(record, 'Sr_No', None)
+                    record_count += 1
+                    logger.debug(f"   Record {record_count} - values: {record.values if hasattr(record, 'values') else 'N/A'}")
                     
-                    if not sr_no or sr_no in seen_serials:
+                    # Sr_No is a tag (in group key), so get it from record.values
+                    sr_no = None
+                    if hasattr(record, 'values') and record.values:
+                        sr_no = record.values.get('Sr_No')
+                    if not sr_no:
+                        # Also try getting from record directly (for tags in group key)
+                        sr_no = getattr(record, 'Sr_No', None)
+                    if not sr_no:
+                        logger.warning(f"   ⚠️ Could not extract Sr_No from record {record_count}")
+                        continue
+                    
+                    if sr_no in seen_serials:
+                        logger.debug(f"   Skipping duplicate device: {sr_no}")
                         continue
                     
                     seen_serials.add(sr_no)
-                    # Owner is a TAG, accessible from record.values
-                    owner = record.values.get('Owner', 'Unassigned')
+                    
+                    # Owner is a TAG (in group key), accessible from record.values
+                    owner = None
+                    if hasattr(record, 'values') and record.values:
+                        owner = record.values.get('Owner')
+                    if not owner:
+                        # Also try getting from record directly (for tags in group key)
+                        owner = getattr(record, 'Owner', None)
+                    if not owner:
+                        owner = 'Unassigned'
+                        logger.warning(f"   ⚠️ Could not extract Owner from record {record_count}, defaulting to 'Unassigned'")
+                    
+                    logger.debug(f"   Device found: Sr_No={sr_no}, Owner={owner}")
                     
                     # Double-check owner filter (in case filter didn't work in Flux)
                     # This shouldn't be needed if Owner is a tag, but keeping as safety check
@@ -317,13 +343,18 @@ class DeviceInfoService:
                         logger.debug(f"   Skipping device {sr_no} - Owner '{owner}' != filter '{owner_filter}'")
                         continue
                     
+                    device_name = record.values.get('Device_Name', 'Unnamed') if hasattr(record, 'values') and record.values else 'Unnamed'
+                    date_of_register = record.values.get('Date_Of_Register', '') if hasattr(record, 'values') and record.values else ''
+                    
                     devices.append({
                         'Sr_No': sr_no,
-                        'Device_Name': record.values.get('Device_Name', 'Unnamed'),
+                        'Device_Name': device_name,
                         'Owner': owner,
-                        'Date_Of_Register': record.values.get('Date_Of_Register', ''),
+                        'Date_Of_Register': date_of_register,
                         'timestamp': record.get_time().isoformat() if record.get_time() else datetime.utcnow().isoformat()
                     })
+            
+            logger.info(f"   Processed {table_count} tables, {record_count} records, {len(devices)} unique devices")
             
             logger.info(f"✅ Found {len(devices)} devices in database (owner_filter: {owner_filter}, is_admin: {is_admin})")
             

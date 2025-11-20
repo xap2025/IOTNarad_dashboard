@@ -516,26 +516,41 @@ def create_can_bus_content():
 # Callback to sync session data to device config page
 @callback(
     Output('device-config-session-store', 'data'),
-    Input('url', 'pathname'),
-    State('session-store', 'data'),
+    [
+        Input('url', 'pathname'),
+        Input('session-store', 'data'),  # Changed from State to Input - triggers when session data changes
+    ],
     prevent_initial_call=False
 )
 def sync_session_data(pathname, session_data):
     """Sync session data from main session store to device config session store"""
-    if session_data:
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"🔄 sync_session_data called - Pathname: {pathname}, Session data: {session_data if session_data else 'None/Empty'}")
+    
+    # If session_store has data, use it
+    if session_data and isinstance(session_data, dict) and session_data.get('authenticated'):
+        logger.info(f"✅ Using session-store data - Username: {session_data.get('username')}, User Type: {session_data.get('user_type')}")
         return session_data
-    # Try to get from Flask session as fallback
+    
+    # Fallback to Flask session
     try:
         from flask import session as flask_session
         if flask_session.get('authenticated'):
-            return {
+            flask_data = {
                 'authenticated': True,
                 'username': flask_session.get('username', ''),
                 'user_type': flask_session.get('user_type', 'user'),
                 'user_data': flask_session.get('user_data', {})
             }
-    except Exception:
+            logger.info(f"✅ Using Flask session data - Username: {flask_data.get('username')}, User Type: {flask_data.get('user_type')}")
+            return flask_data
+    except Exception as e:
+        logger.warning(f"⚠️ Could not get Flask session: {e}")
         pass
+    
+    logger.warning("⚠️ No session data available - returning empty dict")
     return {}
 
 
@@ -640,14 +655,23 @@ def load_device_list(pathname, _, session_data):
             return error_options
         
         # Get devices filtered by owner (admin sees all, regular users see only their devices)
+        owner_filter_value = username if not is_admin and username else None
+        logger.info(f"🔍 Calling get_all_devices_info - owner_filter: '{owner_filter_value}', is_admin: {is_admin}, username: '{username}'")
+        
         all_devices_info = device_info_service.get_all_devices_info(
-            owner_filter=username if not is_admin and username else None,
+            owner_filter=owner_filter_value,
             is_admin=is_admin
         )
         
         logger.info(f"📊 Device query result: {len(all_devices_info) if all_devices_info else 0} devices found")
         if all_devices_info:
             logger.info(f"   Devices: {[d.get('Sr_No') for d in all_devices_info]}")
+            # Log first device details for debugging
+            if len(all_devices_info) > 0:
+                first_device = all_devices_info[0]
+                logger.info(f"   First device details: Sr_No={first_device.get('Sr_No')}, Owner={first_device.get('Owner')}, Device_Name={first_device.get('Device_Name')}")
+        else:
+            logger.warning(f"⚠️ No devices returned from query - owner_filter: '{owner_filter_value}', is_admin: {is_admin}")
         
         if not all_devices_info:
             logger.warning("⚠️ No devices found in database")
