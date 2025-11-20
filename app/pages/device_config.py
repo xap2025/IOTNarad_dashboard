@@ -864,10 +864,20 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
             return [no_update] * 9
         
         # Load configurations from individual tables (always get latest from database)
+        # If triggered by reload trigger, add a small delay to ensure DB write is flushed
+        if triggered_id == 'config-reload-trigger':
+            import time
+            time.sleep(0.5)  # Wait 0.5 seconds to ensure database write is fully flushed
+        
+        logger.info(f"🔄 Loading config from database for device {device_id}, triggered by: {triggered_id}")
         analog_config = db_service.get_analog_config(device_id)
         digital_config = db_service.get_digital_config(device_id)
         
         logger.info(f"📊 Loaded config - Analog: {analog_config is not None}, Digital: {digital_config is not None}")
+        if analog_config:
+            logger.debug(f"📊 Analog config keys: {list(analog_config.keys())}")
+        if digital_config:
+            logger.debug(f"📊 Digital config keys: {list(digital_config.keys())}")
         
         # If no configuration exists, use default values (don't reset to factory defaults)
         # Default values are already set in the initialization below
@@ -1461,13 +1471,16 @@ def save_analog_configuration(
             ], className='text-success fw-bold')
             
             # Trigger config reload by updating the store timestamp
+            # Add a small delay (0.5 seconds) to ensure database write is fully flushed
             import time
             current_time = time.time()
-            reload_timestamp = {'timestamp': current_time}
+            reload_timestamp = {'timestamp': current_time + 0.5}  # Delay reload by 0.5s to ensure DB write completes
             
             # Set timer to hide message after 1 second (1000ms)
             # Store the timestamp when message should be hidden
             message_timer = {'hide_at': current_time + 1.0}
+            
+            logger.info(f"✅ Save completed for device {serial_number}, reload will trigger at {reload_timestamp['timestamp']}")
             
             # Return: status message, icon (no spinner), button enabled, reload trigger, message timer, interval enabled
             return success_msg, html.I(className="fas fa-save me-2"), False, reload_timestamp, message_timer, False
@@ -1765,8 +1778,11 @@ def save_digital_configuration(
                 f"Device: {serial_number} | Complete config updated & published to MQTT"
             ], className='text-success fw-bold')
             # Trigger config reload by updating the store timestamp
+            # Add a small delay (0.5 seconds) to ensure database write is fully flushed
             import time
-            reload_timestamp = {'timestamp': time.time()}
+            current_time = time.time()
+            reload_timestamp = {'timestamp': current_time + 0.5}  # Delay reload by 0.5s to ensure DB write completes
+            logger.info(f"✅ Save completed for device {serial_number}, reload will trigger at {reload_timestamp['timestamp']}")
             return True, success_msg, reload_timestamp
         else:
             return True, html.Div([
@@ -1939,8 +1955,11 @@ def save_modbus_configuration(
                 f"Device: {serial_number} | Complete config updated & published to MQTT"
             ], className='text-success fw-bold')
             # Trigger config reload by updating the store timestamp
+            # Add a small delay (0.5 seconds) to ensure database write is fully flushed
             import time
-            reload_timestamp = {'timestamp': time.time()}
+            current_time = time.time()
+            reload_timestamp = {'timestamp': current_time + 0.5}  # Delay reload by 0.5s to ensure DB write completes
+            logger.info(f"✅ Save completed for device {serial_number}, reload will trigger at {reload_timestamp['timestamp']}")
             return True, success_msg, reload_timestamp
         else:
             return True, html.Div([
@@ -2114,8 +2133,11 @@ def save_canbus_configuration(
                 f"Device: {serial_number} | Complete config updated & published to MQTT"
             ], className='text-success fw-bold')
             # Trigger config reload by updating the store timestamp
+            # Add a small delay (0.5 seconds) to ensure database write is fully flushed
             import time
-            reload_timestamp = {'timestamp': time.time()}
+            current_time = time.time()
+            reload_timestamp = {'timestamp': current_time + 0.5}  # Delay reload by 0.5s to ensure DB write completes
+            logger.info(f"✅ Save completed for device {serial_number}, reload will trigger at {reload_timestamp['timestamp']}")
             return True, success_msg, reload_timestamp
         else:
             return True, html.Div([
@@ -2528,7 +2550,14 @@ def save_all_configuration(
             ], className='text-success fw-bold')
             # Trigger config reload by updating the store timestamp
             import time
-            reload_timestamp = {'timestamp': time.time()}
+            # Trigger config reload by updating the store timestamp
+            # Add a small delay (0.5 seconds) to ensure database write is fully flushed
+            import time
+            import logging
+            logger = logging.getLogger(__name__)
+            current_time = time.time()
+            reload_timestamp = {'timestamp': current_time + 0.5}  # Delay reload by 0.5s to ensure DB write completes
+            logger.info(f"✅ Save completed for device {serial_number}, reload will trigger at {reload_timestamp['timestamp']}")
             return success_msg, html.I(className="fas fa-save me-2"), False, True, success_msg, reload_timestamp
         else:
             error_msg = html.Div([

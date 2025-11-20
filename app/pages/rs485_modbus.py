@@ -278,6 +278,12 @@ def load_modbus_configuration(device_id, pathname, reload_trigger, active_tab, s
             return [no_update] * 8
         
         # Load MODBUS config from database
+        # If triggered by reload trigger, add a small delay to ensure DB write is flushed
+        if triggered_id == 'config-reload-trigger':
+            import time
+            time.sleep(0.5)  # Wait 0.5 seconds to ensure database write is fully flushed
+        
+        logger.info(f"🔄 Loading MODBUS config from database for device {device_id}, triggered by: {triggered_id}")
         modbus_config = db_service.get_modbus_config(device_id)
         
         # Set default values (used if no config exists in database)
