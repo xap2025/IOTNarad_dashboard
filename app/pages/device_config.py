@@ -994,7 +994,7 @@ def save_analog_configuration(
                     html.Strong("Access Denied: "),
                     f"❌ You don't have permission to save configuration for device {serial_number}. This device is owned by {device_owner}."
                 ], className='text-danger')
-                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True
+                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True
         else:
             logger.warning(f"⚠️ Device {serial_number} not found in database")
             error_msg = html.Div([
@@ -1134,7 +1134,7 @@ def save_analog_configuration(
                     html.Strong("Validation Error: "),
                     f"Please fill all parameters for Channel {channel} (4-20mA): Divider, Multiplier, and Name/Label are required."
                 ], className='text-danger')
-                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True
+                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True
             
             input_4_20ma_data.append({
                 "channel": channel,
@@ -1164,7 +1164,7 @@ def save_analog_configuration(
                     html.Strong("Validation Error: "),
                     f"Please fill all parameters for Channel {channel} (0-10V): Divider, Multiplier, and Name/Label are required."
                 ], className='text-danger')
-                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True
+                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True
             
             input_1_10v_data.append({
                 "channel": channel,
@@ -1268,7 +1268,7 @@ def save_analog_configuration(
                     html.Strong("Validation Error: "),
                     f"Please fill all parameters for Output Channel {channel}: Value is required (cannot be empty)."
                 ], className='text-danger')
-                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True
+                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True
             
             # Validation: Name should be set (should have default by now, but double-check)
             if not name or name.strip() == '':
@@ -1277,7 +1277,7 @@ def save_analog_configuration(
                     html.Strong("Validation Error: "),
                     f"Please fill all parameters for Output Channel {channel}: Name/Label is required."
                 ], className='text-danger')
-                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True
+                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True
             
             # Add to output data list
             output_data = {
@@ -1343,7 +1343,7 @@ def save_analog_configuration(
                         html.Strong("Error: "),
                         f"❌ Failed to save analog configuration to database."
                     ], className='text-danger')
-                    return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True
+                    return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True
                 logger.info(f"✅ STEP 1: Successfully saved analog section to Device_Config_Analog")
             except Exception as save_error:
                 logger.error(f"❌ Exception while saving analog config sections: {save_error}")
@@ -1352,7 +1352,7 @@ def save_analog_configuration(
                     html.Strong("Error: "),
                     f"❌ Error saving analog configuration: {str(save_error)}"
                 ], className='text-danger')
-                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True
+                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True
             
             # STEP 2: Rebuild complete merged config from ALL tabs
             # Get latest configs from other tabs (Digital, MODBUS, CAN Bus)
@@ -2234,14 +2234,14 @@ def save_all_configuration(
                         html.Strong("Access Denied: "),
                         f"❌ You don't have permission to save configuration for device {serial_number}. This device is owned by {device_owner}."
                     ], className='text-danger')
-                    return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True, True, error_msg, no_update
+                    return error_msg, html.I(className="fas fa-save me-2"), False, False, "", no_update
             else:
                 logger.warning(f"⚠️ Device {serial_number} not found in database")
                 error_msg = html.Div([
                     html.Strong("Error: "),
                     f"❌ Device {serial_number} not found in database."
                 ], className='text-danger')
-                return error_msg, html.I(className="fas fa-save me-2"), False, no_update, no_update, True, no_update, True, True, error_msg, no_update
+                return error_msg, html.I(className="fas fa-save me-2"), False, False, "", no_update
         
         # Validate Scan Rates
         if analog_scan_rate is None or analog_scan_rate < 1000:
