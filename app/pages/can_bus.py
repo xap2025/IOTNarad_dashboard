@@ -5,6 +5,7 @@ Matches the CAN Bus configuration form from image 2
 from dash import html, dcc, Input, Output, State, ALL, callback, ctx, no_update
 import dash_bootstrap_components as dbc
 import json
+import logging
 
 
 def create_can_bus_layout():
@@ -183,6 +184,171 @@ def create_can_bus_layout():
         dcc.Store(id='can-messages-trigger-store', data=0),
         dcc.Store(id='can-data-mapping-trigger-store', data=0),
     ])
+
+
+# Callback to auto-load CAN Bus configuration when device is selected or after save
+@callback(
+    [
+        Output('can-baud-rate', 'value', allow_duplicate=True),
+        Output('can-identifier-length', 'value', allow_duplicate=True),
+        Output('can-mode', 'value', allow_duplicate=True),
+        Output('can-filter-mode', 'value', allow_duplicate=True),
+        Output('can-filter-id', 'value', allow_duplicate=True),
+        Output('can-filter-mask', 'value', allow_duplicate=True),
+        Output('can-messages-store', 'data', allow_duplicate=True),
+        Output('can-data-mapping-store', 'data', allow_duplicate=True),
+    ],
+    [
+        Input('device-selector', 'value'),  # Trigger on device selection change
+        Input('url', 'pathname'),  # Trigger on page load/navigation/refresh
+        Input('config-reload-trigger', 'data'),  # Trigger after successful save
+        Input('config-tabs', 'active_tab'),  # Trigger on tab switch
+    ],
+    State('device-config-session-store', 'data'),
+    prevent_initial_call='initial_duplicate',
+    allow_duplicate=True
+)
+def load_can_bus_configuration(device_id, pathname, reload_trigger, active_tab, session_data):
+    """Load saved CAN Bus configuration for selected device and populate UI fields
+    
+    Triggers on:
+    - Device selection change (device-selector value)
+    - Page load/navigation (pathname change)
+    - After successful save (config-reload-trigger timestamp update)
+    - Browser refresh (pathname change)
+    - Tab switch (active_tab change) - ensures latest config is always shown
+    
+    Loads configuration from database if exists, otherwise uses default values.
+    """
+    logger = logging.getLogger(__name__)
+    
+    # Get trigger info for logging
+    triggered_id = ctx.triggered_id if hasattr(ctx, 'triggered_id') else None
+    
+    # Skip loading if triggered by tab switch but CAN Bus tab is not active
+    # But allow loading on device selection, save, or page load (even if tab not active yet)
+    if triggered_id == 'config-tabs':
+        if active_tab != 'tab-canbus':
+            logger.debug(f"⏭️ Skipping CAN Bus config load - triggered by tab switch but CAN Bus tab not active (active: {active_tab})")
+            return [no_update] * 8
+    
+    # Allow loading on dashboard page (device config is embedded in dashboard)
+    skip_paths = ['/login', '/logout', '/']
+    if pathname in skip_paths:
+        logger.debug(f"⏭️ Skipping CAN Bus config load for pathname: {pathname}")
+        return [no_update] * 8
+    
+    if not device_id:
+        # Skip if no device selected (except on initial page load which is handled by prevent_initial_call)
+        logger.debug(f"⏭️ No device selected, skipping CAN Bus config load")
+        return [no_update] * 8
+    
+    try:
+        # Get logged-in user info
+        username = None
+        is_admin = False
+        if session_data:
+            username = session_data.get('username', '')
+            user_type = session_data.get('user_type', 'user')
+            is_admin = (username == 'admin')
+        
+        logger.info(f"🔄 Loading CAN Bus configuration for device: {device_id}, user: {username}, trigger: {triggered_id}, active_tab: {active_tab}")
+        
+        # Verify device ownership (unless admin)
+        if not is_admin and username:
+            from app.services.device_info_service import DeviceInfoService
+            device_info_service = DeviceInfoService()
+            device_info = device_info_service.get_device_info(device_id)
+            
+            if not device_info:
+                logger.warning(f"⚠️ Device {device_id} not found in database")
+                return [no_update] * 8
+            
+            device_owner = device_info.get('Owner', 'Unassigned')
+            if device_owner != username:
+                logger.warning(f"⚠️ User {username} attempted to access device {device_id} owned by {device_owner} - Access denied")
+                return [no_update] * 8
+        
+        from app.services.device_config_db import DeviceConfigDBService
+        db_service = DeviceConfigDBService()
+        
+        if not db_service.is_connected():
+            logger.warning("⚠️ Database not connected, cannot load CAN Bus configuration")
+            return [no_update] * 8
+        
+        # Load CAN Bus config from database
+        can_bus_config = db_service.get_can_bus_config(device_id)
+        
+        # Set default values (used if no config exists in database)
+        baud_rate = '125'
+        identifier_length = '11-bit'
+        can_mode = 'Normal'
+        filter_mode = 'None'
+        filter_id = '0x123'
+        filter_mask = '0x7FF'
+        messages_store = [{"index": 0, "can_id": "0x123", "direction": "TX", "period": "100", "var_name": "Message Name"}]
+        data_mapping_store = [{"index": 0, "can_id": "0x123", "byte_pos": "Byte 0", "data_len": "1 Byte", "data_type": "int8", "endianness": "Big Endian", "var_name": "Variable Name", "scale": "1", "offset": "0"}]
+        
+        # Populate from database if config exists
+        if can_bus_config:
+            logger.info(f"✅ Loading CAN Bus config from database for device {device_id}")
+            
+            comm_settings = can_bus_config.get("communication_settings", {})
+            
+            baud_rate = str(comm_settings.get("baud_rate", 125))
+            identifier_length = comm_settings.get("identifier_length", "11-bit")
+            can_mode = comm_settings.get("can_mode", "Normal")
+            filter_mode = comm_settings.get("filter_mode", "None")
+            filter_id = comm_settings.get("filter_id", "0x123")
+            filter_mask = comm_settings.get("filter_mask", "0x7FF")
+            
+            # Convert CAN messages to store format
+            can_messages_list = can_bus_config.get("can_messages", [])
+            if can_messages_list:
+                messages_store = []
+                for message in can_messages_list:
+                    messages_store.append({
+                        "index": message.get("index", 0),
+                        "can_id": message.get("can_id", "0x123"),
+                        "direction": message.get("direction", "TX"),
+                        "period": str(message.get("period_ms", 100)),  # Convert to string for UI
+                        "var_name": message.get("variable_name", "")
+                    })
+            
+            # Convert data mapping to store format
+            data_mapping_list = can_bus_config.get("data_mapping", [])
+            if data_mapping_list:
+                data_mapping_store = []
+                for mapping in data_mapping_list:
+                    data_mapping_store.append({
+                        "index": mapping.get("index", 0),
+                        "can_id": mapping.get("can_id", "0x123"),
+                        "byte_pos": mapping.get("byte_position", "Byte 0"),  # Database uses "byte_position", UI uses "byte_pos"
+                        "data_len": mapping.get("data_length", "1 Byte"),  # Database uses "data_length", UI uses "data_len"
+                        "data_type": mapping.get("data_type", "int8"),
+                        "endianness": mapping.get("endianness", "Big Endian"),
+                        "var_name": mapping.get("variable_name", ""),  # Database uses "variable_name", UI uses "var_name"
+                        "scale": str(mapping.get("scale_factor", 1.0)),  # Database uses "scale_factor", UI uses "scale"
+                        "offset": str(mapping.get("offset", 0.0))  # Convert to string for UI
+                    })
+        else:
+            logger.info(f"ℹ️ No CAN Bus config found in database for device {device_id}, using default values")
+        
+        return (
+            baud_rate,
+            identifier_length,
+            can_mode,
+            filter_mode,
+            filter_id,
+            filter_mask,
+            messages_store,
+            data_mapping_store
+        )
+        
+    except Exception as e:
+        logger.error(f"Error loading CAN Bus configuration: {e}")
+        logger.exception("Full error traceback:")
+        return [no_update] * 8
 
 
 def create_can_message_row(index, can_id, direction, period, var_name):

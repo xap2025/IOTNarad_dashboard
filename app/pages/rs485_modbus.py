@@ -5,6 +5,7 @@ Matches the MODBUS configuration form from image 1
 from dash import html, dcc, Input, Output, State, ALL, callback, ctx, no_update
 import dash_bootstrap_components as dbc
 import json
+import logging
 
 
 def create_rs485_modbus_layout():
@@ -184,6 +185,159 @@ def create_rs485_modbus_layout():
         # Hidden trigger store to force updates
         dcc.Store(id='modbus-trigger-store', data=0),
     ])
+
+
+# Callback to auto-load MODBUS configuration when device is selected or after save
+@callback(
+    [
+        Output('modbus-baud-rate', 'value', allow_duplicate=True),
+        Output('modbus-data-bits', 'value', allow_duplicate=True),
+        Output('modbus-parity', 'value', allow_duplicate=True),
+        Output('modbus-stop-bits', 'value', allow_duplicate=True),
+        Output('modbus-mode', 'value', allow_duplicate=True),
+        Output('modbus-role', 'value', allow_duplicate=True),
+        Output('modbus-polling-interval', 'value', allow_duplicate=True),
+        Output('modbus-devices-store', 'data', allow_duplicate=True),
+    ],
+    [
+        Input('device-selector', 'value'),  # Trigger on device selection change
+        Input('url', 'pathname'),  # Trigger on page load/navigation/refresh
+        Input('config-reload-trigger', 'data'),  # Trigger after successful save
+        Input('config-tabs', 'active_tab'),  # Trigger on tab switch
+    ],
+    State('device-config-session-store', 'data'),
+    prevent_initial_call='initial_duplicate',
+    allow_duplicate=True
+)
+def load_modbus_configuration(device_id, pathname, reload_trigger, active_tab, session_data):
+    """Load saved MODBUS configuration for selected device and populate UI fields
+    
+    Triggers on:
+    - Device selection change (device-selector value)
+    - Page load/navigation (pathname change)
+    - After successful save (config-reload-trigger timestamp update)
+    - Browser refresh (pathname change)
+    - Tab switch (active_tab change) - ensures latest config is always shown
+    
+    Loads configuration from database if exists, otherwise uses default values.
+    """
+    logger = logging.getLogger(__name__)
+    
+    # Get trigger info for logging
+    triggered_id = ctx.triggered_id if hasattr(ctx, 'triggered_id') else None
+    
+    # Skip loading if triggered by tab switch but MODBUS tab is not active
+    # But allow loading on device selection, save, or page load (even if tab not active yet)
+    if triggered_id == 'config-tabs':
+        if active_tab != 'tab-modbus':
+            logger.debug(f"⏭️ Skipping MODBUS config load - triggered by tab switch but MODBUS tab not active (active: {active_tab})")
+            return [no_update] * 8
+    
+    # Allow loading on dashboard page (device config is embedded in dashboard)
+    skip_paths = ['/login', '/logout', '/']
+    if pathname in skip_paths:
+        logger.debug(f"⏭️ Skipping MODBUS config load for pathname: {pathname}")
+        return [no_update] * 8
+    
+    if not device_id:
+        # Skip if no device selected (except on initial page load which is handled by prevent_initial_call)
+        logger.debug(f"⏭️ No device selected, skipping MODBUS config load")
+        return [no_update] * 8
+    
+    try:
+        # Get logged-in user info
+        username = None
+        is_admin = False
+        if session_data:
+            username = session_data.get('username', '')
+            user_type = session_data.get('user_type', 'user')
+            is_admin = (username == 'admin')
+        
+        logger.info(f"🔄 Loading MODBUS configuration for device: {device_id}, user: {username}, trigger: {triggered_id}, active_tab: {active_tab}")
+        
+        # Verify device ownership (unless admin)
+        if not is_admin and username:
+            from app.services.device_info_service import DeviceInfoService
+            device_info_service = DeviceInfoService()
+            device_info = device_info_service.get_device_info(device_id)
+            
+            if not device_info:
+                logger.warning(f"⚠️ Device {device_id} not found in database")
+                return [no_update] * 8
+            
+            device_owner = device_info.get('Owner', 'Unassigned')
+            if device_owner != username:
+                logger.warning(f"⚠️ User {username} attempted to access device {device_id} owned by {device_owner} - Access denied")
+                return [no_update] * 8
+        
+        from app.services.device_config_db import DeviceConfigDBService
+        db_service = DeviceConfigDBService()
+        
+        if not db_service.is_connected():
+            logger.warning("⚠️ Database not connected, cannot load MODBUS configuration")
+            return [no_update] * 8
+        
+        # Load MODBUS config from database
+        modbus_config = db_service.get_modbus_config(device_id)
+        
+        # Set default values (used if no config exists in database)
+        baud_rate = '9600'
+        data_bits = '8'
+        parity = 'None'
+        stop_bits = '1'
+        mode = 'RTU'
+        role = 'Master'
+        polling_interval = 1000
+        devices_store = [{"index": 0, "slave_id": "1", "function_code": "0x03", "register_addr": "0", "data_type": "int8", "endianness": "Big Endian", "var_name": "Variable Name"}]
+        
+        # Populate from database if config exists
+        if modbus_config:
+            logger.info(f"✅ Loading MODBUS config from database for device {device_id}")
+            
+            comm_settings = modbus_config.get("communication_settings", {})
+            protocol_settings = modbus_config.get("protocol_settings", {})
+            
+            baud_rate = str(comm_settings.get("baud_rate", 9600))
+            data_bits = str(comm_settings.get("data_bits", 8))
+            parity = comm_settings.get("parity", "None")
+            stop_bits = str(comm_settings.get("stop_bits", 1))
+            
+            mode = protocol_settings.get("mode", "RTU")
+            role = protocol_settings.get("role", "Master")
+            polling_interval = modbus_config.get("polling_interval_ms", 1000)
+            
+            # Convert slave devices to store format
+            slave_devices_list = modbus_config.get("slave_devices", [])
+            if slave_devices_list:
+                devices_store = []
+                for device in slave_devices_list:
+                    devices_store.append({
+                        "index": device.get("index", 0),
+                        "slave_id": device.get("slave_id", "1"),
+                        "function_code": device.get("function_code", "0x03"),
+                        "register_addr": device.get("register_address", "0"),  # Note: database uses "register_address", UI uses "register_addr"
+                        "data_type": device.get("data_type", "int8"),
+                        "endianness": device.get("endianness", "Big Endian"),
+                        "var_name": device.get("variable_name", "")
+                    })
+        else:
+            logger.info(f"ℹ️ No MODBUS config found in database for device {device_id}, using default values")
+        
+        return (
+            baud_rate,
+            data_bits,
+            parity,
+            stop_bits,
+            mode,
+            role,
+            polling_interval,
+            devices_store
+        )
+        
+    except Exception as e:
+        logger.error(f"Error loading MODBUS configuration: {e}")
+        logger.exception("Full error traceback:")
+        return [no_update] * 8
 
 
 def create_modbus_slave_row(index, slave_id, function_code, register_addr, data_type, endianness, var_name):

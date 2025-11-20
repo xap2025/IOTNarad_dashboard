@@ -774,42 +774,60 @@ def load_device_list(pathname, _, session_data):
         # Digital inputs/outputs (we'll need to add IDs for these)
     ],
     [
-        Input('device-selector', 'value'),
-        Input('url', 'pathname'),  # Trigger on page load/navigation
+        Input('device-selector', 'value'),  # Trigger on device selection change
+        Input('url', 'pathname'),  # Trigger on page load/navigation/refresh
         Input('config-reload-trigger', 'data'),  # Trigger after successful save
+        Input('config-tabs', 'active_tab'),  # Trigger on tab switch to ensure latest config is shown
     ],
     State('device-config-session-store', 'data'),
     prevent_initial_call='initial_duplicate',  # Allow initial call on page load with duplicate outputs
     allow_duplicate=True
 )
-def load_device_configuration(device_id, pathname, reload_trigger, session_data):
+def load_device_configuration(device_id, pathname, reload_trigger, active_tab, session_data):
     """Load saved configuration for selected device and populate UI fields
     
     Triggers on:
-    - Device selection change
+    - Device selection change (device-selector value)
     - Page load/navigation (pathname change)
     - After successful save (config-reload-trigger timestamp update)
     - Browser refresh (pathname change)
     - Login/logout (pathname change)
+    - Tab switch (active_tab change) - ensures latest config is always shown
     
     Loads configuration based on:
     - Logged-in user (User ID)
     - Device-User ownership mapping
     - Admin users see all devices
     - Regular users see only their assigned devices
+    
+    Auto-loads:
+    - Analog config when device is selected or after save
+    - Digital config when device is selected or after save
+    - Shows default values if no config exists in database
+    - Always shows the latest saved configuration
     """
     import logging
     logger = logging.getLogger(__name__)
     
-    # Allow loading on dashboard page (device config is embedded in dashboard)
-    # Only skip if explicitly on login/logout page
-    skip_paths = ['/login', '/logout', '/']
-    if pathname in skip_paths:
-        logger.debug(f"⏭️ Skipping config load for pathname: {pathname}")
-        return [no_update] * 9
-    
-    if not device_id:
-        return [no_update] * 9  # Return no_update for all outputs
+        # Allow loading on dashboard page (device config is embedded in dashboard)
+        # Only skip if explicitly on login/logout page
+        skip_paths = ['/login', '/logout', '/']
+        if pathname in skip_paths:
+            logger.debug(f"⏭️ Skipping config load for pathname: {pathname}")
+            return [no_update] * 9
+        
+        # Get device ID from selector if not provided
+        # This handles cases where tab is switched but device is already selected
+        if not device_id:
+            # Try to get device ID from ctx if triggered by tab switch
+            triggered_id = ctx.triggered_id if hasattr(ctx, 'triggered_id') else None
+            if triggered_id == 'config-tabs' or triggered_id == 'config-reload-trigger':
+                # If triggered by tab switch or reload, try to get device from State or session
+                # For now, skip if no device_id - this is acceptable as tab switch doesn't require reload
+                logger.debug(f"⏭️ Tab switch/reload triggered but no device selected")
+                return [no_update] * 9
+            else:
+                return [no_update] * 9  # Return no_update for all outputs
     
     try:
         # Get logged-in user info
@@ -820,7 +838,9 @@ def load_device_configuration(device_id, pathname, reload_trigger, session_data)
             user_type = session_data.get('user_type', 'user')
             is_admin = (username == 'admin')
         
-        logger.info(f"🔄 Loading configuration for device: {device_id}, user: {username}, is_admin: {is_admin}")
+        # Get trigger info for logging
+        triggered_id = ctx.triggered_id if hasattr(ctx, 'triggered_id') else 'unknown'
+        logger.info(f"🔄 Loading configuration for device: {device_id}, user: {username}, is_admin: {is_admin}, trigger: {triggered_id}, active_tab: {active_tab}")
         
         # Verify device ownership (unless admin)
         if not is_admin and username:
@@ -854,21 +874,25 @@ def load_device_configuration(device_id, pathname, reload_trigger, session_data)
         # If no configuration exists, use default values (don't reset to factory defaults)
         # Default values are already set in the initialization below
         
-        # Prepare output lists (4 channels for inputs, 2 for outputs)
-        analog_input_enable = [False] * 4
-        analog_input_div = [1] * 4
-        analog_input_mul = [1] * 4
-        analog_input_name = [''] * 4
+        # Prepare output lists with DEFAULT values (used when no config exists in database)
+        # These defaults will be shown for new devices that haven't been configured yet
+        analog_input_enable = [False] * 4  # Default: all channels disabled
+        analog_input_div = [1] * 4         # Default: divider = 1
+        analog_input_mul = [1] * 4         # Default: multiplier = 1
+        analog_input_name = [''] * 4       # Default: empty names (will use IO pin as fallback)
         
-        analog_output_enable = [False] * 2
-        analog_output_value = [0.0] * 2
-        analog_output_name = [''] * 2
+        analog_output_enable = [False] * 2 # Default: all outputs disabled
+        analog_output_value = [0.0] * 2    # Default: output value = 0.0V
+        analog_output_name = [''] * 2      # Default: empty names (will use IO pin as fallback)
         
-        analog_scan_rate = 1000
-        digital_scan_rate = 1000
+        analog_scan_rate = 1000  # Default: 1000 seconds
+        digital_scan_rate = 1000 # Default: 1000 seconds
         
-        # Populate Analog config
+        # Populate Analog config from database (if exists)
+        # If config doesn't exist, defaults above will be used
         if analog_config:
+            logger.info(f"✅ Loading Analog config from database for device {device_id}")
+            
             # Input 4-20mA (channels 1-2)
             for channel_data in analog_config.get("input_4_20ma", []):
                 ch = channel_data.get("channel", 0) - 1  # Convert to 0-based index
@@ -896,11 +920,17 @@ def load_device_configuration(device_id, pathname, reload_trigger, session_data)
                     analog_output_name[ch] = channel_data.get("name", "")
             
             analog_scan_rate = analog_config.get("scan_rate", 1000)
+        else:
+            logger.info(f"ℹ️ No Analog config found in database for device {device_id}, using default values")
         
-        # Populate Digital config
+        # Populate Digital config from database (if exists)
+        # If config doesn't exist, defaults above will be used
         if digital_config:
+            logger.info(f"✅ Loading Digital config from database for device {device_id}")
             digital_scan_rate = digital_config.get("scan_rate", 1000)
             # TODO: Populate digital I/O fields when we have the component IDs
+        else:
+            logger.info(f"ℹ️ No Digital config found in database for device {device_id}, using default values")
         
         return (
             analog_input_enable,
