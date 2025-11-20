@@ -204,11 +204,14 @@ def create_can_bus_layout():
         Input('config-reload-trigger', 'data'),  # Trigger after successful save
         Input('config-tabs', 'active_tab'),  # Trigger on tab switch
     ],
-    State('device-config-session-store', 'data'),
+    [
+        State('device-config-session-store', 'data'),
+        State('device-selector', 'value'),  # Also get as State for fallback
+    ],
     prevent_initial_call='initial_duplicate',
     allow_duplicate=True
 )
-def load_can_bus_configuration(device_id, pathname, reload_trigger, active_tab, session_data):
+def load_can_bus_configuration(device_id, pathname, reload_trigger, active_tab, session_data, device_id_state):
     """Load saved CAN Bus configuration for selected device and populate UI fields
     
     Triggers on:
@@ -238,9 +241,25 @@ def load_can_bus_configuration(device_id, pathname, reload_trigger, active_tab, 
         logger.debug(f"⏭️ Skipping CAN Bus config load for pathname: {pathname}")
         return [no_update] * 8
     
+    # If device_id not available from Input, try to get it from reload_trigger or State
     if not device_id:
-        # Skip if no device selected (except on initial page load which is handled by prevent_initial_call)
-        logger.debug(f"⏭️ No device selected, skipping CAN Bus config load")
+        if triggered_id == 'config-reload-trigger' and reload_trigger:
+            # Extract device_id from reload trigger data
+            device_id = reload_trigger.get('device_id')
+            if device_id:
+                logger.info(f"📌 Using device_id from reload trigger for CAN Bus: {device_id}")
+        elif triggered_id == 'config-tabs':
+            # For tab switch, use device_id from State if available
+            device_id = device_id_state
+            if device_id:
+                logger.debug(f"📌 Using device_id from State for CAN Bus tab switch: {device_id}")
+    
+    if not device_id:
+        # Still no device_id - skip loading
+        if triggered_id == 'config-reload-trigger' or triggered_id == 'config-tabs':
+            logger.debug(f"⏭️ Reload/tab switch triggered but no device selected for CAN Bus (trigger: {triggered_id})")
+        else:
+            logger.debug(f"⏭️ No device selected, skipping CAN Bus config load")
         return [no_update] * 8
     
     try:

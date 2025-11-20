@@ -779,11 +779,14 @@ def load_device_list(pathname, _, session_data):
         Input('config-reload-trigger', 'data'),  # Trigger after successful save
         Input('config-tabs', 'active_tab'),  # Trigger on tab switch to ensure latest config is shown
     ],
-    State('device-config-session-store', 'data'),
+    [
+        State('device-config-session-store', 'data'),
+        State('device-selector', 'value'),  # Also get as State for fallback
+    ],
     prevent_initial_call='initial_duplicate',  # Allow initial call on page load with duplicate outputs
     allow_duplicate=True
 )
-def load_device_configuration(device_id, pathname, reload_trigger, active_tab, session_data):
+def load_device_configuration(device_id, pathname, reload_trigger, active_tab, session_data, device_id_state):
     """Load saved configuration for selected device and populate UI fields
     
     Triggers on:
@@ -819,12 +822,23 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
         logger.debug(f"⏭️ Skipping config load for pathname: {pathname}")
         return [no_update] * 9
     
+    # If device_id not available from Input, try to get it from reload_trigger or State
     if not device_id:
-        # Try to get device ID from ctx if triggered by tab switch
+        if triggered_id == 'config-reload-trigger' and reload_trigger:
+            # Extract device_id from reload trigger data
+            device_id = reload_trigger.get('device_id')
+            if device_id:
+                logger.info(f"📌 Using device_id from reload trigger: {device_id}")
+        elif triggered_id == 'config-tabs':
+            # For tab switch, use device_id from State if available
+            device_id = device_id_state
+            if device_id:
+                logger.debug(f"📌 Using device_id from State for tab switch: {device_id}")
+    
+    if not device_id:
+        # Still no device_id - skip loading
         if triggered_id == 'config-tabs' or triggered_id == 'config-reload-trigger':
-            # If triggered by tab switch or reload, try to get device from State or session
-            # For now, skip if no device_id - this is acceptable as tab switch doesn't require reload
-            logger.debug(f"⏭️ Tab switch/reload triggered but no device selected")
+            logger.debug(f"⏭️ Tab switch/reload triggered but no device selected (trigger: {triggered_id})")
             return [no_update] * 9
         else:
             return [no_update] * 9  # Return no_update for all outputs
@@ -1471,10 +1485,13 @@ def save_analog_configuration(
             ], className='text-success fw-bold')
             
             # Trigger config reload by updating the store timestamp
-            # Add a small delay (0.5 seconds) to ensure database write is fully flushed
+            # Store device_id in the reload trigger so load callback can use it
             import time
             current_time = time.time()
-            reload_timestamp = {'timestamp': current_time + 0.5}  # Delay reload by 0.5s to ensure DB write completes
+            reload_timestamp = {
+                'timestamp': current_time + 0.5,  # Delay reload by 0.5s to ensure DB write completes
+                'device_id': serial_number  # Store device_id so reload callback can use it
+            }
             
             # Set timer to hide message after 1 second (1000ms)
             # Store the timestamp when message should be hidden
@@ -1781,7 +1798,10 @@ def save_digital_configuration(
             # Add a small delay (0.5 seconds) to ensure database write is fully flushed
             import time
             current_time = time.time()
-            reload_timestamp = {'timestamp': current_time + 0.5}  # Delay reload by 0.5s to ensure DB write completes
+            reload_timestamp = {
+                'timestamp': current_time + 0.5,  # Delay reload by 0.5s to ensure DB write completes
+                'device_id': serial_number  # Store device_id so reload callback can use it
+            }
             logger.info(f"✅ Save completed for device {serial_number}, reload will trigger at {reload_timestamp['timestamp']}")
             return True, success_msg, reload_timestamp
         else:
@@ -1958,7 +1978,10 @@ def save_modbus_configuration(
             # Add a small delay (0.5 seconds) to ensure database write is fully flushed
             import time
             current_time = time.time()
-            reload_timestamp = {'timestamp': current_time + 0.5}  # Delay reload by 0.5s to ensure DB write completes
+            reload_timestamp = {
+                'timestamp': current_time + 0.5,  # Delay reload by 0.5s to ensure DB write completes
+                'device_id': serial_number  # Store device_id so reload callback can use it
+            }
             logger.info(f"✅ Save completed for device {serial_number}, reload will trigger at {reload_timestamp['timestamp']}")
             return True, success_msg, reload_timestamp
         else:
@@ -2136,7 +2159,10 @@ def save_canbus_configuration(
             # Add a small delay (0.5 seconds) to ensure database write is fully flushed
             import time
             current_time = time.time()
-            reload_timestamp = {'timestamp': current_time + 0.5}  # Delay reload by 0.5s to ensure DB write completes
+            reload_timestamp = {
+                'timestamp': current_time + 0.5,  # Delay reload by 0.5s to ensure DB write completes
+                'device_id': serial_number  # Store device_id so reload callback can use it
+            }
             logger.info(f"✅ Save completed for device {serial_number}, reload will trigger at {reload_timestamp['timestamp']}")
             return True, success_msg, reload_timestamp
         else:
@@ -2556,7 +2582,10 @@ def save_all_configuration(
             import logging
             logger = logging.getLogger(__name__)
             current_time = time.time()
-            reload_timestamp = {'timestamp': current_time + 0.5}  # Delay reload by 0.5s to ensure DB write completes
+            reload_timestamp = {
+                'timestamp': current_time + 0.5,  # Delay reload by 0.5s to ensure DB write completes
+                'device_id': serial_number  # Store device_id so reload callback can use it
+            }
             logger.info(f"✅ Save completed for device {serial_number}, reload will trigger at {reload_timestamp['timestamp']}")
             return success_msg, html.I(className="fas fa-save me-2"), False, True, success_msg, reload_timestamp
         else:
