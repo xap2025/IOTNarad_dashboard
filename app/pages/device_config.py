@@ -809,25 +809,25 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
     import logging
     logger = logging.getLogger(__name__)
     
-        # Allow loading on dashboard page (device config is embedded in dashboard)
-        # Only skip if explicitly on login/logout page
-        skip_paths = ['/login', '/logout', '/']
-        if pathname in skip_paths:
-            logger.debug(f"⏭️ Skipping config load for pathname: {pathname}")
+    # Get trigger info for logging
+    triggered_id = ctx.triggered_id if hasattr(ctx, 'triggered_id') else None
+    
+    # Allow loading on dashboard page (device config is embedded in dashboard)
+    # Only skip if explicitly on login/logout page
+    skip_paths = ['/login', '/logout', '/']
+    if pathname in skip_paths:
+        logger.debug(f"⏭️ Skipping config load for pathname: {pathname}")
+        return [no_update] * 9
+    
+    if not device_id:
+        # Try to get device ID from ctx if triggered by tab switch
+        if triggered_id == 'config-tabs' or triggered_id == 'config-reload-trigger':
+            # If triggered by tab switch or reload, try to get device from State or session
+            # For now, skip if no device_id - this is acceptable as tab switch doesn't require reload
+            logger.debug(f"⏭️ Tab switch/reload triggered but no device selected")
             return [no_update] * 9
-        
-        # Get device ID from selector if not provided
-        # This handles cases where tab is switched but device is already selected
-        if not device_id:
-            # Try to get device ID from ctx if triggered by tab switch
-            triggered_id = ctx.triggered_id if hasattr(ctx, 'triggered_id') else None
-            if triggered_id == 'config-tabs' or triggered_id == 'config-reload-trigger':
-                # If triggered by tab switch or reload, try to get device from State or session
-                # For now, skip if no device_id - this is acceptable as tab switch doesn't require reload
-                logger.debug(f"⏭️ Tab switch/reload triggered but no device selected")
-                return [no_update] * 9
-            else:
-                return [no_update] * 9  # Return no_update for all outputs
+        else:
+            return [no_update] * 9  # Return no_update for all outputs
     
     try:
         # Get logged-in user info
@@ -838,8 +838,6 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
             user_type = session_data.get('user_type', 'user')
             is_admin = (username == 'admin')
         
-        # Get trigger info for logging
-        triggered_id = ctx.triggered_id if hasattr(ctx, 'triggered_id') else 'unknown'
         logger.info(f"🔄 Loading configuration for device: {device_id}, user: {username}, is_admin: {is_admin}, trigger: {triggered_id}, active_tab: {active_tab}")
         
         # Verify device ownership (unless admin)
