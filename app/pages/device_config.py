@@ -1113,7 +1113,7 @@ def save_analog_configuration(
                     html.Strong("Validation Error: "),
                     f"Please fill all parameters for Channel {channel} (4-20mA): Divider, Multiplier, and Name/Label are required."
                 ], className='text-danger')
-                return error_msg, html.I(className="fas fa-save me-2"), False
+                return error_msg, html.I(className="fas fa-save me-2"), False, no_update
             
             input_4_20ma_data.append({
                 "channel": channel,
@@ -1143,7 +1143,7 @@ def save_analog_configuration(
                     html.Strong("Validation Error: "),
                     f"Please fill all parameters for Channel {channel} (0-10V): Divider, Multiplier, and Name/Label are required."
                 ], className='text-danger')
-                return error_msg, html.I(className="fas fa-save me-2"), False
+                return error_msg, html.I(className="fas fa-save me-2"), False, no_update
             
             input_1_10v_data.append({
                 "channel": channel,
@@ -1247,7 +1247,7 @@ def save_analog_configuration(
                     html.Strong("Validation Error: "),
                     f"Please fill all parameters for Output Channel {channel}: Value is required (cannot be empty)."
                 ], className='text-danger')
-                return error_msg, html.I(className="fas fa-save me-2"), False
+                return error_msg, html.I(className="fas fa-save me-2"), False, no_update
             
             # Validation: Name should be set (should have default by now, but double-check)
             if not name or name.strip() == '':
@@ -1256,7 +1256,7 @@ def save_analog_configuration(
                     html.Strong("Validation Error: "),
                     f"Please fill all parameters for Output Channel {channel}: Name/Label is required."
                 ], className='text-danger')
-                return error_msg, html.I(className="fas fa-save me-2"), False
+                return error_msg, html.I(className="fas fa-save me-2"), False, no_update
             
             # Add to output data list
             output_data = {
@@ -1322,7 +1322,7 @@ def save_analog_configuration(
                         html.Strong("Error: "),
                         f"❌ Failed to save analog configuration to database."
                     ], className='text-danger')
-                    return error_msg, html.I(className="fas fa-save me-2"), False
+                    return error_msg, html.I(className="fas fa-save me-2"), False, no_update
                 logger.info(f"✅ STEP 1: Successfully saved analog section to Device_Config_Analog")
             except Exception as save_error:
                 logger.error(f"❌ Exception while saving analog config sections: {save_error}")
@@ -1331,7 +1331,7 @@ def save_analog_configuration(
                     html.Strong("Error: "),
                     f"❌ Error saving analog configuration: {str(save_error)}"
                 ], className='text-danger')
-                return error_msg, html.I(className="fas fa-save me-2"), False
+                return error_msg, html.I(className="fas fa-save me-2"), False, no_update
             
             # STEP 2: Rebuild complete merged config from ALL tabs
             # Get latest configs from other tabs (Digital, MODBUS, CAN Bus)
