@@ -551,16 +551,21 @@ class DeviceConfigDBService:
             return None
         
         try:
+            # Escape device_id for Flux query (replace backslashes and quotes)
+            escaped_device_id = device_id.replace('\\', '\\\\').replace('"', '\\"')
+            
             query = f'''
                 from(bucket: "{self.bucket}")
                 |> range(start: -365d)
                 |> filter(fn: (r) => r._measurement == "Device_Config_Analog")
-                |> filter(fn: (r) => r.device_id == "{device_id}")
+                |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
+                |> pivot(rowKey: ["_time", "channel_type", "channel", "io_pin", "name"], columnKey: ["_field"], valueColumn: "_value")
+                |> group(columns: ["channel_type", "channel", "io_pin", "name"])
                 |> sort(columns: ["_time"], desc: true)
-                |> group()
-                |> keep(columns: ["_time", "channel_type", "channel", "io_pin", "name", "enabled", "divider", "multiplier", "scan_rate", "value"])
+                |> limit(n: 1)
             '''
             
+            logger.debug(f"🔍 Executing analog config query for device_id: {device_id}")
             result = self.query_api.query(org=self.org, query=query)
             
             input_4_20ma = []
@@ -632,7 +637,8 @@ class DeviceConfigDBService:
             }
             
         except Exception as e:
-            logger.error(f"Error getting analog config: {e}")
+            logger.error(f"Error getting analog config for device_id '{device_id}': {e}")
+            logger.exception("Full traceback:")
             return None
     
     def get_digital_config(self, device_id: str) -> Optional[Dict[str, Any]]:
@@ -641,16 +647,21 @@ class DeviceConfigDBService:
             return None
         
         try:
+            # Escape device_id for Flux query (replace backslashes and quotes)
+            escaped_device_id = device_id.replace('\\', '\\\\').replace('"', '\\"')
+            
             query = f'''
                 from(bucket: "{self.bucket}")
                 |> range(start: -365d)
                 |> filter(fn: (r) => r._measurement == "Device_Config_Digital")
-                |> filter(fn: (r) => r.device_id == "{device_id}")
+                |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
+                |> pivot(rowKey: ["_time", "channel_type", "channel", "io_pin", "name"], columnKey: ["_field"], valueColumn: "_value")
+                |> group(columns: ["channel_type", "channel", "io_pin", "name"])
                 |> sort(columns: ["_time"], desc: true)
-                |> group()
-                |> keep(columns: ["_time", "channel_type", "channel", "io_pin", "name", "enabled", "pullup", "debounce_ms", "initial_state", "scan_rate"])
+                |> limit(n: 1)
             '''
             
+            logger.debug(f"🔍 Executing digital config query for device_id: {device_id}")
             result = self.query_api.query(org=self.org, query=query)
             
             npn_input = []
@@ -717,7 +728,8 @@ class DeviceConfigDBService:
             return config
             
         except Exception as e:
-            logger.error(f"Error getting digital config: {e}")
+            logger.error(f"Error getting digital config for device_id '{device_id}': {e}")
+            logger.exception("Full traceback:")
             return None
     
     def get_modbus_config(self, device_id: str) -> Optional[Dict[str, Any]]:
@@ -726,15 +738,21 @@ class DeviceConfigDBService:
             return None
         
         try:
+            # Escape device_id for Flux query (replace backslashes and quotes)
+            escaped_device_id = device_id.replace('\\', '\\\\').replace('"', '\\"')
+            
             query = f'''
                 from(bucket: "{self.bucket}")
                 |> range(start: -365d)
                 |> filter(fn: (r) => r._measurement == "Device_Config_MODBUS")
-                |> filter(fn: (r) => r.device_id == "{device_id}")
+                |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
+                |> pivot(rowKey: ["_time", "config_type"], columnKey: ["_field"], valueColumn: "_value")
+                |> group(columns: ["config_type"])
                 |> sort(columns: ["_time"], desc: true)
-                |> group()
+                |> limit(n: 1)
             '''
             
+            logger.debug(f"🔍 Executing MODBUS config query for device_id: {device_id}")
             result = self.query_api.query(org=self.org, query=query)
             
             settings = {}
@@ -778,7 +796,8 @@ class DeviceConfigDBService:
             return settings
             
         except Exception as e:
-            logger.error(f"Error getting MODBUS config: {e}")
+            logger.error(f"Error getting MODBUS config for device_id '{device_id}': {e}")
+            logger.exception("Full traceback:")
             return None
     
     def get_can_bus_config(self, device_id: str) -> Optional[Dict[str, Any]]:
@@ -787,15 +806,21 @@ class DeviceConfigDBService:
             return None
         
         try:
+            # Escape device_id for Flux query (replace backslashes and quotes)
+            escaped_device_id = device_id.replace('\\', '\\\\').replace('"', '\\"')
+            
             query = f'''
                 from(bucket: "{self.bucket}")
                 |> range(start: -365d)
                 |> filter(fn: (r) => r._measurement == "Device_Config_CANBus")
-                |> filter(fn: (r) => r.device_id == "{device_id}")
+                |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
+                |> pivot(rowKey: ["_time", "config_type"], columnKey: ["_field"], valueColumn: "_value")
+                |> group(columns: ["config_type"])
                 |> sort(columns: ["_time"], desc: true)
-                |> group()
+                |> limit(n: 1)
             '''
             
+            logger.debug(f"🔍 Executing CAN Bus config query for device_id: {device_id}")
             result = self.query_api.query(org=self.org, query=query)
             
             settings = {}
@@ -848,7 +873,8 @@ class DeviceConfigDBService:
             return settings
             
         except Exception as e:
-            logger.error(f"Error getting CAN Bus config: {e}")
+            logger.error(f"Error getting CAN Bus config for device_id '{device_id}': {e}")
+            logger.exception("Full traceback:")
             return None
     
     def get_complete_config_from_tables(self, device_id: str) -> Optional[Dict[str, Any]]:

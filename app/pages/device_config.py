@@ -974,6 +974,118 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
         return [no_update] * 9
 
 
+@callback(
+    [
+        Output('config-save-toast', 'is_open', allow_duplicate=True),
+        Output('config-save-toast', 'children', allow_duplicate=True),
+        Output('config-reload-trigger', 'data', allow_duplicate=True),
+    ],
+    Input('load-config-btn', 'n_clicks'),
+    State('device-selector', 'value'),
+    State('config-tabs', 'active_tab'),
+    prevent_initial_call=True
+)
+def load_config_from_device(n_clicks, serial_number, active_tab):
+    """Request configuration from the device via MQTT and refresh UI."""
+    if not n_clicks:
+        return no_update, no_update, no_update
+    
+    if not serial_number:
+        error = html.Div([
+            html.Strong("Validation Error: "),
+            "Please select a device before loading configuration."
+        ], className='text-danger')
+        return True, error, no_update
+    
+    tab_map = {
+        'tab-analog': ('analog', 'analog'),
+        'tab-digital': ('digital', 'digital'),
+        'tab-modbus': ('rs485_modbus', 'modbus'),
+        'tab-canbus': ('can_bus', 'can'),
+    }
+    
+    if active_tab not in tab_map:
+        error = html.Div([
+            html.Strong("Unknown Tab: "),
+            f"Cannot determine configuration section for tab '{active_tab}'."
+        ], className='text-danger')
+        return True, error, no_update
+    
+    section_key, loader_section = tab_map[active_tab]
+    
+    try:
+        from app.services.device_config_loader import DeviceConfigLoaderService
+        from app.services.device_config_db import DeviceConfigDBService
+        
+        loader = DeviceConfigLoaderService()
+        response = loader.load_section(serial_number, loader_section)
+        config_payload = response.get('config')
+        
+        if not config_payload:
+            raise RuntimeError("Device reply did not contain 'config' payload.")
+        
+        db_service = DeviceConfigDBService()
+        if not db_service.is_connected():
+            raise RuntimeError("Database connection unavailable to store device config.")
+        
+        save_payload = {
+            "device_id": serial_number,
+            section_key: config_payload
+        }
+        
+        db_service.save_config_sections_only(serial_number, save_payload)
+        
+        # Build merged view for Device_Config table
+        analog_config = config_payload if section_key == 'analog' else db_service.get_analog_config(serial_number)
+        digital_config = config_payload if section_key == 'digital' else db_service.get_digital_config(serial_number)
+        modbus_config = config_payload if section_key == 'rs485_modbus' else db_service.get_modbus_config(serial_number)
+        canbus_config = config_payload if section_key == 'can_bus' else db_service.get_can_bus_config(serial_number)
+        
+        merged_config = {"device_id": serial_number}
+        if analog_config:
+            merged_config["analog"] = analog_config
+        if digital_config:
+            merged_config["digital"] = digital_config
+        if modbus_config:
+            merged_config["rs485_modbus"] = modbus_config
+        if canbus_config:
+            merged_config["can_bus"] = canbus_config
+        
+        db_service.save_device_config(serial_number, merged_config)
+        
+        success_msg = html.Div([
+            html.Span("✅ ", className='text-success'),
+            html.Strong("Loaded! ", className='text-success'),
+            f"{section_key.replace('_', ' ').title()} config pulled from device {serial_number}"
+        ], className='text-success fw-bold')
+        
+        import time
+        reload_payload = {
+            'timestamp': time.time(),
+            'device_id': serial_number
+        }
+        
+        return True, success_msg, reload_payload
+    
+    except TimeoutError as timeout_error:
+        error = html.Div([
+            html.Strong("Device Timeout: "),
+            str(timeout_error)
+        ], className='text-danger')
+        return True, error, no_update
+    
+    except Exception as exc:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error loading config from device: {exc}")
+        logger.exception("Full error traceback:")
+        error = html.Div([
+            html.Strong("Error: "),
+            f"Failed to load configuration: {str(exc)}"
+        ], className='text-danger')
+        return True, error, no_update
+
+
 # Callback for save Analog configuration (inside Analog tab)
 @callback(
     [
