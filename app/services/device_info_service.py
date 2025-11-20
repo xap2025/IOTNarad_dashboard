@@ -261,17 +261,19 @@ class DeviceInfoService:
         try:
             # Build query with optional owner filter
             # Owner is a TAG, so we can filter it directly BEFORE pivot (more efficient)
+            # CRITICAL FIX: Group FIRST, then sort, then limit, then pivot, then keep
+            # This matches the working query structure from InfluxDB UI
             if is_admin or not owner_filter:
                 # Admin or no filter - get all devices
                 query = f'''
                     from(bucket: "{self.bucket}")
                     |> range(start: -365d)
                     |> filter(fn: (r) => r._measurement == "Device_info")
-                    |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
                     |> group(columns: ["Sr_No", "Owner"])
                     |> sort(columns: ["_time"], desc: true)
+                    |> limit(n: 1)
+                    |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
                     |> keep(columns: ["_time", "Sr_No", "Owner", "Device_Name", "Date_Of_Register"])
-                    |> first()
                 '''
             else:
                 # Filter by owner - Owner is a TAG, so filter BEFORE pivot (more efficient)
@@ -280,11 +282,11 @@ class DeviceInfoService:
                     |> range(start: -365d)
                     |> filter(fn: (r) => r._measurement == "Device_info")
                     |> filter(fn: (r) => r.Owner == "{owner_filter}")
-                    |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
                     |> group(columns: ["Sr_No", "Owner"])
                     |> sort(columns: ["_time"], desc: true)
+                    |> limit(n: 1)
+                    |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
                     |> keep(columns: ["_time", "Sr_No", "Owner", "Device_Name", "Date_Of_Register"])
-                    |> first()
                 '''
             
             logger.info(f"🔍 Executing Flux query for devices info (owner_filter: '{owner_filter}', is_admin: {is_admin})")

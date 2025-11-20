@@ -7,6 +7,7 @@ import dash_bootstrap_components as dbc
 import time
 
 # Module-level cache for device list (refreshes every 30 seconds)
+# Cache structure: {'data': (options, default_value), 'user_key': str, 'timestamp': float}
 _device_list_cache = None
 _cache_timestamp = 0
 _cache_ttl = 30  # Cache for 30 seconds
@@ -629,11 +630,12 @@ def load_device_list(pathname, _, session_data):
         current_time = time.time()
         
         # Check cache first - but only if same user
-        if _device_list_cache and (current_time - _cache_timestamp) < _cache_ttl:
-            cached_key = getattr(_device_list_cache, '_cache_user_key', None)
+        if _device_list_cache and isinstance(_device_list_cache, dict) and (current_time - _cache_timestamp) < _cache_ttl:
+            cached_key = _device_list_cache.get('user_key')
             if cached_key == cache_key:
+                cached_data = _device_list_cache.get('data', ([], None))
                 logger.info(f"✅ Returning cached device list for user {username} (age: {current_time - _cache_timestamp:.1f}s)")
-                return _device_list_cache[0], _device_list_cache[1], ""
+                return cached_data[0], cached_data[1], ""
         
         logger.info(f"📡 Fetching device list from database (cache expired or different user)")
         
@@ -649,8 +651,11 @@ def load_device_list(pathname, _, session_data):
                 None,
                 ""  # Hide spinner on error
             )
-            _device_list_cache = (error_options[0], error_options[1])
-            _device_list_cache._cache_user_key = cache_key
+            _device_list_cache = {
+                'data': (error_options[0], error_options[1]),
+                'user_key': cache_key,
+                'timestamp': current_time
+            }
             _cache_timestamp = current_time
             return error_options
         
@@ -680,7 +685,11 @@ def load_device_list(pathname, _, session_data):
                 None,
                 ""  # Hide spinner
             )
-            _device_list_cache = (no_devices_options[0], no_devices_options[1])
+            _device_list_cache = {
+                'data': (no_devices_options[0], no_devices_options[1]),
+                'user_key': cache_key,
+                'timestamp': current_time
+            }
             _cache_timestamp = current_time
             return no_devices_options
         
@@ -705,8 +714,11 @@ def load_device_list(pathname, _, session_data):
         
         # Cache the results (with user key for cache invalidation)
         result = (options, default_value, "")  # Hide spinner after loading
-        _device_list_cache = (options, default_value)
-        _device_list_cache._cache_user_key = cache_key
+        _device_list_cache = {
+            'data': (options, default_value),
+            'user_key': cache_key,
+            'timestamp': current_time
+        }
         _cache_timestamp = current_time
         
         logger.info(f"✅ Built {len(options)} dropdown options for user: {username} (is_admin: {is_admin})")
