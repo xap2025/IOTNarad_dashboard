@@ -89,9 +89,10 @@ def create_device_config_layout():
                outline=True),
             
             dbc.Button([
-                html.I(className="fas fa-undo me-2"),
-                "Reset to Default"
-            ], id='reset-config-btn', color='warning', size='lg', outline=True),
+                html.I(className="fas fa-paper-plane me-2"),
+                "Send Configuration"
+            ], id='send-config-btn', color='success', size='lg', className='me-2',
+               outline=True),
         ], className='mt-4 text-end'),
         
         # Status Toast
@@ -1084,6 +1085,333 @@ def load_config_from_device(n_clicks, serial_number, active_tab):
             f"Failed to load configuration: {str(exc)}"
         ], className='text-danger')
         return True, error, no_update
+
+
+# Callback for Send Configuration button
+@callback(
+    [
+        Output('config-save-toast', 'is_open', allow_duplicate=True),
+        Output('config-save-toast', 'children', allow_duplicate=True),
+    ],
+    Input('send-config-btn', 'n_clicks'),
+    # Get active tab
+    State('config-tabs', 'active_tab'),
+    # Device Selection
+    State('device-selector', 'value'),
+    State('device-config-session-store', 'data'),
+    # Analog States (for Analog tab)
+    State({'type': 'analog-input-enable', 'index': ALL}, 'value'),
+    State({'type': 'analog-input-div', 'index': ALL}, 'value'),
+    State({'type': 'analog-input-mul', 'index': ALL}, 'value'),
+    State({'type': 'analog-input-name', 'index': ALL}, 'value'),
+    State({'type': 'analog-output-enable', 'index': ALL}, 'value'),
+    State({'type': 'analog-output-value', 'index': ALL}, 'value'),
+    State({'type': 'analog-output-name', 'index': ALL}, 'value'),
+    State('analog-scan-rate', 'value'),
+    # Digital States (for Digital tab)
+    State({'type': 'npn-input-enable', 'index': ALL}, 'value'),
+    State({'type': 'npn-input-name', 'index': ALL}, 'value'),
+    State({'type': 'npn-output-enable', 'index': ALL}, 'value'),
+    State({'type': 'npn-output-name', 'index': ALL}, 'value'),
+    State({'type': 'pnp-input-enable', 'index': ALL}, 'value'),
+    State({'type': 'pnp-input-name', 'index': ALL}, 'value'),
+    State({'type': 'pnp-output-enable', 'index': ALL}, 'value'),
+    State({'type': 'pnp-output-name', 'index': ALL}, 'value'),
+    State({'type': 'relay-enable', 'index': ALL}, 'value'),
+    State({'type': 'relay-name', 'index': ALL}, 'value'),
+    State('digital-scan-rate', 'value'),
+    # MODBUS States (for MODBUS tab)
+    State('modbus-baud-rate', 'value'),
+    State('modbus-data-bits', 'value'),
+    State('modbus-parity', 'value'),
+    State('modbus-stop-bits', 'value'),
+    State('modbus-mode', 'value'),
+    State('modbus-role', 'value'),
+    State('modbus-polling-interval', 'value'),
+    State('modbus-devices-store', 'data'),
+    # CAN Bus States (for CAN Bus tab)
+    State('can-baud-rate', 'value'),
+    State('can-identifier-length', 'value'),
+    State('can-mode', 'value'),
+    State('can-filter-mode', 'value'),
+    State('can-filter-id', 'value'),
+    State('can-filter-mask', 'value'),
+    State('can-messages-store', 'data'),
+    State('can-data-mapping-store', 'data'),
+    prevent_initial_call=True
+)
+def send_configuration_to_device(
+    n_clicks,
+    active_tab,
+    serial_number,
+    session_data,
+    # Analog
+    analog_input_enable, analog_input_div, analog_input_mul, analog_input_name,
+    analog_output_enable, analog_output_value, analog_output_name,
+    analog_scan_rate,
+    # Digital
+    npn_input_enable, npn_input_name,
+    npn_output_enable, npn_output_name,
+    pnp_input_enable, pnp_input_name,
+    pnp_output_enable, pnp_output_name,
+    relay_enable, relay_name,
+    digital_scan_rate,
+    # MODBUS
+    modbus_baud_rate, modbus_data_bits, modbus_parity, modbus_stop_bits,
+    modbus_mode, modbus_role, modbus_polling_interval, modbus_devices_store,
+    # CAN Bus
+    can_baud_rate, can_identifier_length, can_mode, can_filter_mode,
+    can_filter_id, can_filter_mask, can_messages_store, can_data_mapping_store
+):
+    """Send configuration to device via MQTT based on active tab."""
+    if not n_clicks:
+        return False, ""
+    
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Validate device selection
+    if not serial_number:
+        error = html.Div([
+            html.Strong("Validation Error: "),
+            "Please select a device before sending configuration."
+        ], className='text-danger')
+        return True, error
+    
+    # Map active tab to config type and builder function
+    tab_map = {
+        'tab-analog': ('Analog', 'build_analog'),
+        'tab-digital': ('Digital', 'build_digital'),
+        'tab-modbus': ('Modbus', 'build_modbus'),
+        'tab-canbus': ('Canbus', 'build_canbus'),
+    }
+    
+    if active_tab not in tab_map:
+        error = html.Div([
+            html.Strong("Unknown Tab: "),
+            f"Cannot send configuration for tab '{active_tab}'."
+        ], className='text-danger')
+        return True, error
+    
+    config_type, build_method = tab_map[active_tab]
+    
+    try:
+        from app.services.config_json_builder import ConfigJSONBuilder
+        from app.services.device_config_sender import DeviceConfigSenderService
+        
+        builder = ConfigJSONBuilder()
+        sender = DeviceConfigSenderService()
+        
+        # Build configuration based on active tab
+        if active_tab == 'tab-analog':
+            # Build Analog config (reuse logic from save_analog_configuration)
+            io_pins = {1: "AIN0", 2: "AIN1", 3: "AIN2", 4: "AIN3"}
+            
+            input_4_20ma_data = []
+            for idx in range(2):
+                channel = idx + 1
+                io_pin = io_pins[channel]
+                div = analog_input_div[idx] if idx < len(analog_input_div) and analog_input_div[idx] is not None else 1
+                mul = analog_input_mul[idx] if idx < len(analog_input_mul) and analog_input_mul[idx] is not None else 1
+                name = analog_input_name[idx] if idx < len(analog_input_name) and analog_input_name[idx] else io_pin
+                if not name or name.strip() == '':
+                    name = io_pin
+                
+                input_4_20ma_data.append({
+                    "channel": channel,
+                    "enabled": analog_input_enable[idx] if idx < len(analog_input_enable) else False,
+                    "divider": div,
+                    "multiplier": mul,
+                    "io_pin": io_pin,
+                    "name": name.strip()
+                })
+            
+            input_1_10v_data = []
+            for idx in range(2):
+                channel = idx + 3
+                io_pin = io_pins[channel]
+                div = analog_input_div[idx + 2] if idx + 2 < len(analog_input_div) and analog_input_div[idx + 2] is not None else 1
+                mul = analog_input_mul[idx + 2] if idx + 2 < len(analog_input_mul) and analog_input_mul[idx + 2] is not None else 1
+                name = analog_input_name[idx + 2] if idx + 2 < len(analog_input_name) and analog_input_name[idx + 2] else io_pin
+                if not name or name.strip() == '':
+                    name = io_pin
+                
+                input_1_10v_data.append({
+                    "channel": channel,
+                    "enabled": analog_input_enable[idx + 2] if idx + 2 < len(analog_input_enable) else False,
+                    "divider": div,
+                    "multiplier": mul,
+                    "io_pin": io_pin,
+                    "name": name.strip()
+                })
+            
+            output_0_10v_data = []
+            for idx in range(2):
+                channel = idx + 1
+                io_pin = f"DOUT{idx}"
+                value = analog_output_value[idx] if idx < len(analog_output_value) and analog_output_value[idx] is not None else 0.0
+                name = analog_output_name[idx] if idx < len(analog_output_name) and analog_output_name[idx] else io_pin
+                if not name or name.strip() == '':
+                    name = io_pin
+                
+                output_0_10v_data.append({
+                    "channel": channel,
+                    "enabled": analog_output_enable[idx] if idx < len(analog_output_enable) else False,
+                    "value": float(value) if value is not None else 0.0,
+                    "io_pin": io_pin,
+                    "name": name.strip()
+                })
+            
+            config_data = builder.build_analog_config(
+                input_4_20ma_data,
+                input_1_10v_data,
+                output_0_10v_data,
+                scan_rate=analog_scan_rate if analog_scan_rate else 1000
+            )
+        
+        elif active_tab == 'tab-digital':
+            # Build Digital config
+            digital_io_pins = {
+                'npn_input': {1: "INP1H", 2: "INP2H", 3: "INP3H", 4: "INP4H"},
+                'npn_output': {1: "OUTL1", 2: "OUTL2", 3: "OUTL3", 4: "OUTL4"},
+                'pnp_input': {1: "INP1L", 2: "INP2L", 3: "INP3L", 4: "INP4L"},
+                'pnp_output': {1: "OUTH1", 2: "OUTH2", 3: "OUTH3", 4: "OUTH4"},
+                'relay': {1: "RLY1", 2: "RLY2", 3: "RLY3", 4: "RLY4"}
+            }
+            
+            npn_input_data = []
+            for idx in range(4):
+                channel = idx + 1
+                io_pin = digital_io_pins['npn_input'][channel]
+                name = npn_input_name[idx] if idx < len(npn_input_name) and npn_input_name[idx] else io_pin
+                if not name or name.strip() == '':
+                    name = io_pin
+                npn_input_data.append({
+                    "channel": channel,
+                    "enabled": npn_input_enable[idx] if idx < len(npn_input_enable) else False,
+                    "io_pin": io_pin,
+                    "name": name.strip()
+                })
+            
+            npn_output_data = []
+            for idx in range(4):
+                channel = idx + 1
+                io_pin = digital_io_pins['npn_output'][channel]
+                name = npn_output_name[idx] if idx < len(npn_output_name) and npn_output_name[idx] else io_pin
+                if not name or name.strip() == '':
+                    name = io_pin
+                npn_output_data.append({
+                    "channel": channel,
+                    "enabled": npn_output_enable[idx] if idx < len(npn_output_enable) else False,
+                    "io_pin": io_pin,
+                    "name": name.strip()
+                })
+            
+            pnp_input_data = []
+            for idx in range(4):
+                channel = idx + 1
+                io_pin = digital_io_pins['pnp_input'][channel]
+                name = pnp_input_name[idx] if idx < len(pnp_input_name) and pnp_input_name[idx] else io_pin
+                if not name or name.strip() == '':
+                    name = io_pin
+                pnp_input_data.append({
+                    "channel": channel,
+                    "enabled": pnp_input_enable[idx] if idx < len(pnp_input_enable) else False,
+                    "io_pin": io_pin,
+                    "name": name.strip()
+                })
+            
+            pnp_output_data = []
+            for idx in range(4):
+                channel = idx + 1
+                io_pin = digital_io_pins['pnp_output'][channel]
+                name = pnp_output_name[idx] if idx < len(pnp_output_name) and pnp_output_name[idx] else io_pin
+                if not name or name.strip() == '':
+                    name = io_pin
+                pnp_output_data.append({
+                    "channel": channel,
+                    "enabled": pnp_output_enable[idx] if idx < len(pnp_output_enable) else False,
+                    "io_pin": io_pin,
+                    "name": name.strip()
+                })
+            
+            relay_data = []
+            for idx in range(4):
+                channel = idx + 1
+                io_pin = digital_io_pins['relay'][channel]
+                name = relay_name[idx] if idx < len(relay_name) and relay_name[idx] else io_pin
+                if not name or name.strip() == '':
+                    name = io_pin
+                relay_data.append({
+                    "channel": channel,
+                    "enabled": relay_enable[idx] if idx < len(relay_enable) else False,
+                    "io_pin": io_pin,
+                    "name": name.strip()
+                })
+            
+            config_data = builder.build_digital_config(
+                npn_input_data,
+                npn_output_data,
+                pnp_input_data,
+                pnp_output_data,
+                relay_data
+            )
+            config_data["scan_rate"] = digital_scan_rate if digital_scan_rate else 1000
+        
+        elif active_tab == 'tab-modbus':
+            # Build MODBUS config
+            modbus_slave_devices = modbus_devices_store if modbus_devices_store else []
+            config_data = builder.build_modbus_config(
+                baud_rate=modbus_baud_rate or "9600",
+                data_bits=modbus_data_bits or "8",
+                parity=modbus_parity or "None",
+                stop_bits=modbus_stop_bits or "1",
+                mode=modbus_mode or "RTU",
+                role=modbus_role or "Master",
+                polling_interval=int(modbus_polling_interval) if modbus_polling_interval else 1000,
+                slave_devices=modbus_slave_devices
+            )
+        
+        elif active_tab == 'tab-canbus':
+            # Build CAN Bus config
+            can_messages = can_messages_store if can_messages_store else []
+            can_data_mappings = can_data_mapping_store if can_data_mapping_store else []
+            config_data = builder.build_can_bus_config(
+                baud_rate=can_baud_rate or "500",
+                identifier_length=can_identifier_length or "11-bit",
+                can_mode=can_mode or "Normal",
+                filter_mode=can_filter_mode or "None",
+                filter_id=can_filter_id or "0x000",
+                filter_mask=can_filter_mask or "0x000",
+                can_messages=can_messages,
+                data_mappings=can_data_mappings
+            )
+        
+        # Send configuration to device
+        success = sender.send_config(serial_number, config_type, config_data)
+        
+        if success:
+            success_msg = html.Div([
+                html.Span("✅ ", className='text-success'),
+                html.Strong("Sent! ", className='text-success'),
+                f"{config_type} configuration sent to device {serial_number} and acknowledged."
+            ], className='text-success fw-bold')
+            return True, success_msg
+        else:
+            error = html.Div([
+                html.Strong("Warning: "),
+                f"Configuration sent to {serial_number} but no ACK received. Device may not have applied the configuration."
+            ], className='text-warning')
+            return True, error
+    
+    except Exception as exc:
+        logger.error(f"Error sending configuration to device: {exc}")
+        logger.exception("Full error traceback:")
+        error = html.Div([
+            html.Strong("Error: "),
+            f"Failed to send configuration: {str(exc)}"
+        ], className='text-danger')
+        return True, error
 
 
 # Callback for save Analog configuration (inside Analog tab)

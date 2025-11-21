@@ -195,7 +195,8 @@ Open **Terminal 1** and subscribe to see what the server sends:
 
 ```bash
 # Subscribe to all device read requests
-mosquitto_sub -h mqtt -p 1883 -t "Cmd/SConfig/+" -v
+docker exec -it iotnarad_mqtt mosquitto_sub -h localhost -p 1883 -t "Cmd/SConfig/#" -v
+
 
 # Or subscribe to specific device (replace TEST78787 with your device ID)
 mosquitto_sub -h mqtt -p 1883 -t "Cmd/SConfig/TEST78787" -v
