@@ -591,7 +591,7 @@ def sync_session_data(pathname, session_data):
     prevent_initial_call=False
 )
 def load_device_list(pathname, _, session_data):
-    """Load Serial Numbers from Device_info measurement filtered by logged-in user (optimized - single query with caching)"""
+    """Load all Serial Numbers from Device_info measurement (no owner filtering - shows all devices)"""
     global _device_list_cache, _cache_timestamp
     
     import logging
@@ -645,16 +645,16 @@ def load_device_list(pathname, _, session_data):
         
         logger.info(f"👤 Loading devices - Username: {username}, User Type: {user_type}, Is Admin: {is_admin}, Session Data: {session_data if session_data else 'None/Empty'}")
         
-        # Build cache key that includes user info (different users see different devices)
-        cache_key = f"{username}_{is_admin}"
+        # Build cache key (same for all users since we show all devices)
+        cache_key = "all_devices"
         current_time = time.time()
         
-        # Check cache first - but only if same user
+        # Check cache first (shared across all users)
         if _device_list_cache and isinstance(_device_list_cache, dict) and (current_time - _cache_timestamp) < _cache_ttl:
             cached_key = _device_list_cache.get('user_key')
             if cached_key == cache_key:
                 cached_data = _device_list_cache.get('data', ([], None))
-                logger.info(f"✅ Returning cached device list for user {username} (age: {current_time - _cache_timestamp:.1f}s)")
+                logger.info(f"✅ Returning cached device list (age: {current_time - _cache_timestamp:.1f}s)")
                 return cached_data[0], cached_data[1], ""
         
         logger.info(f"📡 Fetching device list from database (cache expired or different user)")
@@ -679,13 +679,13 @@ def load_device_list(pathname, _, session_data):
             _cache_timestamp = current_time
             return error_options
         
-        # Get devices filtered by owner (admin sees all, regular users see only their devices)
-        owner_filter_value = username if not is_admin and username else None
-        logger.info(f"🔍 Calling get_all_devices_info - owner_filter: '{owner_filter_value}', is_admin: {is_admin}, username: '{username}'")
+        # Get all devices without any owner filtering
+        # Show all devices from Device_info table regardless of ownership
+        logger.info(f"🔍 Calling get_all_devices_info - No owner filter (showing all devices)")
         
         all_devices_info = device_info_service.get_all_devices_info(
-            owner_filter=owner_filter_value,
-            is_admin=is_admin
+            owner_filter=None,  # No filtering - show all devices
+            is_admin=True  # Always use admin mode to get all devices
         )
         
         logger.info(f"📊 Device query result: {len(all_devices_info) if all_devices_info else 0} devices found")
@@ -741,7 +741,7 @@ def load_device_list(pathname, _, session_data):
         }
         _cache_timestamp = current_time
         
-        logger.info(f"✅ Built {len(options)} dropdown options for user: {username} (is_admin: {is_admin})")
+        logger.info(f"✅ Built {len(options)} dropdown options (all devices, no owner filter)")
         
         return result
         

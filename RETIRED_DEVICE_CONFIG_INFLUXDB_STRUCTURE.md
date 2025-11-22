@@ -9,7 +9,7 @@
 | **Sr_No** | Tag | Serial Number (Primary Key) | `TEST78787` |
 | **Date_Of_Register** | Field (string) | Registration Date | `2025-11-11` |
 | **Device_Name** | Field (string) | Device Name | `Unnamed` |
-| **Owner** | Field (string) | Device Owner | `Unassigned` |
+| **Owner** | Tag | Device Owner | `admin` |
 | **time** | Timestamp | Record Creation Time | `2025-11-11T12:47:43.798Z` |
 
 ### InfluxDB Query Example:
