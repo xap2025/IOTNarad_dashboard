@@ -391,7 +391,7 @@ def create_modbus_slave_row(index, slave_id, function_code, register_addr, data_
                 ],
                 value=function_code if isinstance(function_code, str) and function_code.startswith('0x') else '0x03',
                 clearable=False,
-                style={'fontSize': '0.9rem'}
+                style={'fontSize': '0.9rem', 'minWidth': '220px'}
             )
         ),
         html.Td(
@@ -417,7 +417,7 @@ def create_modbus_slave_row(index, slave_id, function_code, register_addr, data_
                 ],
                 value=data_type,
                 clearable=False,
-                style={'fontSize': '0.9rem'}
+                style={'fontSize': '0.9rem', 'minWidth': '180px'}
             )
         ),
         html.Td(
@@ -429,7 +429,7 @@ def create_modbus_slave_row(index, slave_id, function_code, register_addr, data_
                 ],
                 value=endianness,
                 clearable=False,
-                style={'fontSize': '0.9rem'}
+                style={'fontSize': '0.9rem', 'minWidth': '160px'}
             )
         ),
         html.Td(
@@ -586,3 +586,41 @@ def manage_modbus_devices(add_clicks, remove_clicks_list, devices_data, trigger_
         return updated_devices, new_trigger
     
     return no_update, no_update
+
+
+# Callback to sync user edits back into the devices store
+@callback(
+    Output('modbus-devices-store', 'data', allow_duplicate=True),
+    [
+        Input({'type': 'modbus-slave-id', 'index': ALL}, 'value'),
+        Input({'type': 'modbus-function-code', 'index': ALL}, 'value'),
+        Input({'type': 'modbus-register-addr', 'index': ALL}, 'value'),
+        Input({'type': 'modbus-data-type', 'index': ALL}, 'value'),
+        Input({'type': 'modbus-endianness', 'index': ALL}, 'value'),
+        Input({'type': 'modbus-var-name', 'index': ALL}, 'value'),
+    ],
+    prevent_initial_call=True
+)
+def sync_modbus_devices_store(slave_ids, function_codes, register_addrs, data_types, endianness_list, var_names):
+    """Synchronize modbus-devices-store with the latest UI values."""
+    if not slave_ids:
+        return no_update
+    
+    row_count = len(slave_ids)
+    collections = [function_codes, register_addrs, data_types, endianness_list, var_names]
+    if any(len(lst) != row_count for lst in collections):
+        return no_update
+    
+    updated_devices = []
+    for idx in range(row_count):
+        updated_devices.append({
+            "index": idx,
+            "slave_id": str(slave_ids[idx]) if slave_ids[idx] is not None else "",
+            "function_code": str(function_codes[idx]) if function_codes[idx] else "0x03",
+            "register_addr": str(register_addrs[idx]) if register_addrs[idx] is not None else "0",
+            "data_type": str(data_types[idx]) if data_types[idx] else "int8",
+            "endianness": str(endianness_list[idx]) if endianness_list[idx] else "Big Endian",
+            "var_name": str(var_names[idx]) if var_names[idx] is not None else ""
+        })
+    
+    return updated_devices
