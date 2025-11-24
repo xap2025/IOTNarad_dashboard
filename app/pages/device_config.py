@@ -1268,6 +1268,16 @@ def send_configuration_to_device(
                 output_0_10v_data,
                 scan_rate=analog_scan_rate if analog_scan_rate else 1000
             )
+            
+            # Remove optional metadata fields (min/max/unit) before sending to device
+            def _strip_channel_metadata(section: dict):
+                for group in ["input_4_20ma", "input_1_10v", "output_0_10v"]:
+                    for channel in section.get(group, []):
+                        channel.pop("min_value", None)
+                        channel.pop("max_value", None)
+                        channel.pop("unit", None)
+            
+            _strip_channel_metadata(config_data)
         
         elif active_tab == 'tab-digital':
             # Build Digital config
