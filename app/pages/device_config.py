@@ -2359,6 +2359,17 @@ def save_modbus_configuration(
                 "Please configure MODBUS communication settings."
             ])
         
+        # Debug logging to see what values we're receiving
+        logger.info(f"🔍 MODBUS Save - Received values:")
+        logger.info(f"   Baud Rate: {modbus_baud_rate} (type: {type(modbus_baud_rate)})")
+        logger.info(f"   Data Bits: {modbus_data_bits} (type: {type(modbus_data_bits)})")
+        logger.info(f"   Parity: {modbus_parity} (type: {type(modbus_parity)})")
+        logger.info(f"   Stop Bits: {modbus_stop_bits} (type: {type(modbus_stop_bits)})")
+        logger.info(f"   Mode: {modbus_mode} (type: {type(modbus_mode)})")
+        logger.info(f"   Role: {modbus_role} (type: {type(modbus_role)})")
+        logger.info(f"   Polling Interval: {modbus_polling_interval} (type: {type(modbus_polling_interval)})")
+        logger.info(f"   Slave Devices Count: {len(modbus_devices_store) if modbus_devices_store else 0}")
+        
         # Build RS485 MODBUS Config
         modbus_slave_devices = modbus_devices_store if modbus_devices_store else []
         modbus_config = builder.build_modbus_config(
@@ -2371,6 +2382,13 @@ def save_modbus_configuration(
             polling_interval=int(modbus_polling_interval) if modbus_polling_interval else 1000,
             slave_devices=modbus_slave_devices
         )
+        
+        # Debug logging to see what config was built
+        logger.info(f"🔍 MODBUS Config Built:")
+        logger.info(f"   Communication Settings: {modbus_config.get('communication_settings')}")
+        logger.info(f"   Protocol Settings: {modbus_config.get('protocol_settings')}")
+        logger.info(f"   Polling Interval: {modbus_config.get('polling_interval_ms')}")
+        logger.info(f"   Slave Devices Count: {len(modbus_config.get('slave_devices', []))}")
         
         # Build config with only MODBUS section
         config_with_modbus_only = {

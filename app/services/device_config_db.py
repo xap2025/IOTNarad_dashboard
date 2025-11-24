@@ -375,23 +375,54 @@ class DeviceConfigDBService:
             return
             
         if not modbus_config:
+            logger.warning("⚠️ Cannot save MODBUS config: modbus_config is empty or None")
             return
         
+        # Debug logging
+        logger.info(f"🔍 _save_modbus_config called for device: {device_id}")
+        logger.info(f"   Config keys: {list(modbus_config.keys())}")
+        logger.info(f"   Communication settings: {modbus_config.get('communication_settings')}")
+        logger.info(f"   Protocol settings: {modbus_config.get('protocol_settings')}")
+        logger.info(f"   Polling interval: {modbus_config.get('polling_interval_ms')}")
+        logger.info(f"   Slave devices count: {len(modbus_config.get('slave_devices', []))}")
+        
         try:
+            # Extract values with detailed logging
+            comm_settings = modbus_config.get("communication_settings", {})
+            protocol_settings = modbus_config.get("protocol_settings", {})
+            
+            baud_rate = comm_settings.get("baud_rate", 9600)
+            data_bits = comm_settings.get("data_bits", 8)
+            parity = comm_settings.get("parity", "None")
+            stop_bits = comm_settings.get("stop_bits", 1)
+            mode = protocol_settings.get("mode", "RTU")
+            role = protocol_settings.get("role", "Master")
+            polling_interval = modbus_config.get("polling_interval_ms", 1000)
+            
+            logger.info(f"🔍 Extracted values for saving:")
+            logger.info(f"   Baud Rate: {baud_rate}")
+            logger.info(f"   Data Bits: {data_bits}")
+            logger.info(f"   Parity: {parity}")
+            logger.info(f"   Stop Bits: {stop_bits}")
+            logger.info(f"   Mode: {mode}")
+            logger.info(f"   Role: {role}")
+            logger.info(f"   Polling Interval: {polling_interval}")
+            
             # Save MODBUS settings
             point = Point("Device_Config_MODBUS") \
                 .tag("device_id", device_id) \
                 .tag("config_type", "settings") \
                 .field("enabled", modbus_config.get("enabled", False)) \
-                .field("baud_rate", modbus_config.get("communication_settings", {}).get("baud_rate", 9600)) \
-                .field("data_bits", modbus_config.get("communication_settings", {}).get("data_bits", 8)) \
-                .field("parity", modbus_config.get("communication_settings", {}).get("parity", "None")) \
-                .field("stop_bits", modbus_config.get("communication_settings", {}).get("stop_bits", 1)) \
-                .field("mode", modbus_config.get("protocol_settings", {}).get("mode", "RTU")) \
-                .field("role", modbus_config.get("protocol_settings", {}).get("role", "Master")) \
-                .field("polling_interval_ms", modbus_config.get("polling_interval_ms", 1000)) \
+                .field("baud_rate", baud_rate) \
+                .field("data_bits", data_bits) \
+                .field("parity", parity) \
+                .field("stop_bits", stop_bits) \
+                .field("mode", mode) \
+                .field("role", role) \
+                .field("polling_interval_ms", polling_interval) \
                 .time(timestamp, WritePrecision.NS)
             self.write_api.write(bucket=self.bucket, org=self.org, record=point)
+            logger.info(f"✅ MODBUS settings point written to database")
             
             # Save slave devices
             for slave in modbus_config.get("slave_devices", []):

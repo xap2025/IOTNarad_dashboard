@@ -1,32 +1,95 @@
-Please check the RS485 MODBUS UI TAB.
-Inside the Slave Devices section, there are several problems:
+✅ Phrase (Clean + Clear for Developer)
 
-The dropdowns (Function Code, Data Type, Endianness) are very small, so the full values are not visible.
-These dropdowns should be widened so the user can read the selected options clearly.
+Please look carefully — the RS485 MODBUS configuration is not saving correctly in the database.
 
-After clicking “Save Configuration”, the values are not getting saved in the database.
-Nothing is written to Device_Config_MODBUS.
+Here is what is happening:
 
-After clicking “Save Configuration”, all fields reset back to default values in the UI.
-This means the saved values are not loading back into the form.
+1. Communication Settings are NOT being saved anymore
 
-Right now there is only one slave row, but in real use the user will add more rows using “+ Add Device”.
-Every time a new row is added, one new slave device should be added.
+These values are shown correctly in the UI:
 
-So for example:
+Baud Rate: 19200
 
-If the user adds 3 slave rows
+Data Bits: 7
 
-And fills values in all 3 rows
+Parity: Even
 
-Then all 3 rows must be saved in the database, and also reloaded correctly in the UI after saving or refreshing.
+Stop Bits: 2
 
-Summary of what must work:
+But none of them appear in the database now.
+Earlier these settings were saving correctly — now they are missing completely from the Device_Config_MODBUS measurement.
 
-All dropdown widths must be increased
+2. Protocol Settings are also NOT being saved
 
-All slave rows (1 or more) should save correctly
+UI shows:
 
-After saving, the same values should appear again in the UI
+Mode: TCP
 
-No field should reset to default unless the user deletes a row manually
+Role: Slave
+
+But these values are also not saved in the database.
+
+3. Polling Interval (ms) is NOT saving
+
+UI shows the value:
+
+4000
+
+But this too is missing from the database.
+
+4. Only the “Slave Devices” rows are saving
+
+Now the slave device rows are saving correctly (which was earlier not working):
+
+Example row:
+
+Slave ID: 3
+
+Function Code: 0x03 - Read Holding Registers
+
+Register Address: 0X98
+
+Data Type: int8
+
+Endianness: Big Endian
+
+Variable Name: REGISTER
+
+These values appear properly in the database — this part is working correctly now.
+
+❗ Problem Summary
+
+Earlier:
+
+Communication Settings → working
+
+Protocol Settings → working
+
+Polling Interval → working
+
+Slave Devices → NOT working
+
+Now:
+
+Communication Settings → NOT saving
+
+Protocol Settings → NOT saving
+
+Polling Interval → NOT saving
+
+Slave Devices → ONLY this is saving correctly
+
+✔ What should happen
+
+All of these sections must save together:
+
+Communication Settings
+
+Protocol Settings
+
+Slave Devices (all rows)
+
+Polling Interval (ms)
+
+Nothing should be skipped.
+All values should be stored in Device_Config_MODBUS with the same timestamp.
