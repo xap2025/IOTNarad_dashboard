@@ -392,12 +392,14 @@ def create_modbus_slave_row(index, slave_id, function_code, register_addr, data_
                 value=function_code if isinstance(function_code, str) and function_code.startswith('0x') else '0x03',
                 clearable=False,
                 style={
-                    'fontSize': '0.9rem', 
-                    'minWidth': '220px'
+                    'fontSize': '0.9rem',
+                    'width': '100%',
+                    'minWidth': '250px'
                 },
                 optionHeight=40,
                 maxHeight=300
-            )
+            ),
+            style={'minWidth': '250px', 'width': '250px'}
         ),
         html.Td(
             dbc.Input(
@@ -423,12 +425,14 @@ def create_modbus_slave_row(index, slave_id, function_code, register_addr, data_
                 value=data_type,
                 clearable=False,
                 style={
-                    'fontSize': '0.9rem', 
-                    'minWidth': '180px'
+                    'fontSize': '0.9rem',
+                    'width': '100%',
+                    'minWidth': '200px'
                 },
                 optionHeight=40,
                 maxHeight=300
-            )
+            ),
+            style={'minWidth': '200px', 'width': '200px'}
         ),
         html.Td(
             dcc.Dropdown(
@@ -440,12 +444,14 @@ def create_modbus_slave_row(index, slave_id, function_code, register_addr, data_
                 value=endianness,
                 clearable=False,
                 style={
-                    'fontSize': '0.9rem', 
-                    'minWidth': '160px'
+                    'fontSize': '0.9rem',
+                    'width': '100%',
+                    'minWidth': '180px'
                 },
                 optionHeight=40,
                 maxHeight=300
-            )
+            ),
+            style={'minWidth': '180px', 'width': '180px'}
         ),
         html.Td(
             dbc.Input(

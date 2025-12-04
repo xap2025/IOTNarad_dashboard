@@ -5,15 +5,18 @@
 .modbus-table-container {
     overflow: visible !important;
     position: relative;
+    z-index: 1;
 }
 
-/* Ensure table and containers don't clip dropdowns */
+/* Ensure all parent containers allow overflow */
 .stat-card {
     overflow: visible !important;
 }
 
+/* Table styling */
 table {
     overflow: visible !important;
+    table-layout: auto;
 }
 
 table td {
@@ -21,17 +24,94 @@ table td {
     position: relative;
 }
 
+/* Dropdown control styling */
+.Select {
+    position: relative;
+    z-index: 1;
+}
+
+.Select-control {
+    position: relative;
+    z-index: 1;
+}
+
 /* Dropdown menu should appear above everything */
 .Select-menu-outer {
-    z-index: 9999 !important;
+    z-index: 99999 !important;
+    position: absolute !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+.Select-menu {
+    z-index: 99999 !important;
 }
 
 /* When dropdown is open */
 .Select.is-open {
-    z-index: 9999 !important;
+    z-index: 99999 !important;
 }
 
 .Select.is-open .Select-control {
-    z-index: 9999 !important;
+    z-index: 99999 !important;
+}
+
+.Select.is-open .Select-menu-outer {
+    z-index: 99999 !important;
+    display: block !important;
+    visibility: visible !important;
+}
+
+/* Ensure dropdown options are visible */
+.VirtualizedSelectOption {
+    z-index: 99999 !important;
+}
+
+/* Fix for responsive table wrapper */
+.table-responsive {
+    overflow: visible !important;
+    overflow-x: visible !important;
+    overflow-y: visible !important;
+}
+
+/* Fix for dbc.Table responsive wrapper */
+div[class*="table-responsive"] {
+    overflow: visible !important;
+}
+
+/* Ensure Bootstrap table doesn't clip */
+.table {
+    overflow: visible !important;
+}
+
+/* Specific fix for MODBUS table dropdowns */
+#modbus-slave-devices-tbody .Select {
+    position: relative;
+    z-index: 1;
+}
+
+#modbus-slave-devices-tbody .Select.is-open {
+    z-index: 99999 !important;
+}
+
+#modbus-slave-devices-tbody .Select-menu-outer {
+    z-index: 99999 !important;
+    position: absolute !important;
+    display: block !important;
+    visibility: visible !important;
+}
+
+/* Ensure parent divs don't interfere */
+.modbus-table-container > div {
+    overflow: visible !important;
+}
+
+.modbus-table-container table {
+    overflow: visible !important;
+}
+
+.modbus-table-container table td {
+    overflow: visible !important;
 }
 
