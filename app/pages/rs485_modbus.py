@@ -145,8 +145,8 @@ def create_rs485_modbus_layout():
                         ])
                     ]),
                     html.Tbody(id='modbus-slave-devices-tbody', children=[])
-                ], bordered=True, hover=True, responsive=True, className='mb-3'),
-            ]),
+                ], bordered=True, hover=True, responsive=True, className='mb-3', style={'overflow': 'visible'}),
+            ], style={'overflow': 'visible', 'position': 'relative'}),
             
             # Add Device Button
             dbc.Button([
@@ -377,28 +377,31 @@ def create_modbus_slave_row(index, slave_id, function_code, register_addr, data_
             )
         ),
         html.Td(
-            dcc.Dropdown(
-                id={'type': 'modbus-function-code', 'index': index},
-                options=[
-                    {'label': '0x01 - Read Coils', 'value': '0x01'},
-                    {'label': '0x02 - Read Discrete Inputs', 'value': '0x02'},
-                    {'label': '0x03 - Read Holding Registers', 'value': '0x03'},
-                    {'label': '0x04 - Read Input Registers', 'value': '0x04'},
-                    {'label': '0x05 - Write Single Coil', 'value': '0x05'},
-                    {'label': '0x06 - Write Single Register', 'value': '0x06'},
-                    {'label': '0x0F - Write Multiple Coils', 'value': '0x0F'},
-                    {'label': '0x10 - Write Multiple Registers', 'value': '0x10'},
-                ],
-                value=function_code if isinstance(function_code, str) and function_code.startswith('0x') else '0x03',
-                clearable=False,
-                style={
-                    'fontSize': '0.9rem', 
-                    'minWidth': '220px',
-                    'zIndex': 9999,
-                    'position': 'relative'
-                },
-                optionHeight=40,
-                maxHeight=300
+            html.Div(
+                dcc.Dropdown(
+                    id={'type': 'modbus-function-code', 'index': index},
+                    options=[
+                        {'label': '0x01 - Read Coils', 'value': '0x01'},
+                        {'label': '0x02 - Read Discrete Inputs', 'value': '0x02'},
+                        {'label': '0x03 - Read Holding Registers', 'value': '0x03'},
+                        {'label': '0x04 - Read Input Registers', 'value': '0x04'},
+                        {'label': '0x05 - Write Single Coil', 'value': '0x05'},
+                        {'label': '0x06 - Write Single Register', 'value': '0x06'},
+                        {'label': '0x0F - Write Multiple Coils', 'value': '0x0F'},
+                        {'label': '0x10 - Write Multiple Registers', 'value': '0x10'},
+                    ],
+                    value=function_code if isinstance(function_code, str) and function_code.startswith('0x') else '0x03',
+                    clearable=False,
+                    style={
+                        'fontSize': '0.9rem', 
+                        'minWidth': '220px',
+                        'zIndex': 9999,
+                        'position': 'relative'
+                    },
+                    optionHeight=40,
+                    maxHeight=300
+                ),
+                style={'position': 'relative', 'zIndex': 9999, 'overflow': 'visible'}
             )
         ),
         html.Td(
@@ -410,47 +413,53 @@ def create_modbus_slave_row(index, slave_id, function_code, register_addr, data_
             )
         ),
         html.Td(
-            dcc.Dropdown(
-                id={'type': 'modbus-data-type', 'index': index},
-                options=[
-                    {'label': 'int8', 'value': 'int8'},
-                    {'label': 'uint8', 'value': 'uint8'},
-                    {'label': 'int16', 'value': 'int16'},
-                    {'label': 'uint16', 'value': 'uint16'},
-                    {'label': 'int32', 'value': 'int32'},
-                    {'label': 'uint32', 'value': 'uint32'},
-                    {'label': 'float32', 'value': 'float32'},
-                    {'label': 'float64', 'value': 'float64'},
-                ],
-                value=data_type,
-                clearable=False,
-                style={
-                    'fontSize': '0.9rem', 
-                    'minWidth': '180px',
-                    'zIndex': 9999,
-                    'position': 'relative'
-                },
-                optionHeight=40,
-                maxHeight=300
+            html.Div(
+                dcc.Dropdown(
+                    id={'type': 'modbus-data-type', 'index': index},
+                    options=[
+                        {'label': 'int8', 'value': 'int8'},
+                        {'label': 'uint8', 'value': 'uint8'},
+                        {'label': 'int16', 'value': 'int16'},
+                        {'label': 'uint16', 'value': 'uint16'},
+                        {'label': 'int32', 'value': 'int32'},
+                        {'label': 'uint32', 'value': 'uint32'},
+                        {'label': 'float32', 'value': 'float32'},
+                        {'label': 'float64', 'value': 'float64'},
+                    ],
+                    value=data_type,
+                    clearable=False,
+                    style={
+                        'fontSize': '0.9rem', 
+                        'minWidth': '180px',
+                        'zIndex': 9999,
+                        'position': 'relative'
+                    },
+                    optionHeight=40,
+                    maxHeight=300
+                ),
+                style={'position': 'relative', 'zIndex': 9999, 'overflow': 'visible'}
             )
         ),
         html.Td(
-            dcc.Dropdown(
-                id={'type': 'modbus-endianness', 'index': index},
-                options=[
-                    {'label': 'Big Endian', 'value': 'Big Endian'},
-                    {'label': 'Little Endian', 'value': 'Little Endian'},
-                ],
-                value=endianness,
-                clearable=False,
-                style={
-                    'fontSize': '0.9rem', 
-                    'minWidth': '160px',
-                    'zIndex': 9999,
-                    'position': 'relative'
-                },
-                optionHeight=40,
-                maxHeight=300
+            html.Div(
+                dcc.Dropdown(
+                    id={'type': 'modbus-endianness', 'index': index},
+                    options=[
+                        {'label': 'Big Endian', 'value': 'Big Endian'},
+                        {'label': 'Little Endian', 'value': 'Little Endian'},
+                    ],
+                    value=endianness,
+                    clearable=False,
+                    style={
+                        'fontSize': '0.9rem', 
+                        'minWidth': '160px',
+                        'zIndex': 9999,
+                        'position': 'relative'
+                    },
+                    optionHeight=40,
+                    maxHeight=300
+                ),
+                style={'position': 'relative', 'zIndex': 9999, 'overflow': 'visible'}
             )
         ),
         html.Td(
