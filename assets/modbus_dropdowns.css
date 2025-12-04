@@ -1,108 +1,37 @@
 /* MODBUS Dropdown Z-Index Fix
    Ensures dropdowns appear above table content */
 
-/* Target all Select components (Dash uses react-select) */
-.Select-menu-outer {
-    z-index: 99999 !important;
-    position: absolute !important;
+/* Ensure table container doesn't clip dropdowns */
+.modbus-table-container {
+    overflow: visible !important;
+    position: relative;
 }
 
-.Select-control {
-    z-index: 99998 !important;
-    position: relative !important;
-}
-
-.Select-menu {
-    z-index: 99999 !important;
-    position: absolute !important;
-}
-
-.VirtualizedSelectOption {
-    z-index: 99999 !important;
-}
-
-/* Ensure dropdown menu container appears above everything */
-div.Select-menu-outer {
-    z-index: 99999 !important;
-    position: absolute !important;
+/* Ensure table and containers don't clip dropdowns */
+.stat-card {
     overflow: visible !important;
 }
 
-/* Table styling to ensure proper stacking context */
 table {
-    position: relative;
-    z-index: 1;
-    overflow: visible;
+    overflow: visible !important;
 }
 
 table td {
-    position: relative;
-    z-index: auto;
-    overflow: visible;
-}
-
-/* Ensure table container doesn't clip dropdowns */
-.stat-card {
-    overflow: visible !important;
-}
-
-/* Target the specific table container for MODBUS */
-#modbus-slave-devices-tbody {
-    position: relative;
-}
-
-#modbus-slave-devices-tbody td {
-    position: relative;
-    overflow: visible;
-}
-
-/* Ensure parent containers don't clip */
-.config-table {
-    overflow: visible !important;
-}
-
-/* Make sure dropdowns in table cells work */
-table .Select {
-    position: relative;
-    z-index: 99998;
-}
-
-table .Select.is-open .Select-menu-outer {
-    z-index: 99999 !important;
-}
-
-/* Specific fix for MODBUS slave devices table */
-#modbus-slave-devices-tbody .Select-menu-outer {
-    z-index: 99999 !important;
-    position: absolute !important;
-}
-
-/* Ensure parent divs don't clip */
-.stat-card {
     overflow: visible !important;
     position: relative;
 }
 
-/* Fix for table wrapper */
-.config-table {
-    overflow: visible !important;
-    position: relative;
-}
-
-/* Ensure dropdown menu appears above all table content */
+/* Dropdown menu should appear above everything */
 .Select-menu-outer {
-    z-index: 99999 !important;
-    position: absolute !important;
-    max-height: 300px !important;
-    overflow-y: auto !important;
+    z-index: 9999 !important;
 }
 
-/* When dropdown is open, ensure it's on top */
+/* When dropdown is open */
 .Select.is-open {
-    z-index: 99999 !important;
+    z-index: 9999 !important;
 }
 
 .Select.is-open .Select-control {
-    z-index: 99999 !important;
+    z-index: 9999 !important;
 }
 
