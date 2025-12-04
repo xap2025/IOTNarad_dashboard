@@ -1,0 +1,29 @@
+/* MODBUS Dropdown Z-Index Fix
+   Ensures dropdowns appear above table content */
+.Select-menu-outer {
+    z-index: 9999 !important;
+    position: absolute !important;
+}
+
+.Select-control {
+    z-index: 9998 !important;
+    position: relative !important;
+}
+
+.Select-menu {
+    z-index: 9999 !important;
+}
+
+.VirtualizedSelectOption {
+    z-index: 9999 !important;
+}
+
+/* Ensure table cells are positioned relative for z-index to work */
+table {
+    position: relative;
+}
+
+table td {
+    position: relative;
+}
+

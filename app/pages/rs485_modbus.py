@@ -12,29 +12,6 @@ def create_rs485_modbus_layout():
     """Create RS485 MODBUS configuration page matching image 1"""
     
     return html.Div([
-        # CSS to ensure dropdowns appear above table content
-        html.Style("""
-            .Select-menu-outer {
-                z-index: 9999 !important;
-                position: absolute !important;
-            }
-            .Select-control {
-                z-index: 9998 !important;
-                position: relative !important;
-            }
-            .Select-menu {
-                z-index: 9999 !important;
-            }
-            .VirtualizedSelectOption {
-                z-index: 9999 !important;
-            }
-            table {
-                position: relative;
-            }
-            table td {
-                position: relative;
-            }
-        """),
         # Header
         html.Div([
             html.H5([
