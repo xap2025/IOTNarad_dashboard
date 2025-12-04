@@ -12,6 +12,29 @@ def create_rs485_modbus_layout():
     """Create RS485 MODBUS configuration page matching image 1"""
     
     return html.Div([
+        # CSS to ensure dropdowns appear above table content
+        html.Style("""
+            .Select-menu-outer {
+                z-index: 9999 !important;
+                position: absolute !important;
+            }
+            .Select-control {
+                z-index: 9998 !important;
+                position: relative !important;
+            }
+            .Select-menu {
+                z-index: 9999 !important;
+            }
+            .VirtualizedSelectOption {
+                z-index: 9999 !important;
+            }
+            table {
+                position: relative;
+            }
+            table td {
+                position: relative;
+            }
+        """),
         # Header
         html.Div([
             html.H5([
@@ -391,7 +414,14 @@ def create_modbus_slave_row(index, slave_id, function_code, register_addr, data_
                 ],
                 value=function_code if isinstance(function_code, str) and function_code.startswith('0x') else '0x03',
                 clearable=False,
-                style={'fontSize': '0.9rem', 'minWidth': '220px'}
+                style={
+                    'fontSize': '0.9rem', 
+                    'minWidth': '220px',
+                    'zIndex': 9999,
+                    'position': 'relative'
+                },
+                optionHeight=40,
+                maxHeight=300
             )
         ),
         html.Td(
@@ -417,7 +447,14 @@ def create_modbus_slave_row(index, slave_id, function_code, register_addr, data_
                 ],
                 value=data_type,
                 clearable=False,
-                style={'fontSize': '0.9rem', 'minWidth': '180px'}
+                style={
+                    'fontSize': '0.9rem', 
+                    'minWidth': '180px',
+                    'zIndex': 9999,
+                    'position': 'relative'
+                },
+                optionHeight=40,
+                maxHeight=300
             )
         ),
         html.Td(
@@ -429,7 +466,14 @@ def create_modbus_slave_row(index, slave_id, function_code, register_addr, data_
                 ],
                 value=endianness,
                 clearable=False,
-                style={'fontSize': '0.9rem', 'minWidth': '160px'}
+                style={
+                    'fontSize': '0.9rem', 
+                    'minWidth': '160px',
+                    'zIndex': 9999,
+                    'position': 'relative'
+                },
+                optionHeight=40,
+                maxHeight=300
             )
         ),
         html.Td(
