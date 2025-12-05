@@ -101,9 +101,7 @@ class ConfigJSONBuilder:
                     "channel": item.get("channel", idx + 1),
                     "enabled": item.get("enabled", False),
                     "io_pin": item.get("io_pin", f"INP{idx + 1}H"),
-                    "name": item.get("name", "-"),
-                    "pullup": item.get("pullup", True),
-                    "debounce_ms": item.get("debounce_ms", 50)
+                    "name": item.get("name", "-")
                 }
                 for idx, item in enumerate(npn_input_data)
             ],
@@ -112,8 +110,7 @@ class ConfigJSONBuilder:
                     "channel": item.get("channel", idx + 1),
                     "enabled": item.get("enabled", False),
                     "io_pin": item.get("io_pin", f"OUTL{idx + 1}"),
-                    "name": item.get("name", "-"),
-                    "initial_state": item.get("initial_state", False)
+                    "name": item.get("name", "-")
                 }
                 for idx, item in enumerate(npn_output_data)
             ],
@@ -122,9 +119,7 @@ class ConfigJSONBuilder:
                     "channel": item.get("channel", idx + 1),
                     "enabled": item.get("enabled", False),
                     "io_pin": item.get("io_pin", f"INP{idx + 1}L"),
-                    "name": item.get("name", "-"),
-                    "pullup": item.get("pullup", False),
-                    "debounce_ms": item.get("debounce_ms", 50)
+                    "name": item.get("name", "-")
                 }
                 for idx, item in enumerate(pnp_input_data)
             ],
@@ -133,8 +128,7 @@ class ConfigJSONBuilder:
                     "channel": item.get("channel", idx + 1),
                     "enabled": item.get("enabled", False),
                     "io_pin": item.get("io_pin", f"OUTH{idx + 1}"),
-                    "name": item.get("name", "-"),
-                    "initial_state": item.get("initial_state", False)
+                    "name": item.get("name", "-")
                 }
                 for idx, item in enumerate(pnp_output_data)
             ],
@@ -143,8 +137,7 @@ class ConfigJSONBuilder:
                     "channel": item.get("channel", idx + 1),
                     "enabled": item.get("enabled", False),
                     "io_pin": item.get("io_pin", f"RLY{idx + 1}"),
-                    "name": item.get("name", "-"),
-                    "initial_state": item.get("initial_state", False)
+                    "name": item.get("name", "-")
                 }
                 for idx, item in enumerate(relay_data)
             ]
