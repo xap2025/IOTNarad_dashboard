@@ -835,6 +835,8 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
     Auto-loads:
     - Analog config when device is selected or after save
     - Digital config when device is selected or after save
+    - MODBUS config when device is selected or after save
+    - CAN Bus config when device is selected or after save
     - Shows default values if no config exists in database
     - Always shows the latest saved configuration
     """
@@ -842,14 +844,18 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
     logger = logging.getLogger(__name__)
     
     # Get trigger info for logging
-    triggered_id = ctx.triggered_id if hasattr(ctx, 'triggered_id') else None
+    try:
+        triggered_id = ctx.triggered_id if hasattr(ctx, 'triggered_id') else None
+    except Exception as e:
+        logger.warning(f"⚠️ Could not get trigger info: {e}")
+        triggered_id = None
     
     # Allow loading on dashboard page (device config is embedded in dashboard)
     # Only skip if explicitly on login/logout page
     skip_paths = ['/login', '/logout', '/']
     if pathname in skip_paths:
         logger.debug(f"⏭️ Skipping config load for pathname: {pathname}")
-        return [no_update] * 35
+        return tuple([no_update] * 35)
     
     # If device_id not available from Input, try to get it from reload_trigger or State
     if not device_id:
@@ -868,9 +874,9 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
         # Still no device_id - skip loading
         if triggered_id == 'config-tabs' or triggered_id == 'config-reload-trigger':
             logger.debug(f"⏭️ Tab switch/reload triggered but no device selected (trigger: {triggered_id})")
-            return [no_update] * 35  # Updated count for all outputs
+            return tuple([no_update] * 35)  # Updated count for all outputs
         else:
-            return [no_update] * 35  # Return no_update for all outputs
+            return tuple([no_update] * 35)  # Return no_update for all outputs
     
     try:
         # Get logged-in user info
@@ -891,12 +897,12 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
             
             if not device_info:
                 logger.warning(f"⚠️ Device {device_id} not found in database")
-                return [no_update] * 35
+                return tuple([no_update] * 35)
             
             device_owner = device_info.get('Owner', 'Unassigned')
             if device_owner != username:
                 logger.warning(f"⚠️ User {username} attempted to access device {device_id} owned by {device_owner} - Access denied")
-                return [no_update] * 35  # Don't show config for devices user doesn't own
+                return tuple([no_update] * 35)  # Don't show config for devices user doesn't own
         
         from app.services.device_config_db import DeviceConfigDBService
         
@@ -904,7 +910,7 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
         
         if not db_service.is_connected():
             logger.warning("⚠️ Database not connected, cannot load configuration")
-            return [no_update] * 35
+            return tuple([no_update] * 35)
         
         # Load configurations from individual tables (always get latest from database)
         # If triggered by reload trigger, add a small delay to ensure DB write is flushed
@@ -1164,9 +1170,10 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
     except Exception as e:
         import logging
         logger = logging.getLogger(__name__)
-        logger.error(f"Error loading device configuration: {e}")
+        logger.error(f"❌ Error loading device configuration: {e}")
         logger.exception("Full error traceback:")
-        return [no_update] * 35
+        # Return tuple of no_update to prevent page crash
+        return tuple([no_update] * 35)
 
 
 @callback(
