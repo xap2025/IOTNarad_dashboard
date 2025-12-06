@@ -783,24 +783,6 @@ def load_device_list(pathname, _, session_data):
         Output({'type': 'pnp-output-name', 'index': ALL}, 'value', allow_duplicate=True),
         Output({'type': 'relay-enable', 'index': ALL}, 'value', allow_duplicate=True),
         Output({'type': 'relay-name', 'index': ALL}, 'value', allow_duplicate=True),
-        # MODBUS settings
-        Output('modbus-baud-rate', 'value', allow_duplicate=True),
-        Output('modbus-data-bits', 'value', allow_duplicate=True),
-        Output('modbus-parity', 'value', allow_duplicate=True),
-        Output('modbus-stop-bits', 'value', allow_duplicate=True),
-        Output('modbus-mode', 'value', allow_duplicate=True),
-        Output('modbus-role', 'value', allow_duplicate=True),
-        Output('modbus-polling-interval', 'value', allow_duplicate=True),
-        Output('modbus-devices-store', 'data', allow_duplicate=True),
-        # CAN Bus settings
-        Output('can-baud-rate', 'value', allow_duplicate=True),
-        Output('can-identifier-length', 'value', allow_duplicate=True),
-        Output('can-mode', 'value', allow_duplicate=True),
-        Output('can-filter-mode', 'value', allow_duplicate=True),
-        Output('can-filter-id', 'value', allow_duplicate=True),
-        Output('can-filter-mask', 'value', allow_duplicate=True),
-        Output('can-messages-store', 'data', allow_duplicate=True),
-        Output('can-data-mapping-store', 'data', allow_duplicate=True),
     ],
     [
         Input('device-selector', 'value'),  # Trigger on device selection change
@@ -812,7 +794,7 @@ def load_device_list(pathname, _, session_data):
         State('device-config-session-store', 'data'),
         State('device-selector', 'value'),  # Also get as State for fallback
     ],
-    prevent_initial_call='initial_duplicate',  # Allow initial call on page load with duplicate outputs
+    prevent_initial_call='initial_duplicate',  # Allow initial call but prevent duplicate initial calls
     allow_duplicate=True
 )
 def load_device_configuration(device_id, pathname, reload_trigger, active_tab, session_data, device_id_state):
@@ -855,7 +837,7 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
     skip_paths = ['/login', '/logout', '/']
     if pathname in skip_paths:
         logger.debug(f"⏭️ Skipping config load for pathname: {pathname}")
-        return tuple([no_update] * 35)
+        return tuple([no_update] * 19)
     
     # If device_id not available from Input, try to get it from reload_trigger or State
     if not device_id:
@@ -874,9 +856,10 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
         # Still no device_id - skip loading
         if triggered_id == 'config-tabs' or triggered_id == 'config-reload-trigger':
             logger.debug(f"⏭️ Tab switch/reload triggered but no device selected (trigger: {triggered_id})")
-            return tuple([no_update] * 35)  # Updated count for all outputs
+            return tuple([no_update] * 19)
         else:
-            return tuple([no_update] * 35)  # Return no_update for all outputs
+            logger.debug(f"⏭️ No device selected, skipping config load (trigger: {triggered_id})")
+            return tuple([no_update] * 19)
     
     try:
         # Get logged-in user info
@@ -897,12 +880,12 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
             
             if not device_info:
                 logger.warning(f"⚠️ Device {device_id} not found in database")
-                return tuple([no_update] * 35)
+                return tuple([no_update] * 19)
             
             device_owner = device_info.get('Owner', 'Unassigned')
             if device_owner != username:
                 logger.warning(f"⚠️ User {username} attempted to access device {device_id} owned by {device_owner} - Access denied")
-                return tuple([no_update] * 35)  # Don't show config for devices user doesn't own
+                return tuple([no_update] * 19)  # Don't show config for devices user doesn't own
         
         from app.services.device_config_db import DeviceConfigDBService
         
@@ -910,7 +893,7 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
         
         if not db_service.is_connected():
             logger.warning("⚠️ Database not connected, cannot load configuration")
-            return tuple([no_update] * 35)
+            return tuple([no_update] * 19)
         
         # Load configurations from individual tables (always get latest from database)
         # If triggered by reload trigger, add a small delay to ensure DB write is flushed
@@ -921,10 +904,8 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
         logger.info(f"🔄 Loading config from database for device {device_id}, triggered by: {triggered_id}")
         analog_config = db_service.get_analog_config(device_id)
         digital_config = db_service.get_digital_config(device_id)
-        modbus_config = db_service.get_modbus_config(device_id)
-        can_bus_config = db_service.get_can_bus_config(device_id)
         
-        logger.info(f"📊 Loaded config - Analog: {analog_config is not None}, Digital: {digital_config is not None}, MODBUS: {modbus_config is not None}, CAN Bus: {can_bus_config is not None}")
+        logger.info(f"📊 Loaded config - Analog: {analog_config is not None}, Digital: {digital_config is not None}")
         if analog_config:
             logger.debug(f"📊 Analog config keys: {list(analog_config.keys())}")
         if digital_config:
@@ -958,26 +939,6 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
         pnp_output_name = [''] * 4
         relay_enable = [False] * 4
         relay_name = [''] * 4
-        
-        # MODBUS defaults
-        modbus_baud_rate = "9600"
-        modbus_data_bits = "8"
-        modbus_parity = "None"
-        modbus_stop_bits = "1"
-        modbus_mode = "RTU"
-        modbus_role = "Master"
-        modbus_polling_interval = 1000
-        modbus_devices_store = []
-        
-        # CAN Bus defaults
-        can_baud_rate = "500"
-        can_identifier_length = "11-bit"
-        can_mode = "Normal"
-        can_filter_mode = "None"
-        can_filter_id = "0x000"
-        can_filter_mask = "0x000"
-        can_messages_store = []
-        can_data_mapping_store = []
         
         # Populate Analog config from database (if exists)
         # If config doesn't exist, defaults above will be used
@@ -1057,78 +1018,6 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
         else:
             logger.info(f"ℹ️ No Digital config found in database for device {device_id}, using default values")
         
-        # Populate MODBUS config from database (if exists)
-        if modbus_config:
-            logger.info(f"✅ Loading MODBUS config from database for device {device_id}")
-            comm_settings = modbus_config.get("communication_settings", {})
-            protocol_settings = modbus_config.get("protocol_settings", {})
-            
-            modbus_baud_rate = str(comm_settings.get("baud_rate", "9600"))
-            modbus_data_bits = str(comm_settings.get("data_bits", "8"))
-            modbus_parity = comm_settings.get("parity", "None")
-            modbus_stop_bits = str(comm_settings.get("stop_bits", "1"))
-            modbus_mode = protocol_settings.get("mode", "RTU")
-            modbus_role = protocol_settings.get("role", "Master")
-            modbus_polling_interval = modbus_config.get("polling_interval_ms", 1000)
-            
-            # Convert slave devices to store format
-            slave_devices = modbus_config.get("slave_devices", [])
-            modbus_devices_store = []
-            for idx, device in enumerate(slave_devices):
-                modbus_devices_store.append({
-                    "index": idx,
-                    "slave_id": str(device.get("slave_id", "1")),
-                    "function_code": str(device.get("function_code", "0x03")),
-                    "register_addr": str(device.get("register_address", "0")),
-                    "data_type": str(device.get("data_type", "int8")),
-                    "endianness": str(device.get("endianness", "Big Endian")),
-                    "var_name": str(device.get("variable_name", "Variable Name"))
-                })
-        else:
-            logger.info(f"ℹ️ No MODBUS config found in database for device {device_id}, using default values")
-        
-        # Populate CAN Bus config from database (if exists)
-        if can_bus_config:
-            logger.info(f"✅ Loading CAN Bus config from database for device {device_id}")
-            comm_settings = can_bus_config.get("communication_settings", {})
-            
-            can_baud_rate = str(comm_settings.get("baud_rate", "500"))
-            can_identifier_length = comm_settings.get("identifier_length", "11-bit")
-            can_mode = comm_settings.get("can_mode", "Normal")
-            can_filter_mode = comm_settings.get("filter_mode", "None")
-            can_filter_id = comm_settings.get("filter_id", "0x000")
-            can_filter_mask = comm_settings.get("filter_mask", "0x000")
-            
-            # Convert CAN messages to store format
-            can_messages = can_bus_config.get("can_messages", [])
-            can_messages_store = []
-            for idx, message in enumerate(can_messages):
-                can_messages_store.append({
-                    "index": idx,
-                    "can_id": str(message.get("can_id", "0x123")),
-                    "direction": str(message.get("direction", "TX")),
-                    "period": str(message.get("period_ms", "100")),
-                    "var_name": str(message.get("variable_name", "Message Name"))
-                })
-            
-            # Convert data mappings to store format
-            data_mappings = can_bus_config.get("data_mapping", [])
-            can_data_mapping_store = []
-            for idx, mapping in enumerate(data_mappings):
-                can_data_mapping_store.append({
-                    "index": idx,
-                    "can_id": str(mapping.get("can_id", "0x123")),
-                    "byte_pos": str(mapping.get("byte_position", "Byte 0")),
-                    "data_len": str(mapping.get("data_length", "1 Byte")),
-                    "data_type": str(mapping.get("data_type", "int8")),
-                    "endianness": str(mapping.get("endianness", "Big Endian")),
-                    "var_name": str(mapping.get("variable_name", "Variable Name")),
-                    "scale": str(mapping.get("scale_factor", "1")),
-                    "offset": str(mapping.get("offset", "0"))
-                })
-        else:
-            logger.info(f"ℹ️ No CAN Bus config found in database for device {device_id}, using default values")
-        
         return (
             analog_input_enable,
             analog_input_div,
@@ -1148,23 +1037,7 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
             pnp_output_enable,
             pnp_output_name,
             relay_enable,
-            relay_name,
-            modbus_baud_rate,
-            modbus_data_bits,
-            modbus_parity,
-            modbus_stop_bits,
-            modbus_mode,
-            modbus_role,
-            modbus_polling_interval,
-            modbus_devices_store,
-            can_baud_rate,
-            can_identifier_length,
-            can_mode,
-            can_filter_mode,
-            can_filter_id,
-            can_filter_mask,
-            can_messages_store,
-            can_data_mapping_store
+            relay_name
         )
         
     except Exception as e:
@@ -1173,7 +1046,7 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
         logger.error(f"❌ Error loading device configuration: {e}")
         logger.exception("Full error traceback:")
         # Return tuple of no_update to prevent page crash
-        return tuple([no_update] * 35)
+        return tuple([no_update] * 19)
 
 
 @callback(
