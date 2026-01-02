@@ -827,7 +827,7 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
     
     # Get trigger info for logging
     try:
-    triggered_id = ctx.triggered_id if hasattr(ctx, 'triggered_id') else None
+        triggered_id = ctx.triggered_id if hasattr(ctx, 'triggered_id') else None
     except Exception as e:
         logger.warning(f"⚠️ Could not get trigger info: {e}")
         triggered_id = None
