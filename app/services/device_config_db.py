@@ -296,6 +296,8 @@ class DeviceConfigDBService:
         
         try:
             # Save NPN inputs
+            # NOTE: Only saving UI-visible parameters: enabled, channel, io_pin, name
+            # Removed: pullup, debounce_ms (not in UI)
             for channel in digital_config.get("npn_input", []):
                 point = Point("Device_Config_Digital") \
                     .tag("device_id", device_id) \
@@ -304,12 +306,12 @@ class DeviceConfigDBService:
                     .tag("io_pin", channel.get("io_pin", "")) \
                     .tag("name", channel.get("name", "")) \
                     .field("enabled", channel.get("enabled", False)) \
-                    .field("pullup", channel.get("pullup", True)) \
-                    .field("debounce_ms", channel.get("debounce_ms", 50)) \
                     .time(timestamp, WritePrecision.NS)
                 self.write_api.write(bucket=self.bucket, org=self.org, record=point)
             
             # Save NPN outputs
+            # NOTE: Only saving UI-visible parameters: enabled, channel, io_pin, name
+            # Removed: initial_state (not in UI)
             for channel in digital_config.get("npn_output", []):
                 point = Point("Device_Config_Digital") \
                     .tag("device_id", device_id) \
@@ -318,11 +320,12 @@ class DeviceConfigDBService:
                     .tag("io_pin", channel.get("io_pin", "")) \
                     .tag("name", channel.get("name", "")) \
                     .field("enabled", channel.get("enabled", False)) \
-                    .field("initial_state", channel.get("initial_state", False)) \
                     .time(timestamp, WritePrecision.NS)
                 self.write_api.write(bucket=self.bucket, org=self.org, record=point)
             
             # Save PNP inputs
+            # NOTE: Only saving UI-visible parameters: enabled, channel, io_pin, name
+            # Removed: pullup, debounce_ms (not in UI)
             for channel in digital_config.get("pnp_input", []):
                 point = Point("Device_Config_Digital") \
                     .tag("device_id", device_id) \
@@ -331,12 +334,12 @@ class DeviceConfigDBService:
                     .tag("io_pin", channel.get("io_pin", "")) \
                     .tag("name", channel.get("name", "")) \
                     .field("enabled", channel.get("enabled", False)) \
-                    .field("pullup", channel.get("pullup", False)) \
-                    .field("debounce_ms", channel.get("debounce_ms", 50)) \
                     .time(timestamp, WritePrecision.NS)
                 self.write_api.write(bucket=self.bucket, org=self.org, record=point)
             
             # Save PNP outputs
+            # NOTE: Only saving UI-visible parameters: enabled, channel, io_pin, name
+            # Removed: initial_state (not in UI)
             for channel in digital_config.get("pnp_output", []):
                 point = Point("Device_Config_Digital") \
                     .tag("device_id", device_id) \
@@ -345,11 +348,12 @@ class DeviceConfigDBService:
                     .tag("io_pin", channel.get("io_pin", "")) \
                     .tag("name", channel.get("name", "")) \
                     .field("enabled", channel.get("enabled", False)) \
-                    .field("initial_state", channel.get("initial_state", False)) \
                     .time(timestamp, WritePrecision.NS)
                 self.write_api.write(bucket=self.bucket, org=self.org, record=point)
             
             # Save relays
+            # NOTE: Only saving UI-visible parameters: enabled, channel, io_pin, name
+            # Removed: initial_state (not in UI)
             for channel in digital_config.get("relay", []):
                 point = Point("Device_Config_Digital") \
                     .tag("device_id", device_id) \
@@ -358,7 +362,6 @@ class DeviceConfigDBService:
                     .tag("io_pin", channel.get("io_pin", "")) \
                     .tag("name", channel.get("name", "")) \
                     .field("enabled", channel.get("enabled", False)) \
-                    .field("initial_state", channel.get("initial_state", False)) \
                     .time(timestamp, WritePrecision.NS)
                 self.write_api.write(bucket=self.bucket, org=self.org, record=point)
             
@@ -709,13 +712,12 @@ class DeviceConfigDBService:
                     io_pin = record.values.get("io_pin", "")
                     name = record.values.get("name", "")
                     enabled = record.values.get("enabled", False)
-                    pullup = record.values.get("pullup", True)
-                    debounce_ms = record.values.get("debounce_ms", 50)
-                    initial_state = record.values.get("initial_state", False)
+                    # NOTE: Removed pullup, debounce_ms, initial_state - these are not in UI
                     scan_rate_val = record.values.get("scan_rate", 1000)
                     
                     scan_rate = scan_rate_val
                     
+                    # Only include UI-visible parameters
                     channel_data = {
                         "channel": int(channel) if channel else 0,
                         "enabled": enabled,
@@ -724,21 +726,14 @@ class DeviceConfigDBService:
                     }
                     
                     if channel_type == "npn_input":
-                        channel_data["pullup"] = pullup
-                        channel_data["debounce_ms"] = debounce_ms
                         npn_input.append(channel_data)
                     elif channel_type == "npn_output":
-                        channel_data["initial_state"] = initial_state
                         npn_output.append(channel_data)
                     elif channel_type == "pnp_input":
-                        channel_data["pullup"] = pullup
-                        channel_data["debounce_ms"] = debounce_ms
                         pnp_input.append(channel_data)
                     elif channel_type == "pnp_output":
-                        channel_data["initial_state"] = initial_state
                         pnp_output.append(channel_data)
                     elif channel_type == "relay":
-                        channel_data["initial_state"] = initial_state
                         relay.append(channel_data)
             
             if not npn_input and not npn_output and not pnp_input and not pnp_output and not relay:
