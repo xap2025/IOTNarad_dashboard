@@ -177,6 +177,7 @@ Device_Config_Digital Table (one row per channel)
 
 **Fields**:
 - `enabled` - Boolean (from UI checkbox)
+- `scan_rate` - Integer (from UI "Scan Rate" field, same for all channels)
 
 **⚠️ Note**: Only UI-visible parameters are saved. `pullup` and `debounce_ms` are NOT saved as they are not present in the UI.
 
@@ -184,7 +185,7 @@ Device_Config_Digital Table (one row per channel)
 ```
 Measurement: Device_Config_Digital
 Tags: device_id="ESP32_GW_001", channel_type="npn_input", channel="1", io_pin="INP1H", name="Sensor1"
-Fields: enabled=true
+Fields: enabled=true, scan_rate=1000
 Time: 2025-12-06T17:30:00Z
 ```
 
@@ -199,6 +200,7 @@ Time: 2025-12-06T17:30:00Z
 
 **Fields**:
 - `enabled` - Boolean (from UI checkbox)
+- `scan_rate` - Integer (from UI "Scan Rate" field, same for all channels)
 
 **⚠️ Note**: Only UI-visible parameters are saved. `initial_state` is NOT saved as it is not present in the UI.
 
@@ -206,7 +208,7 @@ Time: 2025-12-06T17:30:00Z
 ```
 Measurement: Device_Config_Digital
 Tags: device_id="ESP32_GW_001", channel_type="npn_output", channel="1", io_pin="OUTL1", name="Output1"
-Fields: enabled=true
+Fields: enabled=true, scan_rate=1000
 Time: 2025-12-06T17:30:00Z
 ```
 
@@ -221,6 +223,7 @@ Time: 2025-12-06T17:30:00Z
 
 **Fields**:
 - `enabled` - Boolean (from UI checkbox)
+- `scan_rate` - Integer (from UI "Scan Rate" field, same for all channels)
 
 **⚠️ Note**: Only UI-visible parameters are saved. `pullup` and `debounce_ms` are NOT saved as they are not present in the UI.
 
@@ -228,7 +231,7 @@ Time: 2025-12-06T17:30:00Z
 ```
 Measurement: Device_Config_Digital
 Tags: device_id="ESP32_GW_001", channel_type="pnp_input", channel="1", io_pin="INP1L", name="Sensor2"
-Fields: enabled=true
+Fields: enabled=true, scan_rate=1000
 Time: 2025-12-06T17:30:00Z
 ```
 
@@ -243,6 +246,7 @@ Time: 2025-12-06T17:30:00Z
 
 **Fields**:
 - `enabled` - Boolean (from UI checkbox)
+- `scan_rate` - Integer (from UI "Scan Rate" field, same for all channels)
 
 **⚠️ Note**: Only UI-visible parameters are saved. `initial_state` is NOT saved as it is not present in the UI.
 
@@ -250,7 +254,7 @@ Time: 2025-12-06T17:30:00Z
 ```
 Measurement: Device_Config_Digital
 Tags: device_id="ESP32_GW_001", channel_type="pnp_output", channel="1", io_pin="OUTH1", name="Output2"
-Fields: enabled=true
+Fields: enabled=true, scan_rate=1000
 Time: 2025-12-06T17:30:00Z
 ```
 
@@ -265,6 +269,7 @@ Time: 2025-12-06T17:30:00Z
 
 **Fields**:
 - `enabled` - Boolean (from UI checkbox)
+- `scan_rate` - Integer (from UI "Scan Rate" field, same for all channels)
 
 **⚠️ Note**: Only UI-visible parameters are saved. `initial_state` is NOT saved as it is not present in the UI.
 
@@ -272,13 +277,15 @@ Time: 2025-12-06T17:30:00Z
 ```
 Measurement: Device_Config_Digital
 Tags: device_id="ESP32_GW_001", channel_type="relay", channel="1", io_pin="RLY1", name="Relay1"
-Fields: enabled=true
+Fields: enabled=true, scan_rate=1000
 Time: 2025-12-06T17:30:00Z
 ```
 
 **⚠️ Important**: Digital configuration only saves parameters that are visible in the UI:
-- ✅ **Saved**: `enabled`, `channel`, `io_pin`, `name`
+- ✅ **Saved**: `enabled`, `channel`, `io_pin`, `name`, `scan_rate`
 - ❌ **NOT Saved**: `pullup`, `debounce_ms`, `initial_state` (not in UI)
+
+**Note**: `scan_rate` is saved in every channel row (just like in Analog table), as it applies to all channels in the Digital configuration.
 
 ---
 
@@ -607,7 +614,7 @@ from(bucket: "iot_data_gcp")
 | Tab | Measurement | Row Type | Key Tags | Key Fields |
 |-----|------------|----------|----------|------------|
 | **Analog** | `Device_Config_Analog` | Per Channel | `device_id`, `channel_type`, `channel`, `io_pin`, `name` | `enabled`, `divider`, `multiplier`, `value` (outputs), `scan_rate` |
-| **Digital** | `Device_Config_Digital` | Per Channel | `device_id`, `channel_type`, `channel`, `io_pin`, `name` | `enabled` |
+| **Digital** | `Device_Config_Digital` | Per Channel | `device_id`, `channel_type`, `channel`, `io_pin`, `name` | `enabled`, `scan_rate` |
 | **MODBUS** | `Device_Config_MODBUS` | Settings + Slave Devices | `device_id`, `config_type`, `slave_id`, `function_code`, `register_address`, `data_type`, `endianness`, `variable_name` | `enabled`, `baud_rate`, `data_bits`, `parity`, `stop_bits`, `mode`, `role`, `polling_interval_ms`, `index`, `register_count` |
 | **CAN Bus** | `Device_Config_CANBus` | Settings + Messages + Mappings | `device_id`, `config_type`, `can_id`, `direction`, `byte_position`, `data_type`, `endianness`, `variable_name` | `enabled`, `baud_rate`, `identifier_length`, `can_mode`, `filter_mode`, `filter_id`, `filter_mask`, `index`, `period_ms`, `data_length`, `scale_factor`, `offset` |
 | **All Tabs** | `Device_Config` | Merged JSON | `device_id` | `config_json` (complete JSON string) |

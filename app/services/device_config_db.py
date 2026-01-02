@@ -295,8 +295,11 @@ class DeviceConfigDBService:
             return
         
         try:
+            # Get scan_rate from digital_config top level (applies to all channels)
+            scan_rate = digital_config.get("scan_rate", 1000)
+            
             # Save NPN inputs
-            # NOTE: Only saving UI-visible parameters: enabled, channel, io_pin, name
+            # NOTE: Only saving UI-visible parameters: enabled, channel, io_pin, name, scan_rate
             # Removed: pullup, debounce_ms (not in UI)
             for channel in digital_config.get("npn_input", []):
                 point = Point("Device_Config_Digital") \
@@ -306,11 +309,12 @@ class DeviceConfigDBService:
                     .tag("io_pin", channel.get("io_pin", "")) \
                     .tag("name", channel.get("name", "")) \
                     .field("enabled", channel.get("enabled", False)) \
+                    .field("scan_rate", scan_rate) \
                     .time(timestamp, WritePrecision.NS)
                 self.write_api.write(bucket=self.bucket, org=self.org, record=point)
             
             # Save NPN outputs
-            # NOTE: Only saving UI-visible parameters: enabled, channel, io_pin, name
+            # NOTE: Only saving UI-visible parameters: enabled, channel, io_pin, name, scan_rate
             # Removed: initial_state (not in UI)
             for channel in digital_config.get("npn_output", []):
                 point = Point("Device_Config_Digital") \
@@ -320,11 +324,12 @@ class DeviceConfigDBService:
                     .tag("io_pin", channel.get("io_pin", "")) \
                     .tag("name", channel.get("name", "")) \
                     .field("enabled", channel.get("enabled", False)) \
+                    .field("scan_rate", scan_rate) \
                     .time(timestamp, WritePrecision.NS)
                 self.write_api.write(bucket=self.bucket, org=self.org, record=point)
             
             # Save PNP inputs
-            # NOTE: Only saving UI-visible parameters: enabled, channel, io_pin, name
+            # NOTE: Only saving UI-visible parameters: enabled, channel, io_pin, name, scan_rate
             # Removed: pullup, debounce_ms (not in UI)
             for channel in digital_config.get("pnp_input", []):
                 point = Point("Device_Config_Digital") \
@@ -334,11 +339,12 @@ class DeviceConfigDBService:
                     .tag("io_pin", channel.get("io_pin", "")) \
                     .tag("name", channel.get("name", "")) \
                     .field("enabled", channel.get("enabled", False)) \
+                    .field("scan_rate", scan_rate) \
                     .time(timestamp, WritePrecision.NS)
                 self.write_api.write(bucket=self.bucket, org=self.org, record=point)
             
             # Save PNP outputs
-            # NOTE: Only saving UI-visible parameters: enabled, channel, io_pin, name
+            # NOTE: Only saving UI-visible parameters: enabled, channel, io_pin, name, scan_rate
             # Removed: initial_state (not in UI)
             for channel in digital_config.get("pnp_output", []):
                 point = Point("Device_Config_Digital") \
@@ -348,11 +354,12 @@ class DeviceConfigDBService:
                     .tag("io_pin", channel.get("io_pin", "")) \
                     .tag("name", channel.get("name", "")) \
                     .field("enabled", channel.get("enabled", False)) \
+                    .field("scan_rate", scan_rate) \
                     .time(timestamp, WritePrecision.NS)
                 self.write_api.write(bucket=self.bucket, org=self.org, record=point)
             
             # Save relays
-            # NOTE: Only saving UI-visible parameters: enabled, channel, io_pin, name
+            # NOTE: Only saving UI-visible parameters: enabled, channel, io_pin, name, scan_rate
             # Removed: initial_state (not in UI)
             for channel in digital_config.get("relay", []):
                 point = Point("Device_Config_Digital") \
@@ -362,6 +369,7 @@ class DeviceConfigDBService:
                     .tag("io_pin", channel.get("io_pin", "")) \
                     .tag("name", channel.get("name", "")) \
                     .field("enabled", channel.get("enabled", False)) \
+                    .field("scan_rate", scan_rate) \
                     .time(timestamp, WritePrecision.NS)
                 self.write_api.write(bucket=self.bucket, org=self.org, record=point)
             
