@@ -335,6 +335,11 @@ class MQTTClientService:
         self.init_callback = callback
         logger.info("Device initialization callback registered")
     
+    def set_config_request_callback(self, callback: Callable):
+        """Set callback for device configuration requests"""
+        self.config_request_callback = callback
+        logger.info("Device config request callback registered")
+    
     def publish_ack(self, serial_number: str, status: str = "success", message: str = "Received"):
         """
         Publish acknowledgment to device
