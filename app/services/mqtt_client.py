@@ -36,6 +36,9 @@ class MQTTClientService:
         self.topic_device_status = os.getenv('MQTT_TOPIC_DEVICE_STATUS', 'iotnarad/devices/+/status')
         # Legacy topic (keep for backward compatibility)
         self.topic_device_config_ack = os.getenv('MQTT_TOPIC_DEVICE_CONFIG_ACK', 'Dev/ConfigACK/#')
+        # Device publishes to: Cmd/DConfig/<Device ID>
+        # Server subscribes to: Cmd/DConfig/#
+        self.topic_device_config_request = os.getenv('MQTT_TOPIC_DEVICE_CONFIG_REQUEST', 'Cmd/DConfig/#')
         
         # Initialize MQTT client
         self.client = mqtt.Client(client_id=self.client_id, clean_session=True)
@@ -47,6 +50,7 @@ class MQTTClientService:
         self.data_callback: Optional[Callable] = None
         self.status_callback: Optional[Callable] = None
         self.init_callback: Optional[Callable] = None
+        self.config_request_callback: Optional[Callable] = None
         
         # Message deduplication: Track recently processed messages
         self._processed_messages: set = set()
@@ -67,10 +71,12 @@ class MQTTClientService:
             self.client.subscribe(self.topic_device_status)
             self.client.subscribe(self.topic_device_init_reg)  # Subscribe to device init/registration messages
             self.client.subscribe(self.topic_device_config_ack)  # Subscribe to config acknowledgements (legacy)
+            self.client.subscribe(self.topic_device_config_request)  # Subscribe to device config requests
             logger.info(f"📡 Subscribed to: {self.topic_device_data}")
             logger.info(f"📡 Subscribed to: {self.topic_device_status}")
             logger.info(f"📡 Subscribed to: {self.topic_device_init_reg}")
             logger.info(f"📡 Subscribed to: {self.topic_device_config_ack}")
+            logger.info(f"📡 Subscribed to: {self.topic_device_config_request}")
         else:
             self.connected = False
             logger.error(f"❌ Failed to connect to MQTT Broker. Return code: {rc}")
@@ -197,6 +203,23 @@ class MQTTClientService:
                             logger.error(f"❌ Cannot send ACK: serial number not found in topic or payload")
                 else:
                     logger.warning(f"⚠️ Init callback not registered!")
+            
+            elif topic.startswith('Cmd/DConfig/'):
+                # Device requests configuration
+                # Topic format: Cmd/DConfig/<Device ID>
+                device_id = topic.split('/')[-1] if '/' in topic else None
+                logger.info(f"📥 Device config request received from: {device_id}")
+                logger.debug(f"   Topic: {topic}, Payload: {payload[:200]}...")
+                
+                # Call config request callback if set
+                if self.config_request_callback:
+                    try:
+                        self.config_request_callback(topic, data, device_id)
+                    except Exception as e:
+                        logger.error(f"❌ Error in config request callback: {e}")
+                        logger.exception("Full traceback:")
+                else:
+                    logger.warning(f"⚠️ Config request callback not registered!")
             
             elif topic.startswith('Dev/ConfigACK/') or topic.startswith('Dev/Checksum/'):
                 # Configuration acknowledgement from hardware

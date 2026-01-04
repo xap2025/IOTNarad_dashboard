@@ -25,6 +25,8 @@ from app.services.device_config import DeviceConfigService
 from app.services.user_service import UserService
 from app.services.email_service import EmailService
 from app.services.device_info_service import DeviceInfoService
+from app.services.device_config_provider import DeviceConfigProviderService
+from app.services.device_config_db import DeviceConfigDBService
 
 # Import pages
 from app.pages.login import create_login_layout
@@ -85,6 +87,8 @@ config_service = DeviceConfigService()
 user_service = UserService()
 email_service = EmailService()
 device_info_service = DeviceInfoService()
+device_config_db_service = DeviceConfigDBService()
+device_config_provider_service = DeviceConfigProviderService(mqtt_service, device_config_db_service)
 
 # Admin credentials from environment
 ADMIN_USERNAME = os.getenv('ADMIN_USERNAME', 'admin')
@@ -1192,9 +1196,34 @@ def on_device_data_received(device_id, data):
         logger.error(f"Error processing device data: {e}")
 
 
+# MQTT callback for device configuration requests
+def on_device_config_request(topic: str, data: Dict[str, Any], device_id: str):
+    """
+    Callback when device requests configuration via MQTT
+    Handles requests on topic: Cmd/DConfig/<Device ID>
+    """
+    try:
+        logger.info(f"📥 Device config request received on topic: {topic}")
+        logger.info(f"   Device ID: {device_id}, Payload: {data}")
+        
+        # Extract command from payload
+        command = data.get('command')
+        if not command:
+            logger.error(f"❌ No 'command' field in payload from device {device_id}")
+            return
+        
+        # Handle the config request
+        device_config_provider_service.handle_config_request(device_id, command)
+        
+    except Exception as e:
+        logger.error(f"❌ Error processing device config request: {e}")
+        logger.exception("Full error traceback:")
+
+
 # Set MQTT callbacks
 mqtt_service.set_data_callback(on_device_data_received)
 mqtt_service.set_init_callback(on_device_init_received)
+mqtt_service.set_config_request_callback(on_device_config_request)
 
 
 # ==================== MAIN ====================
