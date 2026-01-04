@@ -1022,8 +1022,8 @@ def on_device_init_received(topic: str, data: Dict[str, Any]):
                 exists = device_info_service.check_serial_number_exists(serial_number)
                 if exists:
                     logger.info(f"ℹ️ Device already registered (duplicate message): {serial_number}")
-                    # Wait 1 second to ensure hardware has time to subscribe to ACK topic
-                    time.sleep(1.0)
+                    # Wait 3 seconds to ensure hardware has time to subscribe to ACK topic
+                    time.sleep(3.0)
                     mqtt_service.publish_ack(
                         serial_number,
                         status="success",
@@ -1034,8 +1034,8 @@ def on_device_init_received(topic: str, data: Dict[str, Any]):
                     # Device doesn't exist yet - might be processing first message
                     # Still send ACK to acknowledge receipt
                     logger.warning(f"⚠️ Duplicate message for unknown device '{serial_number}'. Sending acknowledgment anyway.")
-                    # Wait 1 second to ensure hardware has time to subscribe to ACK topic
-                    time.sleep(1.0)
+                    # Wait 3 seconds to ensure hardware has time to subscribe to ACK topic
+                    time.sleep(3.0)
                     mqtt_service.publish_ack(
                         serial_number,
                         status="success",
@@ -1046,8 +1046,8 @@ def on_device_init_received(topic: str, data: Dict[str, Any]):
                 logger.exception("Full traceback:")
                 # Try one more time with error ACK
                 try:
-                    # Wait 1 second to ensure hardware has time to subscribe to ACK topic
-                    time.sleep(1.0)
+                    # Wait 3 seconds to ensure hardware has time to subscribe to ACK topic
+                    time.sleep(3.0)
                     mqtt_service.publish_ack(
                         serial_number,
                         status="error",
@@ -1082,8 +1082,8 @@ def on_device_init_received(topic: str, data: Dict[str, Any]):
                         logger.info(f"✅ Device registered successfully: {serial_number}")
                         # Send acknowledgment
                         try:
-                            # Wait 1 second to ensure hardware has time to subscribe to ACK topic
-                            time.sleep(1.0)
+                            # Wait 3 seconds to ensure hardware has time to subscribe to ACK topic
+                            time.sleep(3.0)
                             mqtt_service.publish_ack(
                                 serial_number,
                                 status="success",
@@ -1097,8 +1097,8 @@ def on_device_init_received(topic: str, data: Dict[str, Any]):
                         logger.error(f"❌ Failed to register device: {serial_number}")
                         # Send error acknowledgment
                         try:
-                            # Wait 1 second to ensure hardware has time to subscribe to ACK topic
-                            time.sleep(1.0)
+                            # Wait 3 seconds to ensure hardware has time to subscribe to ACK topic
+                            time.sleep(3.0)
                             mqtt_service.publish_ack(
                                 serial_number,
                                 status="error",
@@ -1113,8 +1113,8 @@ def on_device_init_received(topic: str, data: Dict[str, Any]):
                     logger.exception("Full traceback:")
                     # Send error acknowledgment
                     try:
-                        # Wait 1 second to ensure hardware has time to subscribe to ACK topic
-                        time.sleep(1.0)
+                        # Wait 3 seconds to ensure hardware has time to subscribe to ACK topic
+                        time.sleep(3.0)
                         mqtt_service.publish_ack(
                             serial_number,
                             status="error",
@@ -1128,8 +1128,8 @@ def on_device_init_received(topic: str, data: Dict[str, Any]):
                 logger.info(f"ℹ️ Device already registered: {serial_number}")
                 # Send acknowledgment
                 try:
-                    # Wait 1 second to ensure hardware has time to subscribe to ACK topic
-                    time.sleep(1.0)
+                    # Wait 3 seconds to ensure hardware has time to subscribe to ACK topic
+                    time.sleep(3.0)
                     mqtt_service.publish_ack(
                         serial_number,
                         status="success",
@@ -1141,8 +1141,8 @@ def on_device_init_received(topic: str, data: Dict[str, Any]):
                     logger.exception("Full traceback:")
                     # Try one more time with error ACK
                     try:
-                        # Wait 1 second to ensure hardware has time to subscribe to ACK topic
-                        time.sleep(1.0)
+                        # Wait 3 seconds to ensure hardware has time to subscribe to ACK topic
+                        time.sleep(3.0)
                         mqtt_service.publish_ack(
                             serial_number,
                             status="error",
@@ -1162,8 +1162,8 @@ def on_device_init_received(topic: str, data: Dict[str, Any]):
         # Try to send error acknowledgment if we have serial number
         try:
             serial_number = data.get('SerialNumber', 'unknown')
-            # Wait 1 second to ensure hardware has time to subscribe to ACK topic
-            time.sleep(1.0)
+                            # Wait 3 seconds to ensure hardware has time to subscribe to ACK topic
+            time.sleep(3.0)
             mqtt_service.publish_ack(
                 serial_number,
                 status="error",

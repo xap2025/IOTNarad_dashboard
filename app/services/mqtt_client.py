@@ -153,8 +153,8 @@ class MQTTClientService:
                         if ack_serial and ack_serial != 'unknown':
                             logger.warning(f"⚠️ Sending error ACK due to callback exception: {ack_serial}")
                             try:
-                                # Wait 1 second to ensure hardware has time to subscribe to ACK topic
-                                time.sleep(1.0)
+                                # Wait 3 seconds to ensure hardware has time to subscribe to ACK topic
+                                time.sleep(3.0)
                                 self.publish_ack(
                                     ack_serial,
                                     status="error",
@@ -184,8 +184,8 @@ class MQTTClientService:
                         if ack_serial and ack_serial != 'unknown':
                             logger.warning(f"⚠️ Sending error ACK due to callback exception: {ack_serial}")
                             try:
-                                # Wait 1 second to ensure hardware has time to subscribe to ACK topic
-                                time.sleep(1.0)
+                                # Wait 3 seconds to ensure hardware has time to subscribe to ACK topic
+                                time.sleep(3.0)
                                 self.publish_ack(
                                     ack_serial,
                                     status="error",
