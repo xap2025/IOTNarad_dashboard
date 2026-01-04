@@ -6,6 +6,7 @@ import os
 import json
 import logging
 import hashlib
+import time
 import paho.mqtt.client as mqtt
 from threading import Thread, Lock
 from typing import Callable, Optional, Dict, Any
@@ -152,6 +153,8 @@ class MQTTClientService:
                         if ack_serial and ack_serial != 'unknown':
                             logger.warning(f"⚠️ Sending error ACK due to callback exception: {ack_serial}")
                             try:
+                                # Wait 1 second to ensure hardware has time to subscribe to ACK topic
+                                time.sleep(1.0)
                                 self.publish_ack(
                                     ack_serial,
                                     status="error",
@@ -181,6 +184,8 @@ class MQTTClientService:
                         if ack_serial and ack_serial != 'unknown':
                             logger.warning(f"⚠️ Sending error ACK due to callback exception: {ack_serial}")
                             try:
+                                # Wait 1 second to ensure hardware has time to subscribe to ACK topic
+                                time.sleep(1.0)
                                 self.publish_ack(
                                     ack_serial,
                                     status="error",
