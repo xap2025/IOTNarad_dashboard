@@ -972,97 +972,168 @@ def on_device_init_received(topic: str, data: Dict[str, Any]):
         current_time = time.time()
         
         # CRITICAL: Use a set for immediate duplicate detection (faster than dict lookup)
+        is_duplicate = False
+        should_send_ack = False
+        
         with _processing_lock:
             # First check: Is it currently being processed? (fastest check)
             if serial_number in _currently_processing:
                 logger.warning(f"⚠️ Serial number '{serial_number}' is currently being processed. Ignoring duplicate message.")
-                # IMPORTANT: Even for duplicates, send ACK if device already exists
-                # This ensures device always gets response
-                try:
-                    exists = device_info_service.check_serial_number_exists(serial_number)
-                    if exists:
-                        logger.info(f"ℹ️ Device already registered (duplicate message): {serial_number}")
-                        mqtt_service.publish_ack(
-                            serial_number,
-                            status="success",
-                            message="Device already registered"
-                        )
-                except:
-                    pass
-                return
-            
+                is_duplicate = True
+                should_send_ack = True  # Always send ACK for duplicates
+                # Don't return yet - send ACK first
             # Second check: Was it recently processed?
-            if serial_number in _recently_processed:
+            elif serial_number in _recently_processed:
                 last_timestamp, is_processing = _recently_processed[serial_number]
                 time_since_last = current_time - last_timestamp
                 
                 # If processed recently (within dedup window), reject but send ACK if exists
                 if time_since_last < _DEDUP_WINDOW_SECONDS:
                     logger.warning(f"⚠️ Serial number '{serial_number}' was processed {time_since_last:.2f}s ago. Ignoring duplicate message.")
-                    # IMPORTANT: Even for duplicates, send ACK if device already exists
-                    # This ensures device always gets response
-                    try:
-                        exists = device_info_service.check_serial_number_exists(serial_number)
-                        if exists:
-                            logger.info(f"ℹ️ Device already registered (recent duplicate): {serial_number}")
-                            mqtt_service.publish_ack(
-                                serial_number,
-                                status="success",
-                                message="Device already registered"
-                            )
-                    except:
-                        pass
-                    return
+                    is_duplicate = True
+                    should_send_ack = True  # Always send ACK for duplicates
+                    # Don't return yet - send ACK first
+                else:
+                    # Processed more than 5 seconds ago - allow reprocessing
+                    # Remove from history to allow new processing
+                    logger.info(f"ℹ️ Serial number '{serial_number}' was processed {time_since_last:.2f}s ago (>5s). Allowing reprocessing.")
+                    _recently_processed.pop(serial_number, None)
+                    _currently_processing.discard(serial_number)
             
-            # ATOMIC: Mark as being processed NOW (before releasing lock)
-            # Add to both sets for fast lookup
-            _currently_processing.add(serial_number)
-            _recently_processed[serial_number] = (current_time, True)
-            
-            # Clean up old entries (older than dedup window) - modify in place
-            keys_to_remove = [k for k, (ts, _) in _recently_processed.items() 
-                             if current_time - ts >= _DEDUP_WINDOW_SECONDS * 2]
-            for key in keys_to_remove:
-                _recently_processed.pop(key, None)
-                _currently_processing.discard(key)
+            # Only mark as processing if NOT a duplicate
+            if not is_duplicate:
+                # ATOMIC: Mark as being processed NOW (before releasing lock)
+                # Add to both sets for fast lookup
+                _currently_processing.add(serial_number)
+                _recently_processed[serial_number] = (current_time, True)
+                
+                # Clean up old entries (older than dedup window) - modify in place
+                keys_to_remove = [k for k, (ts, _) in _recently_processed.items() 
+                                 if current_time - ts >= _DEDUP_WINDOW_SECONDS * 2]
+                for key in keys_to_remove:
+                    _recently_processed.pop(key, None)
+                    _currently_processing.discard(key)
         
-        # Lock is released here - but serial_number is already marked as processing
+        # CRITICAL: Send ACK for duplicates OUTSIDE the lock to avoid deadlocks
+        # and ensure it always happens, even if there's an exception
+        if is_duplicate and should_send_ack:
+            logger.info(f"🔄 Duplicate message detected for '{serial_number}'. Sending ACK...")
+            try:
+                exists = device_info_service.check_serial_number_exists(serial_number)
+                if exists:
+                    logger.info(f"ℹ️ Device already registered (duplicate message): {serial_number}")
+                    mqtt_service.publish_ack(
+                        serial_number,
+                        status="success",
+                        message="Device already registered"
+                    )
+                    logger.info(f"✅ ACK sent for duplicate message: {serial_number}")
+                else:
+                    # Device doesn't exist yet - might be processing first message
+                    # Still send ACK to acknowledge receipt
+                    logger.warning(f"⚠️ Duplicate message for unknown device '{serial_number}'. Sending acknowledgment anyway.")
+                    mqtt_service.publish_ack(
+                        serial_number,
+                        status="success",
+                        message="Message received (processing)"
+                    )
+            except Exception as ack_error:
+                logger.error(f"❌ Failed to send ACK for duplicate message '{serial_number}': {ack_error}")
+                logger.exception("Full traceback:")
+                # Try one more time with error ACK
+                try:
+                    mqtt_service.publish_ack(
+                        serial_number,
+                        status="error",
+                        message="Server error processing duplicate message"
+                    )
+                except:
+                    logger.error(f"❌ Critical: Cannot send ACK for '{serial_number}'")
+            return  # Exit early for duplicates
+        
+        # Lock is released here - serial_number is already marked as processing (if not duplicate)
         # So any concurrent message will see it as "processing" and be rejected
         
         try:
+            logger.info(f"🔍 Processing serial number (normal flow): {serial_number}")
             # Check if serial number already exists
-            exists = device_info_service.check_serial_number_exists(serial_number)
+            try:
+                exists = device_info_service.check_serial_number_exists(serial_number)
+                logger.info(f"   Serial number exists check result: {exists}")
+            except Exception as check_error:
+                logger.error(f"❌ Error checking serial number existence: {check_error}")
+                logger.exception("Full traceback:")
+                # If check fails, assume it doesn't exist and try to register
+                exists = False
             
             if not exists:
                 # Register new device
                 logger.info(f"🆕 New device detected. Registering serial number: {serial_number}")
-                success = device_info_service.register_device(serial_number)
-                
-                if success:
-                    logger.info(f"✅ Device registered successfully: {serial_number}")
-                    # Send acknowledgment
-                    mqtt_service.publish_ack(
-                        serial_number,
-                        status="success",
-                        message="Device registered successfully"
-                    )
-                else:
-                    logger.error(f"❌ Failed to register device: {serial_number}")
+                try:
+                    success = device_info_service.register_device(serial_number)
+                    
+                    if success:
+                        logger.info(f"✅ Device registered successfully: {serial_number}")
+                        # Send acknowledgment
+                        try:
+                            mqtt_service.publish_ack(
+                                serial_number,
+                                status="success",
+                                message="Device registered successfully"
+                            )
+                            logger.info(f"✅ ACK sent for new device: {serial_number}")
+                        except Exception as ack_error:
+                            logger.error(f"❌ Failed to send ACK for new device '{serial_number}': {ack_error}")
+                            logger.exception("Full traceback:")
+                    else:
+                        logger.error(f"❌ Failed to register device: {serial_number}")
+                        # Send error acknowledgment
+                        try:
+                            mqtt_service.publish_ack(
+                                serial_number,
+                                status="error",
+                                message="Failed to register device"
+                            )
+                            logger.info(f"✅ Error ACK sent for failed registration: {serial_number}")
+                        except Exception as ack_error:
+                            logger.error(f"❌ Failed to send error ACK for failed registration '{serial_number}': {ack_error}")
+                            logger.exception("Full traceback:")
+                except Exception as reg_error:
+                    logger.error(f"❌ Exception during device registration: {reg_error}")
+                    logger.exception("Full traceback:")
                     # Send error acknowledgment
-                    mqtt_service.publish_ack(
-                        serial_number,
-                        status="error",
-                        message="Failed to register device"
-                    )
+                    try:
+                        mqtt_service.publish_ack(
+                            serial_number,
+                            status="error",
+                            message=f"Server error during registration: {str(reg_error)}"
+                        )
+                        logger.info(f"✅ Error ACK sent for registration exception: {serial_number}")
+                    except Exception as ack_error:
+                        logger.error(f"❌ Failed to send error ACK for registration exception '{serial_number}': {ack_error}")
             else:
                 # Device already exists
                 logger.info(f"ℹ️ Device already registered: {serial_number}")
                 # Send acknowledgment
-                mqtt_service.publish_ack(
-                    serial_number,
-                    status="success",
-                    message="Device already registered"
-                )
+                try:
+                    mqtt_service.publish_ack(
+                        serial_number,
+                        status="success",
+                        message="Device already registered"
+                    )
+                    logger.info(f"✅ ACK sent for existing device: {serial_number}")
+                except Exception as ack_error:
+                    logger.error(f"❌ Failed to send ACK for existing device '{serial_number}': {ack_error}")
+                    logger.exception("Full traceback:")
+                    # Try one more time with error ACK
+                    try:
+                        mqtt_service.publish_ack(
+                            serial_number,
+                            status="error",
+                            message="Server error sending acknowledgment"
+                        )
+                    except:
+                        logger.error(f"❌ Critical: Cannot send any ACK for '{serial_number}'")
         finally:
             # Mark as completed (not processing anymore, but keep timestamp for dedup)
             with _processing_lock:
