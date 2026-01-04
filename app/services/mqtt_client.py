@@ -88,20 +88,26 @@ class MQTTClientService:
             topic = msg.topic
             payload = msg.payload.decode('utf-8')
             
-            # Create message hash for deduplication (topic + payload)
-            message_hash = hashlib.md5(f"{topic}:{payload}".encode()).hexdigest()
+            # CRITICAL: Skip deduplication for Dev/Init/Reg/ messages
+            # These messages need to go through the callback's deduplication logic
+            # which ensures ACK is always sent (even for duplicates)
+            skip_dedup = topic.startswith('Dev/Init/Reg/')
             
-            # Check if this exact message was recently processed
-            with self._message_lock:
-                if message_hash in self._processed_messages:
-                    logger.debug(f"🔕 Duplicate message ignored: {topic} (hash: {message_hash[:8]}...)")
-                    return
-                # Mark as processed
-                self._processed_messages.add(message_hash)
-                # Clean up old hashes (keep only last 1000 to prevent memory leak)
-                if len(self._processed_messages) > 1000:
-                    # Remove oldest entries (simple FIFO)
-                    self._processed_messages = set(list(self._processed_messages)[-500:])
+            if not skip_dedup:
+                # Create message hash for deduplication (topic + payload)
+                message_hash = hashlib.md5(f"{topic}:{payload}".encode()).hexdigest()
+                
+                # Check if this exact message was recently processed
+                with self._message_lock:
+                    if message_hash in self._processed_messages:
+                        logger.debug(f"🔕 Duplicate message ignored: {topic} (hash: {message_hash[:8]}...)")
+                        return
+                    # Mark as processed
+                    self._processed_messages.add(message_hash)
+                    # Clean up old hashes (keep only last 1000 to prevent memory leak)
+                    if len(self._processed_messages) > 1000:
+                        # Remove oldest entries (simple FIFO)
+                        self._processed_messages = set(list(self._processed_messages)[-500:])
             
             logger.info(f"📨 Message received on {topic}: {payload[:200]}...")
             
