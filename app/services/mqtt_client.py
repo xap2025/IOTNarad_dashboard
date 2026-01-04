@@ -121,15 +121,8 @@ class MQTTClientService:
                 device_id = 'unknown'
             
             # Route message based on topic
-            if topic.startswith('Dev/Init/'):
-                # Device initialization message
-                logger.info(f"🔔 Routing to init callback for topic: {topic}")
-                if self.init_callback:
-                    logger.info(f"✅ Init callback exists, calling...")
-                    self.init_callback(topic, data)
-                else:
-                    logger.warning(f"⚠️ Init callback not registered!")
-            elif topic.startswith('Dev/Init/Reg/'):
+            # IMPORTANT: Check more specific topic first (Dev/Init/Reg/) before general (Dev/Init/)
+            if topic.startswith('Dev/Init/Reg/'):
                 # Device publishes registration/initialization messages
                 # Extract device ID from topic: Dev/Init/Reg/<Device ID>
                 device_id = topic.split('/')[-1] if '/' in topic else None
@@ -137,11 +130,21 @@ class MQTTClientService:
                 logger.debug(f"   Topic: {topic}, Payload: {payload[:200]}...")
                 
                 # Call init callback if set
+                # IMPORTANT: Pass parsed JSON data (not raw payload string)
                 if self.init_callback:
                     try:
-                        self.init_callback(topic, payload, device_id)
+                        self.init_callback(topic, data)  # Pass parsed JSON dict, not raw payload
                     except Exception as e:
                         logger.error(f"Error in init callback: {e}")
+                        logger.exception("Full traceback:")
+            elif topic.startswith('Dev/Init/'):
+                # Device initialization message (other Dev/Init/ topics)
+                logger.info(f"🔔 Routing to init callback for topic: {topic}")
+                if self.init_callback:
+                    logger.info(f"✅ Init callback exists, calling...")
+                    self.init_callback(topic, data)
+                else:
+                    logger.warning(f"⚠️ Init callback not registered!")
             
             elif topic.startswith('Dev/ConfigACK/') or topic.startswith('Dev/Checksum/'):
                 # Configuration acknowledgement from hardware
