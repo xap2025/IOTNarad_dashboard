@@ -126,6 +126,7 @@ class MQTTClientService:
                 # Device publishes registration/initialization messages
                 # Extract device ID from topic: Dev/Init/Reg/<Device ID>
                 device_id = topic.split('/')[-1] if '/' in topic else None
+                serial_number = device_id  # Serial number is the device_id in this topic
                 logger.info(f"📨 Device Init/Registration received from: {device_id}")
                 logger.debug(f"   Topic: {topic}, Payload: {payload[:200]}...")
                 
@@ -135,14 +136,54 @@ class MQTTClientService:
                     try:
                         self.init_callback(topic, data)  # Pass parsed JSON dict, not raw payload
                     except Exception as e:
-                        logger.error(f"Error in init callback: {e}")
+                        logger.error(f"❌ Error in init callback: {e}")
                         logger.exception("Full traceback:")
+                        # CRITICAL: Even if callback fails, send ACK to device
+                        # Extract serial number from topic or payload
+                        ack_serial = serial_number
+                        if not ack_serial and isinstance(data, dict):
+                            ack_serial = data.get('SerialNumber', 'unknown')
+                        if ack_serial and ack_serial != 'unknown':
+                            logger.warning(f"⚠️ Sending error ACK due to callback exception: {ack_serial}")
+                            try:
+                                self.publish_ack(
+                                    ack_serial,
+                                    status="error",
+                                    message=f"Server error processing registration: {str(e)}"
+                                )
+                            except Exception as ack_error:
+                                logger.error(f"❌ Failed to send error ACK: {ack_error}")
+                        else:
+                            logger.error(f"❌ Cannot send ACK: serial number not found in topic or payload")
             elif topic.startswith('Dev/Init/'):
                 # Device initialization message (other Dev/Init/ topics)
                 logger.info(f"🔔 Routing to init callback for topic: {topic}")
                 if self.init_callback:
                     logger.info(f"✅ Init callback exists, calling...")
-                    self.init_callback(topic, data)
+                    # Extract serial number from topic if possible: Dev/Init/<SerialNumber>
+                    topic_parts = topic.split('/')
+                    serial_number = topic_parts[2] if len(topic_parts) >= 3 else None
+                    try:
+                        self.init_callback(topic, data)
+                    except Exception as e:
+                        logger.error(f"❌ Error in init callback: {e}")
+                        logger.exception("Full traceback:")
+                        # CRITICAL: Even if callback fails, send ACK to device
+                        ack_serial = serial_number
+                        if not ack_serial and isinstance(data, dict):
+                            ack_serial = data.get('SerialNumber', 'unknown')
+                        if ack_serial and ack_serial != 'unknown':
+                            logger.warning(f"⚠️ Sending error ACK due to callback exception: {ack_serial}")
+                            try:
+                                self.publish_ack(
+                                    ack_serial,
+                                    status="error",
+                                    message=f"Server error processing registration: {str(e)}"
+                                )
+                            except Exception as ack_error:
+                                logger.error(f"❌ Failed to send error ACK: {ack_error}")
+                        else:
+                            logger.error(f"❌ Cannot send ACK: serial number not found in topic or payload")
                 else:
                     logger.warning(f"⚠️ Init callback not registered!")
             

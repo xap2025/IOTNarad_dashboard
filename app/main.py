@@ -941,6 +941,7 @@ def on_device_init_received(topic: str, data: Dict[str, Any]):
     try:
         logger.info(f"📨 Device initialization message received on topic: {topic}")
         logger.info(f"   Payload: {data}")
+        logger.info(f"   Payload type: {type(data)}")
         
         # Process Dev/Init/<SerialNumber> messages
         # Acknowledgments are published to Dev/Ack/<SerialNumber> (separate topic)
@@ -975,6 +976,19 @@ def on_device_init_received(topic: str, data: Dict[str, Any]):
             # First check: Is it currently being processed? (fastest check)
             if serial_number in _currently_processing:
                 logger.warning(f"⚠️ Serial number '{serial_number}' is currently being processed. Ignoring duplicate message.")
+                # IMPORTANT: Even for duplicates, send ACK if device already exists
+                # This ensures device always gets response
+                try:
+                    exists = device_info_service.check_serial_number_exists(serial_number)
+                    if exists:
+                        logger.info(f"ℹ️ Device already registered (duplicate message): {serial_number}")
+                        mqtt_service.publish_ack(
+                            serial_number,
+                            status="success",
+                            message="Device already registered"
+                        )
+                except:
+                    pass
                 return
             
             # Second check: Was it recently processed?
@@ -982,9 +996,22 @@ def on_device_init_received(topic: str, data: Dict[str, Any]):
                 last_timestamp, is_processing = _recently_processed[serial_number]
                 time_since_last = current_time - last_timestamp
                 
-                # If processed recently (within dedup window), reject
+                # If processed recently (within dedup window), reject but send ACK if exists
                 if time_since_last < _DEDUP_WINDOW_SECONDS:
                     logger.warning(f"⚠️ Serial number '{serial_number}' was processed {time_since_last:.2f}s ago. Ignoring duplicate message.")
+                    # IMPORTANT: Even for duplicates, send ACK if device already exists
+                    # This ensures device always gets response
+                    try:
+                        exists = device_info_service.check_serial_number_exists(serial_number)
+                        if exists:
+                            logger.info(f"ℹ️ Device already registered (recent duplicate): {serial_number}")
+                            mqtt_service.publish_ack(
+                                serial_number,
+                                status="success",
+                                message="Device already registered"
+                            )
+                    except:
+                        pass
                     return
             
             # ATOMIC: Mark as being processed NOW (before releasing lock)
