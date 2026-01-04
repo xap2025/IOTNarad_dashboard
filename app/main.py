@@ -1109,18 +1109,18 @@ def on_device_init_received(topic: str, data: Dict[str, Any]):
                             logger.error(f"❌ Failed to send error ACK for failed registration '{serial_number}': {ack_error}")
                             logger.exception("Full traceback:")
                 except Exception as reg_error:
-            logger.error(f"❌ Exception during device registration: {reg_error}")
-            logger.exception("Full traceback:")
-            # Send error acknowledgment
-            try:
-                # Wait 1 second to ensure hardware has time to subscribe to ACK topic
-                time.sleep(1.0)
-                mqtt_service.publish_ack(
-                    serial_number,
-                    status="error",
-                    message=f"Server error during registration: {str(reg_error)}"
-                )
-                logger.info(f"✅ Error ACK sent for registration exception: {serial_number}")
+                    logger.error(f"❌ Exception during device registration: {reg_error}")
+                    logger.exception("Full traceback:")
+                    # Send error acknowledgment
+                    try:
+                        # Wait 1 second to ensure hardware has time to subscribe to ACK topic
+                        time.sleep(1.0)
+                        mqtt_service.publish_ack(
+                            serial_number,
+                            status="error",
+                            message=f"Server error during registration: {str(reg_error)}"
+                        )
+                        logger.info(f"✅ Error ACK sent for registration exception: {serial_number}")
                     except Exception as ack_error:
                         logger.error(f"❌ Failed to send error ACK for registration exception '{serial_number}': {ack_error}")
             else:
