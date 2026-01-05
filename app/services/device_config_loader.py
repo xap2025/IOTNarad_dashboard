@@ -75,16 +75,38 @@ class DeviceConfigLoaderService:
                 logger.error(f"❌ Failed to parse config reply: {exc}")
                 return
 
-            # Response type is capitalized (e.g., "Analog", "Digital", "Modbus", "Canbus")
+            # Device may send either "type" or "command" field
+            # Also check for "status" field to validate response
             reply_type = str(data.get("type", "")).strip()
+            if not reply_type:
+                # Fallback: check "command" field if "type" is not present
+                reply_type = str(data.get("command", "")).strip()
+            
             expected_type = self.COMMAND_MAP.get(section, "")
             
             # Handle case-insensitive comparison (normalize both to lowercase for comparison)
             if reply_type.lower() != expected_type.lower():
                 logger.debug(f"⚠️ Ignoring reply of type '{reply_type}' for section '{section}' (expected '{expected_type}').")
                 return
-
-            response_holder["payload"] = data
+            
+            # Validate that config field exists
+            if "config" not in data:
+                logger.error(f"❌ Device reply missing 'config' field: {data}")
+                return
+            
+            # Check status if present (optional - some devices send status field)
+            status = data.get("status", "").lower()
+            if status and status not in ["ok", "success"]:
+                logger.warning(f"⚠️ Device returned non-OK status: {status}")
+                # Still accept the response if config is present
+            
+            # Normalize response format to always have "type" field
+            normalized_data = {
+                "type": expected_type,  # Use expected type (capitalized)
+                "config": data.get("config", {})
+            }
+            
+            response_holder["payload"] = normalized_data
             event.set()
 
         client = mqtt.Client(clean_session=True)
@@ -109,6 +131,9 @@ class DeviceConfigLoaderService:
         data = response_holder.get("payload")
         if not data or "config" not in data:
             raise RuntimeError(f"Malformed config reply for {section}: {data}")
+        
+        logger.info(f"✅ Successfully received {section} config from device {device_id}")
+        logger.debug(f"📥 Response payload: {json.dumps(data, indent=2)[:500]}...")
 
         return data
 

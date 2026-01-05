@@ -5,6 +5,7 @@ Configure Analog, Digital, and Communication settings for IoT devices
 from dash import html, dcc, Input, Output, State, ALL, callback, ctx, clientside_callback, ClientsideFunction, no_update
 import dash_bootstrap_components as dbc
 import time
+import json
 
 # Module-level cache for device list (refreshes every 30 seconds)
 # Cache structure: {'data': (options, default_value), 'user_key': str, 'timestamp': float}
@@ -1094,10 +1095,17 @@ def load_config_from_device(n_clicks, serial_number, active_tab):
         
         loader = DeviceConfigLoaderService()
         response = loader.load_section(serial_number, loader_section)
+        
+        logger.info(f"📥 Received response from device {serial_number}: {list(response.keys())}")
+        
         config_payload = response.get('config')
         
         if not config_payload:
+            logger.error(f"❌ Device reply missing 'config' field. Response: {response}")
             raise RuntimeError("Device reply did not contain 'config' payload.")
+        
+        logger.info(f"✅ Config payload received. Keys: {list(config_payload.keys())}")
+        logger.debug(f"📊 Config payload: {json.dumps(config_payload, indent=2)[:500]}...")
         
         db_service = DeviceConfigDBService()
         if not db_service.is_connected():
