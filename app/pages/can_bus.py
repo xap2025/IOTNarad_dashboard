@@ -328,34 +328,46 @@ def load_can_bus_configuration(device_id, pathname, reload_trigger, active_tab, 
             filter_mask = comm_settings.get("filter_mask", "0x7FF")
             
             # Convert CAN messages to store format
+            # Load from Device: Create rows dynamically based on device data
             can_messages_list = can_bus_config.get("can_messages", [])
-            if can_messages_list:
+            if can_messages_list and len(can_messages_list) > 0:
                 messages_store = []
-                for message in can_messages_list:
+                for idx, message in enumerate(can_messages_list):
                     messages_store.append({
-                        "index": message.get("index", 0),
-                        "can_id": message.get("can_id", "0x123"),
-                        "direction": message.get("direction", "TX"),
-                        "period": str(message.get("period_ms", 100)),  # Convert to string for UI
-                        "var_name": message.get("variable_name", "")
+                        "index": idx,  # Re-index to ensure sequential indices
+                        "can_id": str(message.get("can_id", "0x123")),
+                        "direction": str(message.get("direction", "TX")),
+                        "period": str(message.get("period_ms", message.get("period", 100))),  # Support both field names
+                        "var_name": str(message.get("variable_name", message.get("var_name", "")))
                     })
+                logger.info(f"✅ Loaded {len(messages_store)} CAN message(s) from database for device {device_id}")
+            else:
+                # No CAN messages in database - use default single row
+                messages_store = [{"index": 0, "can_id": "0x123", "direction": "TX", "period": "100", "var_name": "Message Name"}]
+                logger.info(f"ℹ️ No CAN messages in database for device {device_id}, using default single row")
             
             # Convert data mapping to store format
+            # Load from Device: Create rows dynamically based on device data
             data_mapping_list = can_bus_config.get("data_mapping", [])
-            if data_mapping_list:
+            if data_mapping_list and len(data_mapping_list) > 0:
                 data_mapping_store = []
-                for mapping in data_mapping_list:
+                for idx, mapping in enumerate(data_mapping_list):
                     data_mapping_store.append({
-                        "index": mapping.get("index", 0),
-                        "can_id": mapping.get("can_id", "0x123"),
-                        "byte_pos": mapping.get("byte_position", "Byte 0"),  # Database uses "byte_position", UI uses "byte_pos"
-                        "data_len": mapping.get("data_length", "1 Byte"),  # Database uses "data_length", UI uses "data_len"
-                        "data_type": mapping.get("data_type", "int8"),
-                        "endianness": mapping.get("endianness", "Big Endian"),
-                        "var_name": mapping.get("variable_name", ""),  # Database uses "variable_name", UI uses "var_name"
-                        "scale": str(mapping.get("scale_factor", 1.0)),  # Database uses "scale_factor", UI uses "scale"
+                        "index": idx,  # Re-index to ensure sequential indices
+                        "can_id": str(mapping.get("can_id", "0x123")),
+                        "byte_pos": str(mapping.get("byte_position", mapping.get("byte_pos", "Byte 0"))),  # Support both field names
+                        "data_len": str(mapping.get("data_length", mapping.get("data_len", "1 Byte"))),  # Support both field names
+                        "data_type": str(mapping.get("data_type", "int8")),
+                        "endianness": str(mapping.get("endianness", "Big Endian")),
+                        "var_name": str(mapping.get("variable_name", mapping.get("var_name", ""))),  # Support both field names
+                        "scale": str(mapping.get("scale_factor", mapping.get("scale", 1.0))),  # Support both field names
                         "offset": str(mapping.get("offset", 0.0))  # Convert to string for UI
                     })
+                logger.info(f"✅ Loaded {len(data_mapping_store)} data mapping(s) from database for device {device_id}")
+            else:
+                # No data mappings in database - use default single row
+                data_mapping_store = [{"index": 0, "can_id": "0x123", "byte_pos": "Byte 0", "data_len": "1 Byte", "data_type": "int8", "endianness": "Big Endian", "var_name": "Variable Name", "scale": "1", "offset": "0"}]
+                logger.info(f"ℹ️ No data mappings in database for device {device_id}, using default single row")
         else:
             logger.info(f"ℹ️ No CAN Bus config found in database for device {device_id}, using default values")
         
@@ -544,9 +556,18 @@ def create_can_data_mapping_row(index, can_id, byte_pos, data_len, data_type, en
     prevent_initial_call=False
 )
 def update_can_messages_table(messages_data):
-    """Update CAN messages table rows from store data"""
+    """Update CAN messages table rows from store data.
+    
+    This callback creates table rows based on the store data.
+    It ensures all rows are preserved and displayed correctly.
+    """
+    logger = logging.getLogger(__name__)
+    
     if not messages_data or len(messages_data) == 0:
+        logger.debug("⚠️ CAN messages table: No messages data, creating default row")
         messages_data = [{"index": 0, "can_id": "0x123", "direction": "TX", "period": "100", "var_name": "Message Name"}]
+    
+    logger.debug(f"📊 CAN messages table: Creating {len(messages_data)} row(s) from store data")
     
     rows = []
     for message in messages_data:
@@ -558,6 +579,7 @@ def update_can_messages_table(messages_data):
             message.get("var_name", "Message Name")
         ))
     
+    logger.debug(f"✅ CAN messages table: Created {len(rows)} row(s)")
     return rows
 
 
@@ -568,9 +590,18 @@ def update_can_messages_table(messages_data):
     prevent_initial_call=False
 )
 def update_can_data_mapping_table(mappings_data):
-    """Update CAN data mapping table rows from store data"""
+    """Update CAN data mapping table rows from store data.
+    
+    This callback creates table rows based on the store data.
+    It ensures all rows are preserved and displayed correctly.
+    """
+    logger = logging.getLogger(__name__)
+    
     if not mappings_data or len(mappings_data) == 0:
+        logger.debug("⚠️ CAN data mapping table: No mappings data, creating default row")
         mappings_data = [{"index": 0, "can_id": "0x123", "byte_pos": "Byte 0", "data_len": "1 Byte", "data_type": "int8", "endianness": "Big Endian", "var_name": "Variable Name", "scale": "1", "offset": "0"}]
+    
+    logger.debug(f"📊 CAN data mapping table: Creating {len(mappings_data)} row(s) from store data")
     
     rows = []
     for mapping in mappings_data:
@@ -586,6 +617,7 @@ def update_can_data_mapping_table(mappings_data):
             mapping.get("offset", "0")
         ))
     
+    logger.debug(f"✅ CAN data mapping table: Created {len(rows)} row(s)")
     return rows
 
 
@@ -624,10 +656,27 @@ def manage_can_messages(add_clicks, remove_clicks_list, messages_data, trigger_v
                 "var_name": str(message.get("var_name", "Message Name"))
             })
         
+        # Calculate next CAN ID by finding the maximum existing CAN ID and incrementing
+        max_can_id = 0x123  # Default starting CAN ID
+        for message in updated_messages:
+            try:
+                can_id_str = str(message.get("can_id", "0x123")).strip()
+                # Remove '0x' prefix if present and convert hex to int
+                if can_id_str.startswith('0x') or can_id_str.startswith('0X'):
+                    can_id_num = int(can_id_str, 16)
+                else:
+                    can_id_num = int(can_id_str, 16) if all(c in '0123456789ABCDEFabcdef' for c in can_id_str) else int(can_id_str)
+                max_can_id = max(max_can_id, can_id_num)
+            except (ValueError, TypeError):
+                pass
+        
+        # Next CAN ID is max + 1 (increment by 1)
+        next_can_id = f"0x{max_can_id + 1:X}"
+        
         new_index = len(updated_messages)
         updated_messages.append({
             "index": new_index,
-            "can_id": "0x123",
+            "can_id": next_can_id,
             "direction": "TX",
             "period": "100",
             "var_name": "Message Name"
@@ -712,10 +761,27 @@ def manage_can_data_mappings(add_clicks, remove_clicks_list, mappings_data, trig
                 "offset": str(mapping.get("offset", "0"))
             })
         
+        # Calculate next CAN ID by finding the maximum existing CAN ID and incrementing
+        max_can_id = 0x123  # Default starting CAN ID
+        for mapping in updated_mappings:
+            try:
+                can_id_str = str(mapping.get("can_id", "0x123")).strip()
+                # Remove '0x' prefix if present and convert hex to int
+                if can_id_str.startswith('0x') or can_id_str.startswith('0X'):
+                    can_id_num = int(can_id_str, 16)
+                else:
+                    can_id_num = int(can_id_str, 16) if all(c in '0123456789ABCDEFabcdef' for c in can_id_str) else int(can_id_str)
+                max_can_id = max(max_can_id, can_id_num)
+            except (ValueError, TypeError):
+                pass
+        
+        # Next CAN ID is max + 1 (increment by 1)
+        next_can_id = f"0x{max_can_id + 1:X}"
+        
         new_index = len(updated_mappings)
         updated_mappings.append({
             "index": new_index,
-            "can_id": "0x123",
+            "can_id": next_can_id,
             "byte_pos": "Byte 0",
             "data_len": "1 Byte",
             "data_type": "int8",

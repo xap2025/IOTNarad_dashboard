@@ -332,19 +332,25 @@ def load_modbus_configuration(device_id, pathname, reload_trigger, active_tab, s
             polling_interval = modbus_config.get("polling_interval_ms", 1000)
             
             # Convert slave devices to store format
+            # Load from Device: Create rows dynamically based on device data
             slave_devices_list = modbus_config.get("slave_devices", [])
-            if slave_devices_list:
+            if slave_devices_list and len(slave_devices_list) > 0:
                 devices_store = []
-                for device in slave_devices_list:
+                for idx, device in enumerate(slave_devices_list):
                     devices_store.append({
-                        "index": device.get("index", 0),
-                        "slave_id": device.get("slave_id", "1"),
-                        "function_code": device.get("function_code", "0x03"),
-                        "register_addr": device.get("register_address", "0"),  # Note: database uses "register_address", UI uses "register_addr"
-                        "data_type": device.get("data_type", "int8"),
-                        "endianness": device.get("endianness", "Big Endian"),
-                        "var_name": device.get("variable_name", "")
+                        "index": idx,  # Re-index to ensure sequential indices
+                        "slave_id": str(device.get("slave_id", str(idx + 1))),
+                        "function_code": str(device.get("function_code", "0x03")),
+                        "register_addr": str(device.get("register_address", device.get("register_addr", "0"))),  # Support both field names
+                        "data_type": str(device.get("data_type", "int8")),
+                        "endianness": str(device.get("endianness", "Big Endian")),
+                        "var_name": str(device.get("variable_name", device.get("var_name", "")))
                     })
+                logger.info(f"✅ Loaded {len(devices_store)} slave device(s) from database for device {device_id}")
+            else:
+                # No slave devices in database - use default single row
+                devices_store = [{"index": 0, "slave_id": "1", "function_code": "0x03", "register_addr": "0", "data_type": "int8", "endianness": "Big Endian", "var_name": "Variable Name"}]
+                logger.info(f"ℹ️ No slave devices in database for device {device_id}, using default single row")
         else:
             logger.info(f"ℹ️ No MODBUS config found in database for device {device_id}, using default values")
         
@@ -481,12 +487,21 @@ def create_modbus_slave_row(index, slave_id, function_code, register_addr, data_
     prevent_initial_call=False
 )
 def update_modbus_table(devices_data):
-    """Update table rows from store data"""
+    """Update table rows from store data.
+    
+    This callback creates table rows based on the store data.
+    It ensures all rows are preserved and displayed correctly.
+    """
+    logger = logging.getLogger(__name__)
+    
     # Always ensure we have at least one device
     if not devices_data or len(devices_data) == 0:
+        logger.debug("⚠️ MODBUS table: No devices data, creating default row")
         devices_data = [{"index": 0, "slave_id": "1", "function_code": "0x03", "register_addr": "0", "data_type": "int8", "endianness": "Big Endian", "var_name": "Variable Name"}]
     
-    # Create rows for all devices
+    logger.debug(f"📊 MODBUS table: Creating {len(devices_data)} row(s) from store data")
+    
+    # Create rows for all devices - preserve all rows
     rows = []
     for device in devices_data:
         rows.append(create_modbus_slave_row(
@@ -499,6 +514,7 @@ def update_modbus_table(devices_data):
             device.get("var_name", "Variable Name")
         ))
     
+    logger.debug(f"✅ MODBUS table: Created {len(rows)} row(s)")
     return rows
 
 
@@ -541,11 +557,25 @@ def manage_modbus_devices(add_clicks, remove_clicks_list, devices_data, trigger_
                 "var_name": str(device.get("var_name", "Variable Name"))
             })
         
-        # Add new device with next index
+        # Calculate next slave ID by finding the maximum existing slave ID and incrementing
+        max_slave_id = 0
+        for device in updated_devices:
+            try:
+                slave_id_str = str(device.get("slave_id", "1")).strip()
+                # Remove any non-numeric characters and convert to int
+                slave_id_num = int(''.join(filter(str.isdigit, slave_id_str)) or "1")
+                max_slave_id = max(max_slave_id, slave_id_num)
+            except (ValueError, TypeError):
+                pass
+        
+        # Next slave ID is max + 1
+        next_slave_id = str(max_slave_id + 1)
+        
+        # Add new device with next index and auto-incremented slave ID
         new_index = len(updated_devices)
         updated_devices.append({
             "index": new_index,
-            "slave_id": "1",
+            "slave_id": next_slave_id,
             "function_code": "0x03",
             "register_addr": "0",
             "data_type": "int8",
@@ -623,20 +653,29 @@ def manage_modbus_devices(add_clicks, remove_clicks_list, devices_data, trigger_
     prevent_initial_call=True
 )
 def sync_modbus_devices_store(slave_ids, function_codes, register_addrs, data_types, endianness_list, var_names):
-    """Synchronize modbus-devices-store with the latest UI values."""
+    """Synchronize modbus-devices-store with the latest UI values.
+    
+    This callback ensures that user edits in the UI are saved back to the store.
+    It preserves all rows and only updates the values that changed.
+    """
     if not slave_ids:
         return no_update
     
     row_count = len(slave_ids)
     collections = [function_codes, register_addrs, data_types, endianness_list, var_names]
+    
+    # Check if all collections have the same length
     if any(len(lst) != row_count for lst in collections):
+        logger = logging.getLogger(__name__)
+        logger.warning(f"⚠️ MODBUS sync: Mismatched collection lengths. slave_ids: {row_count}, others: {[len(lst) for lst in collections]}")
         return no_update
     
+    # Build updated devices list - preserve all rows
     updated_devices = []
     for idx in range(row_count):
         updated_devices.append({
             "index": idx,
-            "slave_id": str(slave_ids[idx]) if slave_ids[idx] is not None else "",
+            "slave_id": str(slave_ids[idx]) if slave_ids[idx] is not None else str(idx + 1),
             "function_code": str(function_codes[idx]) if function_codes[idx] else "0x03",
             "register_addr": str(register_addrs[idx]) if register_addrs[idx] is not None else "0",
             "data_type": str(data_types[idx]) if data_types[idx] else "int8",
