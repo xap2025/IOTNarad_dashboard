@@ -2472,6 +2472,13 @@ def save_modbus_configuration(
         logger.info(f"   Polling Interval: {modbus_config.get('polling_interval_ms')}")
         logger.info(f"   Slave Devices Count: {len(modbus_config.get('slave_devices', []))}")
         
+        # CRITICAL: Log each slave device being saved
+        slave_devices_list = modbus_config.get('slave_devices', [])
+        logger.info(f"🔍 MODBUS Slave Devices Being Saved:")
+        for idx, slave in enumerate(slave_devices_list):
+            logger.info(f"   [{idx}] Index: {slave.get('index')}, Slave ID: {slave.get('slave_id')}, "
+                       f"Register: {slave.get('register_address')}, Var: {slave.get('variable_name')}")
+        
         # Build config with only MODBUS section
         config_with_modbus_only = {
             "device_id": serial_number,

@@ -436,20 +436,32 @@ class DeviceConfigDBService:
             logger.info(f"✅ MODBUS settings point written to database")
             
             # Save slave devices
-            for slave in modbus_config.get("slave_devices", []):
+            slave_devices_list = modbus_config.get("slave_devices", [])
+            logger.info(f"💾 Saving {len(slave_devices_list)} slave device(s) to database for device {device_id}")
+            
+            for idx, slave in enumerate(slave_devices_list):
+                slave_id = str(slave.get("slave_id", ""))
+                slave_index = slave.get("index", idx)
+                
+                # CRITICAL: Log each slave being saved
+                logger.debug(f"   Saving slave [{idx}]: Index={slave_index}, Slave ID={slave_id}, "
+                           f"Register={slave.get('register_address')}, Var={slave.get('variable_name')}")
+                
                 point = Point("Device_Config_MODBUS") \
                     .tag("device_id", device_id) \
                     .tag("config_type", "slave_device") \
-                    .tag("slave_id", str(slave.get("slave_id", ""))) \
+                    .tag("slave_id", slave_id) \
                     .tag("function_code", str(slave.get("function_code", ""))) \
                     .tag("register_address", str(slave.get("register_address", ""))) \
                     .tag("data_type", str(slave.get("data_type", ""))) \
                     .tag("endianness", str(slave.get("endianness", ""))) \
                     .tag("variable_name", str(slave.get("variable_name", ""))) \
-                    .field("index", slave.get("index", 0)) \
+                    .field("index", slave_index) \
                     .field("register_count", slave.get("register_count", 1)) \
                     .time(timestamp, WritePrecision.NS)
                 self.write_api.write(bucket=self.bucket, org=self.org, record=point)
+            
+            logger.info(f"✅ MODBUS: Saved {len(slave_devices_list)} slave device(s) to database")
             
             logger.debug(f"✅ MODBUS config saved for device: {device_id}")
             
