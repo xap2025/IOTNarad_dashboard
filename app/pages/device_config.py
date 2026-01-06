@@ -2809,10 +2809,16 @@ def save_canbus_configuration(
                     "period_ms": int(ui_can_message_periods[idx]) if ui_can_message_periods[idx] is not None else 100,
                     "variable_name": str(ui_can_message_var_names[idx]) if ui_can_message_var_names[idx] is not None else "Message Name"
                 })
+            logger.info(f"🔍 CAN Bus Messages Being Saved:")
+            for idx, msg in enumerate(can_messages):
+                logger.info(f"   [{idx}] Index={msg.get('index')}, CAN ID={msg.get('can_id')}, Direction={msg.get('direction')}, Period={msg.get('period_ms')}, Var={msg.get('variable_name')}")
         else:
             # Fallback: Use store data if UI values not available
             logger.info(f"🔍 CAN Bus Save: UI values not available, using store data for messages")
             can_messages = can_messages_store if can_messages_store else []
+            logger.info(f"🔍 CAN Bus Messages from Store:")
+            for idx, msg in enumerate(can_messages):
+                logger.info(f"   [{idx}] Index={msg.get('index')}, CAN ID={msg.get('can_id')}, Direction={msg.get('direction')}, Period={msg.get('period')}, Var={msg.get('var_name')}")
         
         # CRITICAL: Use UI values directly for data mappings
         can_data_mappings = []
@@ -2833,10 +2839,16 @@ def save_canbus_configuration(
                     "scale_factor": float(ui_can_data_scales[idx]) if ui_can_data_scales[idx] is not None else 1.0,
                     "offset": float(ui_can_data_offsets[idx]) if ui_can_data_offsets[idx] is not None else 0.0
                 })
+            logger.info(f"🔍 CAN Bus Data Mappings Being Saved:")
+            for idx, mapping in enumerate(can_data_mappings):
+                logger.info(f"   [{idx}] Index={mapping.get('index')}, CAN ID={mapping.get('can_id')}, Byte Pos={mapping.get('byte_position')}, Data Type={mapping.get('data_type')}, Var={mapping.get('variable_name')}")
         else:
             # Fallback: Use store data if UI values not available
             logger.info(f"🔍 CAN Bus Save: UI values not available, using store data for data mappings")
             can_data_mappings = can_data_mapping_store if can_data_mapping_store else []
+            logger.info(f"🔍 CAN Bus Data Mappings from Store:")
+            for idx, mapping in enumerate(can_data_mappings):
+                logger.info(f"   [{idx}] Index={mapping.get('index')}, CAN ID={mapping.get('can_id')}, Byte Pos={mapping.get('byte_pos')}, Data Type={mapping.get('data_type')}, Var={mapping.get('var_name')}")
         
         can_bus_config = builder.build_can_bus_config(
             baud_rate=can_baud_rate,
@@ -2848,6 +2860,25 @@ def save_canbus_configuration(
             can_messages=can_messages,
             data_mappings=can_data_mappings
         )
+        
+        # Debug logging to see what config was built
+        logger.info(f"🔍 CAN Bus Config Built:")
+        logger.info(f"   Communication Settings: {can_bus_config.get('communication_settings')}")
+        logger.info(f"   CAN Messages Count: {len(can_bus_config.get('can_messages', []))}")
+        logger.info(f"   Data Mappings Count: {len(can_bus_config.get('data_mapping', []))}")
+        logger.info(f"   Enabled: {can_bus_config.get('enabled')}")
+        
+        # CRITICAL: Log each CAN message being saved
+        can_messages_list = can_bus_config.get('can_messages', [])
+        logger.info(f"🔍 CAN Bus Messages Being Saved (Final):")
+        for idx, msg in enumerate(can_messages_list):
+            logger.info(f"   [{idx}] Index={msg.get('index')}, CAN ID={msg.get('can_id')}, Direction={msg.get('direction')}, Period={msg.get('period_ms')}, Var={msg.get('variable_name')}")
+        
+        # CRITICAL: Log each data mapping being saved
+        data_mappings_list = can_bus_config.get('data_mapping', [])
+        logger.info(f"🔍 CAN Bus Data Mappings Being Saved (Final):")
+        for idx, mapping in enumerate(data_mappings_list):
+            logger.info(f"   [{idx}] Index={mapping.get('index')}, CAN ID={mapping.get('can_id')}, Byte Pos={mapping.get('byte_position')}, Data Type={mapping.get('data_type')}, Var={mapping.get('variable_name')}")
         
         # Build config with only CAN Bus section
         config_with_canbus_only = {

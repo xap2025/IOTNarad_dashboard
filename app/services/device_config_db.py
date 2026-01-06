@@ -475,8 +475,20 @@ class DeviceConfigDBService:
             logger.warning("⚠️ Cannot save CAN Bus config: device_id is empty or None")
             return
             
-        if not can_bus_config or not can_bus_config.get("enabled"):
+        if not can_bus_config:
+            logger.warning("⚠️ Cannot save CAN Bus config: can_bus_config is empty or None")
             return
+        
+        # Log what we're about to save
+        logger.info(f"🔍 _save_can_bus_config called for device: {device_id}")
+        logger.info(f"   Config keys: {list(can_bus_config.keys())}")
+        logger.info(f"   Communication settings: {can_bus_config.get('communication_settings')}")
+        logger.info(f"   CAN messages count: {len(can_bus_config.get('can_messages', []))}")
+        logger.info(f"   Data mappings count: {len(can_bus_config.get('data_mapping', []))}")
+        logger.info(f"   Enabled: {can_bus_config.get('enabled', 'NOT SET')}")
+        
+        # Note: enabled check removed - we save even if enabled is False or missing
+        # This allows saving config even when enabled field is not present
         
         try:
             # Save CAN Bus settings
@@ -495,7 +507,10 @@ class DeviceConfigDBService:
             self.write_api.write(bucket=self.bucket, org=self.org, record=point)
             
             # Save CAN messages
-            for message in can_bus_config.get("can_messages", []):
+            can_messages_list = can_bus_config.get("can_messages", [])
+            logger.info(f"💾 Saving {len(can_messages_list)} CAN message(s) to database for device {device_id}")
+            for message in can_messages_list:
+                logger.debug(f"   Saving CAN message: Index={message.get('index')}, CAN ID={message.get('can_id')}, Direction={message.get('direction')}, Period={message.get('period_ms')}, Var={message.get('variable_name')}")
                 point = Point("Device_Config_CANBus") \
                     .tag("device_id", device_id) \
                     .tag("config_type", "can_message") \
@@ -507,9 +522,13 @@ class DeviceConfigDBService:
                     .field("data_length", message.get("data_length", 8)) \
                     .time(timestamp, WritePrecision.NS)
                 self.write_api.write(bucket=self.bucket, org=self.org, record=point)
+            logger.info(f"✅ CAN Bus: Saved {len(can_messages_list)} CAN message(s) to database")
             
             # Save data mappings
-            for mapping in can_bus_config.get("data_mapping", []):
+            data_mappings_list = can_bus_config.get("data_mapping", [])
+            logger.info(f"💾 Saving {len(data_mappings_list)} data mapping(s) to database for device {device_id}")
+            for mapping in data_mappings_list:
+                logger.debug(f"   Saving data mapping: Index={mapping.get('index')}, CAN ID={mapping.get('can_id')}, Byte Pos={mapping.get('byte_position')}, Data Type={mapping.get('data_type')}, Var={mapping.get('variable_name')}")
                 point = Point("Device_Config_CANBus") \
                     .tag("device_id", device_id) \
                     .tag("config_type", "data_mapping") \
@@ -524,8 +543,9 @@ class DeviceConfigDBService:
                     .field("offset", mapping.get("offset", 0.0)) \
                     .time(timestamp, WritePrecision.NS)
                 self.write_api.write(bucket=self.bucket, org=self.org, record=point)
+            logger.info(f"✅ CAN Bus: Saved {len(data_mappings_list)} data mapping(s) to database")
             
-            logger.debug(f"✅ CAN Bus config saved for device: {device_id}")
+            logger.info(f"✅ CAN Bus config saved for device: {device_id}")
             
         except Exception as e:
             logger.error(f"Error saving CAN Bus config: {e}")
