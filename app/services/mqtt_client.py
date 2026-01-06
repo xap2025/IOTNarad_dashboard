@@ -36,6 +36,9 @@ class MQTTClientService:
         self.topic_device_status = os.getenv('MQTT_TOPIC_DEVICE_STATUS', 'iotnarad/devices/+/status')
         # Legacy topic (keep for backward compatibility)
         self.topic_device_config_ack = os.getenv('MQTT_TOPIC_DEVICE_CONFIG_ACK', 'Dev/ConfigACK/#')
+        # Device publishes to: Config/ACK/<Device ID> (new format)
+        # Server subscribes to: Config/ACK/# (wildcard to receive ACK from any device)
+        self.topic_config_ack = os.getenv('MQTT_TOPIC_CONFIG_ACK', 'Config/ACK/#')
         # Device publishes to: Cmd/DConfig/<Device ID>
         # Server subscribes to: Cmd/DConfig/#
         self.topic_device_config_request = os.getenv('MQTT_TOPIC_DEVICE_CONFIG_REQUEST', 'Cmd/DConfig/#')
@@ -70,12 +73,14 @@ class MQTTClientService:
             self.client.subscribe(self.topic_device_data)
             self.client.subscribe(self.topic_device_status)
             self.client.subscribe(self.topic_device_init_reg)  # Subscribe to device init/registration messages
-            self.client.subscribe(self.topic_device_config_ack)  # Subscribe to config acknowledgements (legacy)
+            self.client.subscribe(self.topic_device_config_ack)  # Subscribe to config acknowledgements (legacy: Dev/ConfigACK/#)
+            self.client.subscribe(self.topic_config_ack)  # Subscribe to config acknowledgements (new: Config/ACK/#)
             self.client.subscribe(self.topic_device_config_request)  # Subscribe to device config requests
             logger.info(f"📡 Subscribed to: {self.topic_device_data}")
             logger.info(f"📡 Subscribed to: {self.topic_device_status}")
             logger.info(f"📡 Subscribed to: {self.topic_device_init_reg}")
-            logger.info(f"📡 Subscribed to: {self.topic_device_config_ack}")
+            logger.info(f"📡 Subscribed to: {self.topic_device_config_ack} (legacy)")
+            logger.info(f"📡 Subscribed to: {self.topic_config_ack} (new format)")
             logger.info(f"📡 Subscribed to: {self.topic_device_config_request}")
         else:
             self.connected = False
@@ -221,8 +226,22 @@ class MQTTClientService:
                 else:
                     logger.warning(f"⚠️ Config request callback not registered!")
             
+            elif topic.startswith('Config/ACK/'):
+                # Configuration acknowledgement from hardware (new format)
+                # Topic format: Config/ACK/<Device ID>
+                ack_device_id = topic.split('/')[-1] if '/' in topic else device_id
+                logger.info(f"✅ Configuration ACK received from device {ack_device_id}")
+                logger.info(f"   Topic: {topic}, Payload: {payload[:200]}...")
+                # Extract result from payload
+                try:
+                    if "Result" in data or "result" in data:
+                        result = data.get("Result") or data.get("result")
+                        logger.info(f"   ACK Result: {result}")
+                except:
+                    pass
+                # You can add a callback for config acknowledgements here if needed
             elif topic.startswith('Dev/ConfigACK/') or topic.startswith('Dev/Checksum/'):
-                # Configuration acknowledgement from hardware
+                # Configuration acknowledgement from hardware (legacy format)
                 logger.info(f"✅ Configuration acknowledgement received from: {device_id}")
                 logger.info(f"   Topic: {topic}, Payload: {payload[:200]}...")
                 # Extract device ID from topic (e.g., Dev/ConfigACK/TEST78787)
