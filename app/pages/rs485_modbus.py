@@ -298,9 +298,32 @@ def load_modbus_configuration(device_id, pathname, reload_trigger, active_tab, s
         
         # Load MODBUS config from database
         # If triggered by reload trigger, add a small delay to ensure DB write is flushed
+        # BUT: Don't overwrite the store if user just saved - the store already has the correct data
         if triggered_id == 'config-reload-trigger':
             import time
             time.sleep(0.5)  # Wait 0.5 seconds to ensure database write is fully flushed
+            # After save, the store already has the correct data, so we should preserve it
+            # Only reload from database if we're loading a different device or on page load
+            logger.info(f"🔄 MODBUS reload triggered after save - preserving current store state")
+            # Return no_update for devices_store to preserve current UI state
+            # Only update other fields (baud_rate, etc.) if they changed
+            modbus_config = db_service.get_modbus_config(device_id)
+            if modbus_config:
+                comm_settings = modbus_config.get("communication_settings", {})
+                protocol_settings = modbus_config.get("protocol_settings", {})
+                return (
+                    str(comm_settings.get("baud_rate", 9600)),
+                    str(comm_settings.get("data_bits", 8)),
+                    comm_settings.get("parity", "None"),
+                    str(comm_settings.get("stop_bits", 1)),
+                    protocol_settings.get("mode", "RTU"),
+                    protocol_settings.get("role", "Master"),
+                    modbus_config.get("polling_interval_ms", 1000),
+                    no_update  # Preserve current store state - don't overwrite
+                )
+            else:
+                # No config in DB, but preserve store anyway
+                return [no_update] * 8
         
         logger.info(f"🔄 Loading MODBUS config from database for device {device_id}, triggered by: {triggered_id}")
         modbus_config = db_service.get_modbus_config(device_id)
@@ -491,20 +514,25 @@ def update_modbus_table(devices_data):
     
     This callback creates table rows based on the store data.
     It ensures all rows are preserved and displayed correctly.
+    
+    CRITICAL: This must create ALL rows from the store data, not just a subset.
     """
     logger = logging.getLogger(__name__)
     
     # Always ensure we have at least one device
     if not devices_data or len(devices_data) == 0:
-        logger.debug("⚠️ MODBUS table: No devices data, creating default row")
+        logger.warning("⚠️ MODBUS table: No devices data, creating default row")
         devices_data = [{"index": 0, "slave_id": "1", "function_code": "0x03", "register_addr": "0", "data_type": "int8", "endianness": "Big Endian", "var_name": "Variable Name"}]
     
-    logger.debug(f"📊 MODBUS table: Creating {len(devices_data)} row(s) from store data")
+    logger.info(f"📊 MODBUS table: Creating {len(devices_data)} row(s) from store data")
     
-    # Create rows for all devices - preserve all rows
+    # Create rows for ALL devices - preserve all rows
+    # Sort by index to ensure correct order
+    sorted_devices = sorted(devices_data, key=lambda x: x.get("index", 0))
+    
     rows = []
-    for device in devices_data:
-        rows.append(create_modbus_slave_row(
+    for device in sorted_devices:
+        row = create_modbus_slave_row(
             device.get("index", 0),
             device.get("slave_id", "1"),
             device.get("function_code", "0x03"),
@@ -512,9 +540,10 @@ def update_modbus_table(devices_data):
             device.get("data_type", "int8"),
             device.get("endianness", "Big Endian"),
             device.get("var_name", "Variable Name")
-        ))
+        )
+        rows.append(row)
     
-    logger.debug(f"✅ MODBUS table: Created {len(rows)} row(s)")
+    logger.info(f"✅ MODBUS table: Created {len(rows)} row(s) - all rows displayed")
     return rows
 
 
@@ -657,17 +686,30 @@ def sync_modbus_devices_store(slave_ids, function_codes, register_addrs, data_ty
     
     This callback ensures that user edits in the UI are saved back to the store.
     It preserves all rows and only updates the values that changed.
+    
+    IMPORTANT: This callback should NOT run when rows are being added/removed,
+    as the inputs might not be fully rendered yet. It should only run when
+    user actually edits values in existing rows.
     """
-    if not slave_ids:
+    logger = logging.getLogger(__name__)
+    
+    # If no slave_ids, don't update (might be during row addition)
+    if not slave_ids or len(slave_ids) == 0:
+        logger.debug("⚠️ MODBUS sync: No slave_ids, skipping update (likely during row addition)")
         return no_update
     
     row_count = len(slave_ids)
     collections = [function_codes, register_addrs, data_types, endianness_list, var_names]
     
     # Check if all collections have the same length
+    # If not, it means inputs are still being rendered - don't update store
     if any(len(lst) != row_count for lst in collections):
-        logger = logging.getLogger(__name__)
-        logger.warning(f"⚠️ MODBUS sync: Mismatched collection lengths. slave_ids: {row_count}, others: {[len(lst) for lst in collections]}")
+        logger.debug(f"⚠️ MODBUS sync: Mismatched collection lengths. slave_ids: {row_count}, others: {[len(lst) for lst in collections]}. Skipping update (inputs still rendering)")
+        return no_update
+    
+    # Check if any collection is None or empty (inputs not ready)
+    if any(lst is None or len(lst) == 0 for lst in collections):
+        logger.debug("⚠️ MODBUS sync: Some collections are None or empty. Skipping update (inputs not ready)")
         return no_update
     
     # Build updated devices list - preserve all rows
@@ -683,4 +725,5 @@ def sync_modbus_devices_store(slave_ids, function_codes, register_addrs, data_ty
             "var_name": str(var_names[idx]) if var_names[idx] is not None else ""
         })
     
+    logger.debug(f"✅ MODBUS sync: Updated store with {len(updated_devices)} row(s)")
     return updated_devices
