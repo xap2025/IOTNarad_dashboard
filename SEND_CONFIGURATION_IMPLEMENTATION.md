@@ -29,7 +29,8 @@ Created `app/services/device_config_sender.py` - A service that handles MQTT com
 
 **Key Features:**
 - Publishes configuration on `Write/DConfig/<Device-ID>`
-- Subscribes to `Config/ACK/<Device-ID>` to receive acknowledgments
+- Creates temporary MQTT client that subscribes to `Config/ACK/<Device-ID>` to receive acknowledgments
+- **Note:** Main MQTT client (`mqtt_client.py`) also subscribes to `Config/ACK/#` (wildcard) to receive ACKs from any device
 - Supports all four configuration types: Analog, Digital, MODBUS, CAN Bus
 - Includes timeout handling (5 seconds) and error management
 - Validates ACK response format before returning
@@ -83,10 +84,15 @@ Write/DConfig/<Device-ID>
 Config/ACK/<Device-ID>
 ```
 
+**Server Subscriptions:**
+- **Main MQTT Client** (`mqtt_client.py`): Subscribes to `Config/ACK/#` (wildcard) to receive ACKs from any device
+- **Temporary Client** (`device_config_sender.py`): Subscribes to `Config/ACK/<Device-ID>` (specific device) for send operation timeout handling
+
 **Example:**
 - Device ID: `TEST78787`
 - Send: `Write/DConfig/TEST78787`
 - ACK: `Config/ACK/TEST78787`
+- Main client receives: `Config/ACK/#` (matches `Config/ACK/TEST78787`)
 
 ### 5. **Request/Response Format**
 
