@@ -2370,6 +2370,14 @@ def save_digital_configuration(
     State('modbus-role', 'value'),
     State('modbus-polling-interval', 'value'),
     State('modbus-devices-store', 'data'),
+    # CRITICAL: Get current UI values directly to ensure we save all rows
+    # This prevents issues where store is stale and missing rows
+    State({'type': 'modbus-slave-id', 'index': ALL}, 'value'),
+    State({'type': 'modbus-function-code', 'index': ALL}, 'value'),
+    State({'type': 'modbus-register-addr', 'index': ALL}, 'value'),
+    State({'type': 'modbus-data-type', 'index': ALL}, 'value'),
+    State({'type': 'modbus-endianness', 'index': ALL}, 'value'),
+    State({'type': 'modbus-var-name', 'index': ALL}, 'value'),
     # Device Selection (Serial Number)
     State('device-selector', 'value'),
     State('device-config-session-store', 'data'),
@@ -2379,6 +2387,7 @@ def save_modbus_configuration(
     n_clicks,
     modbus_baud_rate, modbus_data_bits, modbus_parity, modbus_stop_bits,
     modbus_mode, modbus_role, modbus_polling_interval, modbus_devices_store,
+    slave_ids, function_codes, register_addrs, data_types, endianness_list, var_names,
     serial_number,
     session_data
 ):
@@ -2450,10 +2459,44 @@ def save_modbus_configuration(
         logger.info(f"   Mode: {modbus_mode} (type: {type(modbus_mode)})")
         logger.info(f"   Role: {modbus_role} (type: {type(modbus_role)})")
         logger.info(f"   Polling Interval: {modbus_polling_interval} (type: {type(modbus_polling_interval)})")
-        logger.info(f"   Slave Devices Count: {len(modbus_devices_store) if modbus_devices_store else 0}")
+        logger.info(f"   Slave Devices Count in Store: {len(modbus_devices_store) if modbus_devices_store else 0}")
         
-        # Build RS485 MODBUS Config
-        modbus_slave_devices = modbus_devices_store if modbus_devices_store else []
+        # CRITICAL: Merge current UI values with store data
+        # UI values are the source of truth - they reflect what user actually sees
+        # Store might be stale, so we prioritize UI values
+        modbus_slave_devices = []
+        
+        # Get UI row count
+        ui_row_count = len(slave_ids) if slave_ids else 0
+        
+        # If we have UI values, use them directly (most up-to-date)
+        if ui_row_count > 0 and slave_ids and function_codes and register_addrs and data_types and endianness_list and var_names:
+            logger.info(f"🔍 MODBUS: Using UI values directly ({ui_row_count} row(s))")
+            for idx in range(ui_row_count):
+                modbus_slave_devices.append({
+                    "index": idx,
+                    "slave_id": str(slave_ids[idx]) if slave_ids[idx] is not None else str(idx + 1),
+                    "function_code": str(function_codes[idx]) if function_codes[idx] else "0x03",
+                    "register_addr": str(register_addrs[idx]) if register_addrs[idx] is not None else "0",
+                    "data_type": str(data_types[idx]) if data_types[idx] else "int8",
+                    "endianness": str(endianness_list[idx]) if endianness_list[idx] else "Big Endian",
+                    "var_name": str(var_names[idx]) if var_names[idx] is not None else "Variable Name"
+                })
+            logger.info(f"🔍 MODBUS UI Values Being Saved:")
+            for idx, device in enumerate(modbus_slave_devices):
+                logger.info(f"   UI[{idx}]: Index={device.get('index')}, Slave ID={device.get('slave_id')}, "
+                           f"Register={device.get('register_addr')}, Var={device.get('var_name')}")
+        else:
+            # Fallback: Use store data if UI values not available
+            logger.info(f"🔍 MODBUS: UI values not available, using store data")
+            modbus_slave_devices = modbus_devices_store if modbus_devices_store else []
+            if modbus_devices_store:
+                logger.info(f"🔍 MODBUS Store Contents Before Save:")
+                for idx, device in enumerate(modbus_devices_store):
+                    logger.info(f"   Store[{idx}]: Index={device.get('index')}, Slave ID={device.get('slave_id')}, "
+                               f"Register={device.get('register_addr')}, Var={device.get('var_name')}")
+        
+        logger.info(f"   Final Slave Devices Count: {len(modbus_slave_devices)}")
         modbus_config = builder.build_modbus_config(
             baud_rate=modbus_baud_rate,
             data_bits=modbus_data_bits or "8",
