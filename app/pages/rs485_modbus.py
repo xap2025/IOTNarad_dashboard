@@ -573,7 +573,11 @@ def manage_modbus_devices(add_clicks, remove_clicks_list, devices_data, trigger_
     
     # Handle ADD operation
     if 'add-modbus-device-btn' in triggered_id:
+        logger = logging.getLogger(__name__)
+        logger.info(f"➕ MODBUS: Adding new device. Current store has {len(devices_data)} row(s)")
+        
         # Create new list with existing devices - rebuild to ensure fresh object
+        # CRITICAL: Preserve ALL existing rows and their values
         updated_devices = []
         for idx, device in enumerate(devices_data):
             updated_devices.append({
@@ -611,6 +615,8 @@ def manage_modbus_devices(add_clicks, remove_clicks_list, devices_data, trigger_
             "endianness": "Big Endian",
             "var_name": "Variable Name"
         })
+        
+        logger.info(f"✅ MODBUS: Added new device. Store now has {len(updated_devices)} row(s). New slave ID: {next_slave_id}")
         
         # Increment trigger to force update detection
         new_trigger = (trigger_value if trigger_value is not None else 0) + 1
@@ -679,30 +685,41 @@ def manage_modbus_devices(add_clicks, remove_clicks_list, devices_data, trigger_
         Input({'type': 'modbus-endianness', 'index': ALL}, 'value'),
         Input({'type': 'modbus-var-name', 'index': ALL}, 'value'),
     ],
+    [
+        State('modbus-devices-store', 'data'),  # Get current store state
+        State('modbus-trigger-store', 'data'),  # Check if row addition is in progress
+    ],
     prevent_initial_call=True
 )
-def sync_modbus_devices_store(slave_ids, function_codes, register_addrs, data_types, endianness_list, var_names):
+def sync_modbus_devices_store(slave_ids, function_codes, register_addrs, data_types, endianness_list, var_names, current_store, trigger_value):
     """Synchronize modbus-devices-store with the latest UI values.
     
-    This callback ensures that user edits in the UI are saved back to the store.
-    It preserves all rows and only updates the values that changed.
+    CRITICAL: This callback must NEVER reduce the number of rows.
+    It should only update values in existing rows, or add rows if UI has more.
     
-    IMPORTANT: This callback should NOT run when rows are being added/removed,
-    as the inputs might not be fully rendered yet. It should only run when
-    user actually edits values in existing rows.
+    Strategy:
+    1. Get current store state (preserves all existing rows)
+    2. Merge UI values into store (update existing, add new if needed)
+    3. Never remove rows - only update or add
     """
     logger = logging.getLogger(__name__)
     
-    # If no slave_ids, don't update (might be during row addition)
+    # If no slave_ids from UI, don't update (inputs not ready)
     if not slave_ids or len(slave_ids) == 0:
-        logger.debug("⚠️ MODBUS sync: No slave_ids, skipping update (likely during row addition)")
+        logger.debug("⚠️ MODBUS sync: No slave_ids from UI, skipping update (inputs not ready)")
         return no_update
+    
+    # Get current store state - this preserves all existing rows
+    if current_store is None:
+        current_store = []
+    if len(current_store) == 0:
+        current_store = [{"index": 0, "slave_id": "1", "function_code": "0x03", "register_addr": "0", "data_type": "int8", "endianness": "Big Endian", "var_name": "Variable Name"}]
     
     row_count = len(slave_ids)
     collections = [function_codes, register_addrs, data_types, endianness_list, var_names]
     
     # Check if all collections have the same length
-    # If not, it means inputs are still being rendered - don't update store
+    # If not, inputs are still being rendered - don't update store
     if any(len(lst) != row_count for lst in collections):
         logger.debug(f"⚠️ MODBUS sync: Mismatched collection lengths. slave_ids: {row_count}, others: {[len(lst) for lst in collections]}. Skipping update (inputs still rendering)")
         return no_update
@@ -712,18 +729,87 @@ def sync_modbus_devices_store(slave_ids, function_codes, register_addrs, data_ty
         logger.debug("⚠️ MODBUS sync: Some collections are None or empty. Skipping update (inputs not ready)")
         return no_update
     
-    # Build updated devices list - preserve all rows
-    updated_devices = []
-    for idx in range(row_count):
-        updated_devices.append({
-            "index": idx,
-            "slave_id": str(slave_ids[idx]) if slave_ids[idx] is not None else str(idx + 1),
-            "function_code": str(function_codes[idx]) if function_codes[idx] else "0x03",
-            "register_addr": str(register_addrs[idx]) if register_addrs[idx] is not None else "0",
-            "data_type": str(data_types[idx]) if data_types[idx] else "int8",
-            "endianness": str(endianness_list[idx]) if endianness_list[idx] else "Big Endian",
-            "var_name": str(var_names[idx]) if var_names[idx] is not None else ""
-        })
+    # CRITICAL: Merge UI values with current store
+    # Strategy: Update existing rows, add new rows if UI has more
+    # NEVER reduce the number of rows
     
-    logger.debug(f"✅ MODBUS sync: Updated store with {len(updated_devices)} row(s)")
+    # Create a map of current store by index for fast lookup
+    store_map = {device.get("index", idx): device for idx, device in enumerate(current_store)}
+    max_store_index = max(store_map.keys()) if store_map else -1
+    
+    # Build updated devices list
+    # Start with all existing rows from store (preserves all rows)
+    updated_devices = []
+    
+    # First, update existing rows with UI values (up to row_count)
+    for idx in range(min(row_count, len(current_store))):
+        if idx in store_map:
+            # Update existing row with UI values
+            device = store_map[idx].copy()
+            device["slave_id"] = str(slave_ids[idx]) if slave_ids[idx] is not None else device.get("slave_id", str(idx + 1))
+            device["function_code"] = str(function_codes[idx]) if function_codes[idx] else device.get("function_code", "0x03")
+            device["register_addr"] = str(register_addrs[idx]) if register_addrs[idx] is not None else device.get("register_addr", "0")
+            device["data_type"] = str(data_types[idx]) if data_types[idx] else device.get("data_type", "int8")
+            device["endianness"] = str(endianness_list[idx]) if endianness_list[idx] else device.get("endianness", "Big Endian")
+            device["var_name"] = str(var_names[idx]) if var_names[idx] is not None else device.get("var_name", "")
+            updated_devices.append(device)
+        else:
+            # Row doesn't exist in store - create new from UI
+            updated_devices.append({
+                "index": idx,
+                "slave_id": str(slave_ids[idx]) if slave_ids[idx] is not None else str(idx + 1),
+                "function_code": str(function_codes[idx]) if function_codes[idx] else "0x03",
+                "register_addr": str(register_addrs[idx]) if register_addrs[idx] is not None else "0",
+                "data_type": str(data_types[idx]) if data_types[idx] else "int8",
+                "endianness": str(endianness_list[idx]) if endianness_list[idx] else "Big Endian",
+                "var_name": str(var_names[idx]) if var_names[idx] is not None else ""
+            })
+    
+    # If UI has more rows than store, add new rows
+    if row_count > len(current_store):
+        for idx in range(len(current_store), row_count):
+            updated_devices.append({
+                "index": idx,
+                "slave_id": str(slave_ids[idx]) if slave_ids[idx] is not None else str(idx + 1),
+                "function_code": str(function_codes[idx]) if function_codes[idx] else "0x03",
+                "register_addr": str(register_addrs[idx]) if register_addrs[idx] is not None else "0",
+                "data_type": str(data_types[idx]) if data_types[idx] else "int8",
+                "endianness": str(endianness_list[idx]) if endianness_list[idx] else "Big Endian",
+                "var_name": str(var_names[idx]) if var_names[idx] is not None else ""
+            })
+    
+    # CRITICAL: If store has more rows than UI, preserve them (don't remove)
+    # This handles the case where UI is still rendering or rows are being added
+    if len(current_store) > row_count:
+        for idx in range(row_count, len(current_store)):
+            if idx in store_map:
+                # Preserve existing row from store
+                updated_devices.append(store_map[idx].copy())
+    
+    # CRITICAL: Never reduce the number of rows
+    # If we somehow ended up with fewer rows, restore from store
+    if len(updated_devices) < len(current_store):
+        logger.warning(f"⚠️ MODBUS sync: Would reduce rows from {len(current_store)} to {len(updated_devices)}. Preserving all rows from store.")
+        # Restore all rows from store, but update the ones we have UI data for
+        updated_devices = []
+        for idx, device in enumerate(current_store):
+            if idx < row_count:
+                # Update with UI values
+                device_copy = device.copy()
+                device_copy["slave_id"] = str(slave_ids[idx]) if slave_ids[idx] is not None else device.get("slave_id", str(idx + 1))
+                device_copy["function_code"] = str(function_codes[idx]) if function_codes[idx] else device.get("function_code", "0x03")
+                device_copy["register_addr"] = str(register_addrs[idx]) if register_addrs[idx] is not None else device.get("register_addr", "0")
+                device_copy["data_type"] = str(data_types[idx]) if data_types[idx] else device.get("data_type", "int8")
+                device_copy["endianness"] = str(endianness_list[idx]) if endianness_list[idx] else device.get("endianness", "Big Endian")
+                device_copy["var_name"] = str(var_names[idx]) if var_names[idx] is not None else device.get("var_name", "")
+                updated_devices.append(device_copy)
+            else:
+                # Preserve row from store
+                updated_devices.append(device.copy())
+    
+    # Ensure indices are sequential
+    for idx, device in enumerate(updated_devices):
+        device["index"] = idx
+    
+    logger.info(f"✅ MODBUS sync: Updated store with {len(updated_devices)} row(s) (UI had {row_count}, store had {len(current_store)})")
     return updated_devices
