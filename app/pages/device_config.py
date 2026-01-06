@@ -1211,6 +1211,13 @@ def load_config_from_device(n_clicks, serial_number, active_tab):
     State('modbus-role', 'value'),
     State('modbus-polling-interval', 'value'),
     State('modbus-devices-store', 'data'),
+    # CRITICAL: Get current UI values directly to ensure we send all rows
+    State({'type': 'modbus-slave-id', 'index': ALL}, 'value'),
+    State({'type': 'modbus-function-code', 'index': ALL}, 'value'),
+    State({'type': 'modbus-register-addr', 'index': ALL}, 'value'),
+    State({'type': 'modbus-data-type', 'index': ALL}, 'value'),
+    State({'type': 'modbus-endianness', 'index': ALL}, 'value'),
+    State({'type': 'modbus-var-name', 'index': ALL}, 'value'),
     # CAN Bus States (for CAN Bus tab)
     State('can-baud-rate', 'value'),
     State('can-identifier-length', 'value'),
@@ -1241,6 +1248,8 @@ def send_configuration_to_device(
     # MODBUS
     modbus_baud_rate, modbus_data_bits, modbus_parity, modbus_stop_bits,
     modbus_mode, modbus_role, modbus_polling_interval, modbus_devices_store,
+    modbus_slave_ids, modbus_function_codes, modbus_register_addrs, 
+    modbus_data_types, modbus_endianness_list, modbus_var_names,
     # CAN Bus
     can_baud_rate, can_identifier_length, can_mode, can_filter_mode,
     can_filter_id, can_filter_mask, can_messages_store, can_data_mapping_store
@@ -1452,7 +1461,28 @@ def send_configuration_to_device(
         
         elif active_tab == 'tab-modbus':
             # Build MODBUS config
-            modbus_slave_devices = modbus_devices_store if modbus_devices_store else []
+            # CRITICAL: Use UI values directly (same fix as save callback)
+            modbus_slave_devices = []
+            ui_row_count = len(modbus_slave_ids) if modbus_slave_ids else 0
+            
+            # If we have UI values, use them directly (most up-to-date)
+            if ui_row_count > 0 and modbus_slave_ids and modbus_function_codes and modbus_register_addrs and modbus_data_types and modbus_endianness_list and modbus_var_names:
+                logger.info(f"🔍 MODBUS Send: Using UI values directly ({ui_row_count} row(s))")
+                for idx in range(ui_row_count):
+                    modbus_slave_devices.append({
+                        "index": idx,
+                        "slave_id": str(modbus_slave_ids[idx]) if modbus_slave_ids[idx] is not None else str(idx + 1),
+                        "function_code": str(modbus_function_codes[idx]) if modbus_function_codes[idx] else "0x03",
+                        "register_addr": str(modbus_register_addrs[idx]) if modbus_register_addrs[idx] is not None else "0",
+                        "data_type": str(modbus_data_types[idx]) if modbus_data_types[idx] else "int8",
+                        "endianness": str(modbus_endianness_list[idx]) if modbus_endianness_list[idx] else "Big Endian",
+                        "var_name": str(modbus_var_names[idx]) if modbus_var_names[idx] is not None else "Variable Name"
+                    })
+            else:
+                # Fallback: Use store data if UI values not available
+                logger.info(f"🔍 MODBUS Send: UI values not available, using store data")
+                modbus_slave_devices = modbus_devices_store if modbus_devices_store else []
+            
             config_data = builder.build_modbus_config(
                 baud_rate=modbus_baud_rate or "9600",
                 data_bits=modbus_data_bits or "8",

@@ -171,7 +171,6 @@ class ConfigJSONBuilder:
             MODBUS configuration dictionary
         """
         return {
-            "enabled": True,
             "communication_settings": {
                 "baud_rate": int(baud_rate),
                 "data_bits": int(data_bits),
@@ -191,8 +190,7 @@ class ConfigJSONBuilder:
                     "register_address": str(device.get("register_addr", "0")),
                     "data_type": str(device.get("data_type", "int8")),
                     "endianness": str(device.get("endianness", "Big Endian")),
-                    "variable_name": str(device.get("var_name", "Variable Name")),
-                    "register_count": 1
+                    "variable_name": str(device.get("var_name", "Variable Name"))
                 }
                 for idx, device in enumerate(slave_devices)
             ]
