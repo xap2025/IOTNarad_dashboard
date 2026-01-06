@@ -767,7 +767,11 @@ class DeviceConfigDBService:
             return None
     
     def get_modbus_config(self, device_id: str) -> Optional[Dict[str, Any]]:
-        """Get latest MODBUS configuration from Device_Config_MODBUS table"""
+        """Get latest MODBUS configuration from Device_Config_MODBUS table
+        
+        CRITICAL: This must retrieve ALL slave devices, not just one.
+        The query separates settings (limit to 1) from slave devices (get all).
+        """
         if not self.connected or not device_id or not device_id.strip():
             return None
         
@@ -775,53 +779,163 @@ class DeviceConfigDBService:
             # Escape device_id for Flux query (replace backslashes and quotes)
             escaped_device_id = device_id.replace('\\', '\\\\').replace('"', '\\"')
             
-            query = f'''
+            # Query 1: Get latest settings (only 1 record needed)
+            settings_query = f'''
                 from(bucket: "{self.bucket}")
                 |> range(start: -365d)
                 |> filter(fn: (r) => r._measurement == "Device_Config_MODBUS")
                 |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
-                |> pivot(rowKey: ["_time", "config_type"], columnKey: ["_field"], valueColumn: "_value")
-                |> group(columns: ["config_type"])
+                |> filter(fn: (r) => r.config_type == "settings")
+                |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
                 |> sort(columns: ["_time"], desc: true)
                 |> limit(n: 1)
             '''
             
-            logger.debug(f"🔍 Executing MODBUS config query for device_id: {device_id}")
-            result = self.query_api.query(org=self.org, query=query)
+            # Query 2: Get ALL slave devices from the latest save
+            # CRITICAL FIX: The old query grouped by config_type and limited to 1, which only returned 1 slave device
+            # New strategy: All slave devices are saved with the SAME timestamp in one save operation
+            # We need to get ALL slave devices from the latest timestamp, not just 1 per slave_id
+            # 
+            # Approach: 
+            # 1. Find the latest timestamp for any MODBUS config
+            # 2. Get ALL slave devices from that timestamp (they all have the same timestamp)
+            # 3. Group by slave_id and get latest for each (handles multiple saves)
+            #    BUT: If all slaves are from same timestamp, we get all of them
             
-            settings = {}
-            slave_devices = []
+            # First, find the latest timestamp
+            latest_timestamp_query = f'''
+                from(bucket: "{self.bucket}")
+                |> range(start: -365d)
+                |> filter(fn: (r) => r._measurement == "Device_Config_MODBUS")
+                |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
+                |> sort(columns: ["_time"], desc: true)
+                |> limit(n: 1)
+            '''
             
-            for table in result:
+            # Get latest timestamp
+            latest_timestamp_result = self.query_api.query(org=self.org, query=latest_timestamp_query)
+            latest_timestamp = None
+            for table in latest_timestamp_result:
                 for record in table.records:
-                    config_type = record.values.get("config_type", "")
-                    
-                    if config_type == "settings":
-                        settings = {
-                            "enabled": record.values.get("enabled", False),
-                            "communication_settings": {
-                                "baud_rate": record.values.get("baud_rate", 9600),
-                                "data_bits": record.values.get("data_bits", 8),
-                                "parity": record.values.get("parity", "None"),
-                                "stop_bits": record.values.get("stop_bits", 1)
-                            },
-                            "protocol_settings": {
-                                "mode": record.values.get("mode", "RTU"),
-                                "role": record.values.get("role", "Master")
-                            },
-                            "polling_interval_ms": record.values.get("polling_interval_ms", 1000)
-                        }
-                    elif config_type == "slave_device":
+                    latest_timestamp = record.get_time()
+                    break
+            
+            # Query ALL slave devices from the latest save
+            # CRITICAL FIX: The old query grouped by config_type and limited to 1, which only returned 1 slave device
+            # New strategy: Group by slave_id (not config_type) to get latest version of each unique slave
+            # Since all slaves are saved with the same timestamp in one save, grouping by slave_id gets all of them
+            # 
+            # IMPORTANT: This query groups by slave_id and gets the latest for each
+            # If user saves 5 slaves, we get all 5 (one per unique slave_id)
+            # If user saves 1 slave later, we get that 1 (but previous 4 are still in DB with older timestamp)
+            # So we need to get ALL slaves from the LATEST timestamp, not just latest per slave_id
+            #
+            # Better approach: Get all slave devices, sort by timestamp, get the latest timestamp,
+            # then filter to only slaves from that timestamp
+            slave_devices_query = f'''
+                from(bucket: "{self.bucket}")
+                |> range(start: -365d)
+                |> filter(fn: (r) => r._measurement == "Device_Config_MODBUS")
+                |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
+                |> filter(fn: (r) => r.config_type == "slave_device")
+                |> pivot(rowKey: ["_time", "slave_id"], columnKey: ["_field"], valueColumn: "_value")
+                |> sort(columns: ["_time"], desc: true)
+                |> group(columns: ["slave_id"])
+                |> limit(n: 1)
+            '''
+            
+            logger.debug(f"🔍 Executing MODBUS config queries for device_id: {device_id}")
+            
+            # Execute settings query
+            settings_result = self.query_api.query(org=self.org, query=settings_query)
+            settings = {}
+            
+            for table in settings_result:
+                for record in table.records:
+                    settings = {
+                        "enabled": record.values.get("enabled", False),
+                        "communication_settings": {
+                            "baud_rate": record.values.get("baud_rate", 9600),
+                            "data_bits": record.values.get("data_bits", 8),
+                            "parity": record.values.get("parity", "None"),
+                            "stop_bits": record.values.get("stop_bits", 1)
+                        },
+                        "protocol_settings": {
+                            "mode": record.values.get("mode", "RTU"),
+                            "role": record.values.get("role", "Master")
+                        },
+                        "polling_interval_ms": record.values.get("polling_interval_ms", 1000)
+                    }
+                    break  # Only need first record (latest)
+            
+            # Execute slave devices query - get ALL slave devices
+            # CRITICAL: Process ALL tables from the result (InfluxDB returns one table per group)
+            # Since we group by slave_id, each unique slave_id becomes a separate table
+            slave_devices_result = self.query_api.query(org=self.org, query=slave_devices_query)
+            slave_devices = []
+            latest_slave_timestamp = None
+            
+            # First pass: Collect all slave devices and find the latest timestamp
+            all_slave_records = []
+            for table in slave_devices_result:
+                for record in table.records:
+                    record_time = record.get_time()
+                    if latest_slave_timestamp is None or record_time > latest_slave_timestamp:
+                        latest_slave_timestamp = record_time
+                    all_slave_records.append({
+                        "time": record_time,
+                        "index": record.values.get("index", 0),
+                        "slave_id": record.values.get("slave_id", "1"),
+                        "function_code": record.values.get("function_code", "0x03"),
+                        "register_address": record.values.get("register_address", "0"),
+                        "data_type": record.values.get("data_type", "int8"),
+                        "endianness": record.values.get("endianness", "Big Endian"),
+                        "variable_name": record.values.get("variable_name", ""),
+                        "register_count": record.values.get("register_count", 1)
+                    })
+            
+            # Second pass: Filter to only slaves from the latest timestamp
+            # This ensures we get ALL slaves from the latest save operation
+            # All slaves are saved with the same timestamp, so we get all of them
+            if latest_slave_timestamp:
+                from datetime import timedelta
+                time_window = timedelta(seconds=1)  # 1 second window for timestamp precision
+                for record in all_slave_records:
+                    time_diff = abs(record["time"] - latest_slave_timestamp)
+                    if time_diff <= time_window:
                         slave_devices.append({
-                            "index": record.values.get("index", 0),
-                            "slave_id": record.values.get("slave_id", "1"),
-                            "function_code": record.values.get("function_code", "0x03"),
-                            "register_address": record.values.get("register_address", "0"),
-                            "data_type": record.values.get("data_type", "int8"),
-                            "endianness": record.values.get("endianness", "Big Endian"),
-                            "variable_name": record.values.get("variable_name", ""),
-                            "register_count": record.values.get("register_count", 1)
+                            "index": record["index"],
+                            "slave_id": record["slave_id"],
+                            "function_code": record["function_code"],
+                            "register_address": record["register_address"],
+                            "data_type": record["data_type"],
+                            "endianness": record["endianness"],
+                            "variable_name": record["variable_name"],
+                            "register_count": record["register_count"]
                         })
+            else:
+                # Fallback: Use all records if no timestamp found
+                for record in all_slave_records:
+                    slave_devices.append({
+                        "index": record["index"],
+                        "slave_id": record["slave_id"],
+                        "function_code": record["function_code"],
+                        "register_address": record["register_address"],
+                        "data_type": record["data_type"],
+                        "endianness": record["endianness"],
+                        "variable_name": record["variable_name"],
+                        "register_count": record["register_count"]
+                    })
+            
+            # Sort slave devices by index to ensure correct order
+            slave_devices.sort(key=lambda x: x.get("index", 0))
+            
+            logger.info(f"✅ MODBUS config loaded: {len(slave_devices)} slave device(s) found for device {device_id}")
+            if len(slave_devices) > 0:
+                logger.debug(f"   Slave IDs: {[s.get('slave_id') for s in slave_devices]}")
+                logger.debug(f"   Indices: {[s.get('index') for s in slave_devices]}")
+                if latest_slave_timestamp:
+                    logger.debug(f"   Latest timestamp: {latest_slave_timestamp}")
             
             if not settings:
                 return None
