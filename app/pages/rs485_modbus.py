@@ -573,40 +573,39 @@ def manage_modbus_devices(add_clicks, remove_clicks_list, devices_data, trigger_
         logger = logging.getLogger(__name__)
         logger.info(f"➕ MODBUS: Adding new device. Current store has {len(devices_data)} row(s)")
         
-        # CRITICAL: First, merge current UI values into store to preserve user-filled data
-        # This ensures that any values the user just filled are preserved before adding new row
+        # CRITICAL: Build updated devices from CURRENT UI values, not from stale store
+        # This ensures all user-filled values are preserved, including the first row
         updated_devices = []
         
-        # Get current UI row count
-        ui_row_count = len(slave_ids) if slave_ids else len(devices_data)
+        # Get current UI row count - this is the source of truth
+        ui_row_count = len(slave_ids) if slave_ids else 0
         
-        # Merge UI values with store data - prioritize UI values (user just filled them)
-        for idx in range(max(ui_row_count, len(devices_data))):
-            if idx < len(devices_data):
-                # Use store data as base
-                device = devices_data[idx].copy()
-            else:
-                # New row from UI that's not in store yet
-                device = {"index": idx, "slave_id": "1", "function_code": "0x03", "register_addr": "0", 
-                          "data_type": "int8", "endianness": "Big Endian", "var_name": "Variable Name"}
-            
-            # Override with UI values if available (user just filled them)
-            if idx < ui_row_count:
-                if slave_ids and idx < len(slave_ids) and slave_ids[idx] is not None:
-                    device["slave_id"] = str(slave_ids[idx])
-                if function_codes and idx < len(function_codes) and function_codes[idx]:
-                    device["function_code"] = str(function_codes[idx])
-                if register_addrs and idx < len(register_addrs) and register_addrs[idx] is not None:
-                    device["register_addr"] = str(register_addrs[idx])
-                if data_types and idx < len(data_types) and data_types[idx]:
-                    device["data_type"] = str(data_types[idx])
-                if endianness_list and idx < len(endianness_list) and endianness_list[idx]:
-                    device["endianness"] = str(endianness_list[idx])
-                if var_names and idx < len(var_names) and var_names[idx] is not None:
-                    device["var_name"] = str(var_names[idx])
-            
-            device["index"] = idx  # Ensure correct index
-            updated_devices.append(device)
+        # If we have UI values, use them directly (most up-to-date)
+        if ui_row_count > 0 and slave_ids and function_codes and register_addrs and data_types and endianness_list and var_names:
+            logger.debug(f"   Using UI values: {ui_row_count} row(s) from UI inputs")
+            for idx in range(ui_row_count):
+                updated_devices.append({
+                    "index": idx,
+                    "slave_id": str(slave_ids[idx]) if slave_ids[idx] is not None else str(idx + 1),
+                    "function_code": str(function_codes[idx]) if function_codes[idx] else "0x03",
+                    "register_addr": str(register_addrs[idx]) if register_addrs[idx] is not None else "0",
+                    "data_type": str(data_types[idx]) if data_types[idx] else "int8",
+                    "endianness": str(endianness_list[idx]) if endianness_list[idx] else "Big Endian",
+                    "var_name": str(var_names[idx]) if var_names[idx] is not None else "Variable Name"
+                })
+        else:
+            # Fallback: Use store data if UI values not available
+            logger.debug(f"   UI values not available, using store data")
+            for idx, device in enumerate(devices_data):
+                updated_devices.append({
+                    "index": idx,
+                    "slave_id": str(device.get("slave_id", "1")),
+                    "function_code": str(device.get("function_code", "0x03")),
+                    "register_addr": str(device.get("register_addr", "0")),
+                    "data_type": str(device.get("data_type", "int8")),
+                    "endianness": str(device.get("endianness", "Big Endian")),
+                    "var_name": str(device.get("var_name", "Variable Name"))
+                })
         
         # Calculate next slave ID by finding the maximum existing slave ID and incrementing
         max_slave_id = 0
