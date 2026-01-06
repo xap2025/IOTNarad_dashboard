@@ -298,32 +298,13 @@ def load_modbus_configuration(device_id, pathname, reload_trigger, active_tab, s
         
         # Load MODBUS config from database
         # If triggered by reload trigger, add a small delay to ensure DB write is flushed
-        # BUT: Don't overwrite the store if user just saved - the store already has the correct data
+        # CRITICAL: Always load from database to ensure we get the latest saved data
+        # Don't preserve store - reload from database to show what was actually saved
         if triggered_id == 'config-reload-trigger':
             import time
             time.sleep(0.5)  # Wait 0.5 seconds to ensure database write is fully flushed
-            # After save, the store already has the correct data, so we should preserve it
-            # Only reload from database if we're loading a different device or on page load
-            logger.info(f"🔄 MODBUS reload triggered after save - preserving current store state")
-            # Return no_update for devices_store to preserve current UI state
-            # Only update other fields (baud_rate, etc.) if they changed
-            modbus_config = db_service.get_modbus_config(device_id)
-            if modbus_config:
-                comm_settings = modbus_config.get("communication_settings", {})
-                protocol_settings = modbus_config.get("protocol_settings", {})
-                return (
-                    str(comm_settings.get("baud_rate", 9600)),
-                    str(comm_settings.get("data_bits", 8)),
-                    comm_settings.get("parity", "None"),
-                    str(comm_settings.get("stop_bits", 1)),
-                    protocol_settings.get("mode", "RTU"),
-                    protocol_settings.get("role", "Master"),
-                    modbus_config.get("polling_interval_ms", 1000),
-                    no_update  # Preserve current store state - don't overwrite
-                )
-            else:
-                # No config in DB, but preserve store anyway
-                return [no_update] * 8
+            logger.info(f"🔄 MODBUS reload triggered after save - loading from database to show saved data")
+            # Continue to load from database below (don't return early)
         
         logger.info(f"🔄 Loading MODBUS config from database for device {device_id}, triggered by: {triggered_id}")
         modbus_config = db_service.get_modbus_config(device_id)
@@ -697,12 +678,28 @@ def sync_modbus_devices_store(slave_ids, function_codes, register_addrs, data_ty
     CRITICAL: This callback must NEVER reduce the number of rows.
     It should only update values in existing rows, or add rows if UI has more.
     
+    IMPORTANT: This callback should NOT run during row addition.
+    It should only run when user actually edits values in existing, fully-rendered rows.
+    
     Strategy:
     1. Get current store state (preserves all existing rows)
     2. Merge UI values into store (update existing, add new if needed)
     3. Never remove rows - only update or add
+    4. Skip update if data is incomplete (rows being added)
     """
     logger = logging.getLogger(__name__)
+    
+    # CRITICAL: Check trigger store - if it changed recently, row addition might be in progress
+    # Wait a bit before syncing to avoid race conditions
+    import time
+    current_time = time.time()
+    if trigger_value and isinstance(trigger_value, (int, float)) and trigger_value > 1000000000:  # Timestamp (seconds since epoch)
+        # If trigger was updated very recently (< 1 second ago), skip sync
+        # This prevents sync from running immediately after row addition
+        time_since_trigger = current_time - trigger_value
+        if time_since_trigger < 1.0:
+            logger.debug(f"⚠️ MODBUS sync: Trigger store updated recently ({time_since_trigger:.2f}s ago). Skipping update (row addition likely in progress)")
+            return no_update
     
     # If no slave_ids from UI, don't update (inputs not ready)
     if not slave_ids or len(slave_ids) == 0:
@@ -718,15 +715,29 @@ def sync_modbus_devices_store(slave_ids, function_codes, register_addrs, data_ty
     row_count = len(slave_ids)
     collections = [function_codes, register_addrs, data_types, endianness_list, var_names]
     
-    # Check if all collections have the same length
+    # CRITICAL: Check if all collections have the same length
     # If not, inputs are still being rendered - don't update store
+    # This prevents sync from running during row addition
     if any(len(lst) != row_count for lst in collections):
-        logger.debug(f"⚠️ MODBUS sync: Mismatched collection lengths. slave_ids: {row_count}, others: {[len(lst) for lst in collections]}. Skipping update (inputs still rendering)")
+        logger.debug(f"⚠️ MODBUS sync: Mismatched collection lengths. slave_ids: {row_count}, others: {[len(lst) for lst in collections]}. Skipping update (inputs still rendering - likely row addition in progress)")
         return no_update
     
     # Check if any collection is None or empty (inputs not ready)
     if any(lst is None or len(lst) == 0 for lst in collections):
         logger.debug("⚠️ MODBUS sync: Some collections are None or empty. Skipping update (inputs not ready)")
+        return no_update
+    
+    # CRITICAL: If UI has fewer rows than store, it means rows are being added
+    # Don't update store during row addition - wait until all rows are rendered
+    # Also check if UI has significantly more rows - might be rendering
+    if row_count < len(current_store):
+        logger.debug(f"⚠️ MODBUS sync: UI has {row_count} rows but store has {len(current_store)} rows. Skipping update (row addition in progress)")
+        return no_update
+    
+    # CRITICAL: If UI has more rows than store, but the difference is large, might be rendering
+    # Only allow sync if UI rows match or are slightly more (1-2 rows difference max)
+    if row_count > len(current_store) + 2:
+        logger.debug(f"⚠️ MODBUS sync: UI has {row_count} rows but store has {len(current_store)} rows. Large difference suggests rendering in progress. Skipping update.")
         return no_update
     
     # CRITICAL: Merge UI values with current store

@@ -897,9 +897,10 @@ class DeviceConfigDBService:
             # Second pass: Filter to only slaves from the latest timestamp
             # This ensures we get ALL slaves from the latest save operation
             # All slaves are saved with the same timestamp, so we get all of them
+            # CRITICAL: Use a larger time window (5 seconds) to handle any timestamp precision issues
             if latest_slave_timestamp:
                 from datetime import timedelta
-                time_window = timedelta(seconds=1)  # 1 second window for timestamp precision
+                time_window = timedelta(seconds=5)  # 5 second window for timestamp precision
                 for record in all_slave_records:
                     time_diff = abs(record["time"] - latest_slave_timestamp)
                     if time_diff <= time_window:
@@ -913,6 +914,7 @@ class DeviceConfigDBService:
                             "variable_name": record["variable_name"],
                             "register_count": record["register_count"]
                         })
+                logger.debug(f"   Filtered to {len(slave_devices)} slave(s) from latest timestamp {latest_slave_timestamp}")
             else:
                 # Fallback: Use all records if no timestamp found
                 for record in all_slave_records:
@@ -926,6 +928,7 @@ class DeviceConfigDBService:
                         "variable_name": record["variable_name"],
                         "register_count": record["register_count"]
                     })
+                logger.debug(f"   No timestamp found, using all {len(slave_devices)} slave record(s)")
             
             # Sort slave devices by index to ensure correct order
             slave_devices.sort(key=lambda x: x.get("index", 0))
