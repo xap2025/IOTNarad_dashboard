@@ -1227,6 +1227,19 @@ def load_config_from_device(n_clicks, serial_number, active_tab):
     State('can-filter-mask', 'value'),
     State('can-messages-store', 'data'),
     State('can-data-mapping-store', 'data'),
+    # CRITICAL: Get current UI values directly to ensure we send all rows
+    State({'type': 'can-message-id', 'index': ALL}, 'value'),
+    State({'type': 'can-message-direction', 'index': ALL}, 'value'),
+    State({'type': 'can-message-period', 'index': ALL}, 'value'),
+    State({'type': 'can-message-var-name', 'index': ALL}, 'value'),
+    State({'type': 'can-data-can-id', 'index': ALL}, 'value'),
+    State({'type': 'can-data-byte-pos', 'index': ALL}, 'value'),
+    State({'type': 'can-data-length', 'index': ALL}, 'value'),
+    State({'type': 'can-data-type', 'index': ALL}, 'value'),
+    State({'type': 'can-data-endianness', 'index': ALL}, 'value'),
+    State({'type': 'can-data-var-name', 'index': ALL}, 'value'),
+    State({'type': 'can-data-scale', 'index': ALL}, 'value'),
+    State({'type': 'can-data-offset', 'index': ALL}, 'value'),
     prevent_initial_call=True
 )
 def send_configuration_to_device(
@@ -1252,7 +1265,10 @@ def send_configuration_to_device(
     modbus_data_types, modbus_endianness_list, modbus_var_names,
     # CAN Bus
     can_baud_rate, can_identifier_length, can_mode, can_filter_mode,
-    can_filter_id, can_filter_mask, can_messages_store, can_data_mapping_store
+    can_filter_id, can_filter_mask, can_messages_store, can_data_mapping_store,
+    can_message_ids, can_message_directions, can_message_periods, can_message_var_names,
+    can_data_can_ids, can_data_byte_positions, can_data_lengths, can_data_types,
+    can_data_endianness_list, can_data_var_names, can_data_scales, can_data_offsets
 ):
     """Send configuration to device via MQTT based on active tab."""
     if not n_clicks:
@@ -1496,8 +1512,50 @@ def send_configuration_to_device(
         
         elif active_tab == 'tab-canbus':
             # Build CAN Bus config
-            can_messages = can_messages_store if can_messages_store else []
-            can_data_mappings = can_data_mapping_store if can_data_mapping_store else []
+            # CRITICAL: Use UI values directly (same fix as MODBUS)
+            can_messages = []
+            ui_message_count = len(can_message_ids) if can_message_ids else 0
+            
+            # If we have UI values, use them directly (most up-to-date)
+            if ui_message_count > 0 and can_message_ids and can_message_directions and can_message_periods and can_message_var_names:
+                logger.info(f"🔍 CAN Bus Send: Using UI values directly for messages ({ui_message_count} row(s))")
+                for idx in range(ui_message_count):
+                    can_messages.append({
+                        "index": idx,
+                        "can_id": str(can_message_ids[idx]) if can_message_ids[idx] is not None else "0x123",
+                        "direction": str(can_message_directions[idx]) if can_message_directions[idx] else "TX",
+                        "period_ms": int(can_message_periods[idx]) if can_message_periods[idx] is not None else 100,
+                        "variable_name": str(can_message_var_names[idx]) if can_message_var_names[idx] is not None else "Message Name"
+                    })
+            else:
+                # Fallback: Use store data if UI values not available
+                logger.info(f"🔍 CAN Bus Send: UI values not available, using store data for messages")
+                can_messages = can_messages_store if can_messages_store else []
+            
+            # CRITICAL: Use UI values directly for data mappings
+            can_data_mappings = []
+            ui_mapping_count = len(can_data_can_ids) if can_data_can_ids else 0
+            
+            # If we have UI values, use them directly (most up-to-date)
+            if ui_mapping_count > 0 and can_data_can_ids and can_data_byte_positions and can_data_lengths and can_data_types and can_data_endianness_list and can_data_var_names and can_data_scales and can_data_offsets:
+                logger.info(f"🔍 CAN Bus Send: Using UI values directly for data mappings ({ui_mapping_count} row(s))")
+                for idx in range(ui_mapping_count):
+                    can_data_mappings.append({
+                        "index": idx,
+                        "can_id": str(can_data_can_ids[idx]) if can_data_can_ids[idx] is not None else "0x123",
+                        "byte_position": str(can_data_byte_positions[idx]) if can_data_byte_positions[idx] else "Byte 0",
+                        "data_length": str(can_data_lengths[idx]) if can_data_lengths[idx] else "1 Byte",
+                        "data_type": str(can_data_types[idx]) if can_data_types[idx] else "int8",
+                        "endianness": str(can_data_endianness_list[idx]) if can_data_endianness_list[idx] else "Big Endian",
+                        "variable_name": str(can_data_var_names[idx]) if can_data_var_names[idx] is not None else "Variable Name",
+                        "scale_factor": float(can_data_scales[idx]) if can_data_scales[idx] is not None else 1.0,
+                        "offset": float(can_data_offsets[idx]) if can_data_offsets[idx] is not None else 0.0
+                    })
+            else:
+                # Fallback: Use store data if UI values not available
+                logger.info(f"🔍 CAN Bus Send: UI values not available, using store data for data mappings")
+                can_data_mappings = can_data_mapping_store if can_data_mapping_store else []
+            
             config_data = builder.build_can_bus_config(
                 baud_rate=can_baud_rate or "500",
                 identifier_length=can_identifier_length or "11-bit",
@@ -2648,6 +2706,19 @@ def save_modbus_configuration(
     State('can-filter-mask', 'value'),
     State('can-messages-store', 'data'),
     State('can-data-mapping-store', 'data'),
+    # CRITICAL: Get current UI values directly to ensure we save all rows
+    State({'type': 'can-message-id', 'index': ALL}, 'value'),
+    State({'type': 'can-message-direction', 'index': ALL}, 'value'),
+    State({'type': 'can-message-period', 'index': ALL}, 'value'),
+    State({'type': 'can-message-var-name', 'index': ALL}, 'value'),
+    State({'type': 'can-data-can-id', 'index': ALL}, 'value'),
+    State({'type': 'can-data-byte-pos', 'index': ALL}, 'value'),
+    State({'type': 'can-data-length', 'index': ALL}, 'value'),
+    State({'type': 'can-data-type', 'index': ALL}, 'value'),
+    State({'type': 'can-data-endianness', 'index': ALL}, 'value'),
+    State({'type': 'can-data-var-name', 'index': ALL}, 'value'),
+    State({'type': 'can-data-scale', 'index': ALL}, 'value'),
+    State({'type': 'can-data-offset', 'index': ALL}, 'value'),
     # Device Selection (Serial Number)
     State('device-selector', 'value'),
     State('device-config-session-store', 'data'),
@@ -2657,6 +2728,9 @@ def save_canbus_configuration(
     n_clicks,
     can_baud_rate, can_identifier_length, can_mode, can_filter_mode,
     can_filter_id, can_filter_mask, can_messages_store, can_data_mapping_store,
+    ui_can_message_ids, ui_can_message_directions, ui_can_message_periods, ui_can_message_var_names,
+    ui_can_data_can_ids, ui_can_data_byte_positions, ui_can_data_lengths, ui_can_data_types,
+    ui_can_data_endianness_list, ui_can_data_var_names, ui_can_data_scales, ui_can_data_offsets,
     serial_number,
     session_data
 ):
@@ -2720,8 +2794,50 @@ def save_canbus_configuration(
             ])
         
         # Build CAN Bus Config
-        can_messages = can_messages_store if can_messages_store else []
-        can_data_mappings = can_data_mapping_store if can_data_mapping_store else []
+        # CRITICAL: Use UI values directly (same fix as MODBUS)
+        can_messages = []
+        ui_message_count = len(ui_can_message_ids) if ui_can_message_ids else 0
+        
+        # If we have UI values, use them directly (most up-to-date)
+        if ui_message_count > 0 and ui_can_message_ids and ui_can_message_directions and ui_can_message_periods and ui_can_message_var_names:
+            logger.info(f"🔍 CAN Bus Save: Using UI values directly for messages ({ui_message_count} row(s))")
+            for idx in range(ui_message_count):
+                can_messages.append({
+                    "index": idx,
+                    "can_id": str(ui_can_message_ids[idx]) if ui_can_message_ids[idx] is not None else "0x123",
+                    "direction": str(ui_can_message_directions[idx]) if ui_can_message_directions[idx] else "TX",
+                    "period_ms": int(ui_can_message_periods[idx]) if ui_can_message_periods[idx] is not None else 100,
+                    "variable_name": str(ui_can_message_var_names[idx]) if ui_can_message_var_names[idx] is not None else "Message Name"
+                })
+        else:
+            # Fallback: Use store data if UI values not available
+            logger.info(f"🔍 CAN Bus Save: UI values not available, using store data for messages")
+            can_messages = can_messages_store if can_messages_store else []
+        
+        # CRITICAL: Use UI values directly for data mappings
+        can_data_mappings = []
+        ui_mapping_count = len(ui_can_data_can_ids) if ui_can_data_can_ids else 0
+        
+        # If we have UI values, use them directly (most up-to-date)
+        if ui_mapping_count > 0 and ui_can_data_can_ids and ui_can_data_byte_positions and ui_can_data_lengths and ui_can_data_types and ui_can_data_endianness_list and ui_can_data_var_names and ui_can_data_scales and ui_can_data_offsets:
+            logger.info(f"🔍 CAN Bus Save: Using UI values directly for data mappings ({ui_mapping_count} row(s))")
+            for idx in range(ui_mapping_count):
+                can_data_mappings.append({
+                    "index": idx,
+                    "can_id": str(ui_can_data_can_ids[idx]) if ui_can_data_can_ids[idx] is not None else "0x123",
+                    "byte_position": str(ui_can_data_byte_positions[idx]) if ui_can_data_byte_positions[idx] else "Byte 0",
+                    "data_length": str(ui_can_data_lengths[idx]) if ui_can_data_lengths[idx] else "1 Byte",
+                    "data_type": str(ui_can_data_types[idx]) if ui_can_data_types[idx] else "int8",
+                    "endianness": str(ui_can_data_endianness_list[idx]) if ui_can_data_endianness_list[idx] else "Big Endian",
+                    "variable_name": str(ui_can_data_var_names[idx]) if ui_can_data_var_names[idx] is not None else "Variable Name",
+                    "scale_factor": float(ui_can_data_scales[idx]) if ui_can_data_scales[idx] is not None else 1.0,
+                    "offset": float(ui_can_data_offsets[idx]) if ui_can_data_offsets[idx] is not None else 0.0
+                })
+        else:
+            # Fallback: Use store data if UI values not available
+            logger.info(f"🔍 CAN Bus Save: UI values not available, using store data for data mappings")
+            can_data_mappings = can_data_mapping_store if can_data_mapping_store else []
+        
         can_bus_config = builder.build_can_bus_config(
             baud_rate=can_baud_rate,
             identifier_length=can_identifier_length or "11-bit",

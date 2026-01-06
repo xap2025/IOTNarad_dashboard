@@ -569,8 +569,11 @@ def update_can_messages_table(messages_data):
     
     logger.debug(f"📊 CAN messages table: Creating {len(messages_data)} row(s) from store data")
     
+    # Sort by index to ensure correct order
+    sorted_messages = sorted(messages_data, key=lambda x: x.get("index", 0))
+    
     rows = []
-    for message in messages_data:
+    for message in sorted_messages:
         rows.append(create_can_message_row(
             message.get("index", 0),
             message.get("can_id", "0x123"),
@@ -603,8 +606,11 @@ def update_can_data_mapping_table(mappings_data):
     
     logger.debug(f"📊 CAN data mapping table: Creating {len(mappings_data)} row(s) from store data")
     
+    # Sort by index to ensure correct order
+    sorted_mappings = sorted(mappings_data, key=lambda x: x.get("index", 0))
+    
     rows = []
-    for mapping in mappings_data:
+    for mapping in sorted_mappings:
         rows.append(create_can_data_mapping_row(
             mapping.get("index", 0),
             mapping.get("can_id", "0x123"),
@@ -629,9 +635,15 @@ def update_can_data_mapping_table(mappings_data):
     Input({'type': 'can-remove-message', 'index': ALL}, 'n_clicks'),
     State('can-messages-store', 'data'),
     State('can-messages-trigger-store', 'data'),
+    # CRITICAL: Get current UI values to preserve user-filled data
+    State({'type': 'can-message-id', 'index': ALL}, 'value'),
+    State({'type': 'can-message-direction', 'index': ALL}, 'value'),
+    State({'type': 'can-message-period', 'index': ALL}, 'value'),
+    State({'type': 'can-message-var-name', 'index': ALL}, 'value'),
     prevent_initial_call=True
 )
-def manage_can_messages(add_clicks, remove_clicks_list, messages_data, trigger_value):
+def manage_can_messages(add_clicks, remove_clicks_list, messages_data, trigger_value,
+                        can_ids, directions, periods, var_names):
     """Handle both add and remove CAN message operations"""
     if not ctx.triggered:
         return no_update, no_update
@@ -646,15 +658,38 @@ def manage_can_messages(add_clicks, remove_clicks_list, messages_data, trigger_v
     
     # Handle ADD operation
     if 'add-can-message-btn' in triggered_id:
+        logger = logging.getLogger(__name__)
+        logger.info(f"➕ CAN: Adding new message. Current store has {len(messages_data)} row(s)")
+        
+        # CRITICAL: Build updated messages from CURRENT UI values, not from stale store
+        # This ensures all user-filled values are preserved
         updated_messages = []
-        for idx, message in enumerate(messages_data):
-            updated_messages.append({
-                "index": idx,
-                "can_id": str(message.get("can_id", "0x123")),
-                "direction": str(message.get("direction", "TX")),
-                "period": str(message.get("period", "100")),
-                "var_name": str(message.get("var_name", "Message Name"))
-            })
+        
+        # Get current UI row count - this is the source of truth
+        ui_row_count = len(can_ids) if can_ids else 0
+        
+        # If we have UI values, use them directly (most up-to-date)
+        if ui_row_count > 0 and can_ids and directions and periods and var_names:
+            logger.debug(f"   Using UI values: {ui_row_count} row(s) from UI inputs")
+            for idx in range(ui_row_count):
+                updated_messages.append({
+                    "index": idx,
+                    "can_id": str(can_ids[idx]) if can_ids[idx] is not None else "0x123",
+                    "direction": str(directions[idx]) if directions[idx] else "TX",
+                    "period": str(periods[idx]) if periods[idx] is not None else "100",
+                    "var_name": str(var_names[idx]) if var_names[idx] is not None else "Message Name"
+                })
+        else:
+            # Fallback: Use store data if UI values not available
+            logger.debug(f"   UI values not available, using store data")
+            for idx, message in enumerate(messages_data):
+                updated_messages.append({
+                    "index": idx,
+                    "can_id": str(message.get("can_id", "0x123")),
+                    "direction": str(message.get("direction", "TX")),
+                    "period": str(message.get("period", "100")),
+                    "var_name": str(message.get("var_name", "Message Name"))
+                })
         
         # Calculate next CAN ID by finding the maximum existing CAN ID and incrementing
         max_can_id = 0x123  # Default starting CAN ID
@@ -682,7 +717,13 @@ def manage_can_messages(add_clicks, remove_clicks_list, messages_data, trigger_v
             "var_name": "Message Name"
         })
         
-        return updated_messages, (trigger_value if trigger_value is not None else 0) + 1
+        logger.info(f"✅ CAN: Added new message. Store now has {len(updated_messages)} row(s). New CAN ID: {next_can_id}")
+        
+        # Use timestamp for trigger to track when row was added
+        import time
+        new_trigger = time.time()  # Use current timestamp
+        logger.debug(f"✅ CAN: Updated trigger store to {new_trigger} (timestamp)")
+        return updated_messages, new_trigger
     
     # Handle REMOVE operation
     if 'can-remove-message' in triggered_id and 'index' in triggered_id:
@@ -730,9 +771,19 @@ def manage_can_messages(add_clicks, remove_clicks_list, messages_data, trigger_v
     Input({'type': 'can-remove-data-mapping', 'index': ALL}, 'n_clicks'),
     State('can-data-mapping-store', 'data'),
     State('can-data-mapping-trigger-store', 'data'),
+    # CRITICAL: Get current UI values to preserve user-filled data
+    State({'type': 'can-data-can-id', 'index': ALL}, 'value'),
+    State({'type': 'can-data-byte-pos', 'index': ALL}, 'value'),
+    State({'type': 'can-data-length', 'index': ALL}, 'value'),
+    State({'type': 'can-data-type', 'index': ALL}, 'value'),
+    State({'type': 'can-data-endianness', 'index': ALL}, 'value'),
+    State({'type': 'can-data-var-name', 'index': ALL}, 'value'),
+    State({'type': 'can-data-scale', 'index': ALL}, 'value'),
+    State({'type': 'can-data-offset', 'index': ALL}, 'value'),
     prevent_initial_call=True
 )
-def manage_can_data_mappings(add_clicks, remove_clicks_list, mappings_data, trigger_value):
+def manage_can_data_mappings(add_clicks, remove_clicks_list, mappings_data, trigger_value,
+                              can_ids, byte_positions, data_lengths, data_types, endianness_list, var_names, scales, offsets):
     """Handle both add and remove CAN data mapping operations"""
     if not ctx.triggered:
         return no_update, no_update
@@ -747,19 +798,46 @@ def manage_can_data_mappings(add_clicks, remove_clicks_list, mappings_data, trig
     
     # Handle ADD operation
     if 'add-can-data-mapping-btn' in triggered_id:
+        logger = logging.getLogger(__name__)
+        logger.info(f"➕ CAN Data Mapping: Adding new mapping. Current store has {len(mappings_data)} row(s)")
+        
+        # CRITICAL: Build updated mappings from CURRENT UI values, not from stale store
+        # This ensures all user-filled values are preserved
         updated_mappings = []
-        for idx, mapping in enumerate(mappings_data):
-            updated_mappings.append({
-                "index": idx,
-                "can_id": str(mapping.get("can_id", "0x123")),
-                "byte_pos": str(mapping.get("byte_pos", "Byte 0")),
-                "data_len": str(mapping.get("data_len", "1 Byte")),
-                "data_type": str(mapping.get("data_type", "int8")),
-                "endianness": str(mapping.get("endianness", "Big Endian")),
-                "var_name": str(mapping.get("var_name", "Variable Name")),
-                "scale": str(mapping.get("scale", "1")),
-                "offset": str(mapping.get("offset", "0"))
-            })
+        
+        # Get current UI row count - this is the source of truth
+        ui_row_count = len(can_ids) if can_ids else 0
+        
+        # If we have UI values, use them directly (most up-to-date)
+        if ui_row_count > 0 and can_ids and byte_positions and data_lengths and data_types and endianness_list and var_names and scales and offsets:
+            logger.debug(f"   Using UI values: {ui_row_count} row(s) from UI inputs")
+            for idx in range(ui_row_count):
+                updated_mappings.append({
+                    "index": idx,
+                    "can_id": str(can_ids[idx]) if can_ids[idx] is not None else "0x123",
+                    "byte_pos": str(byte_positions[idx]) if byte_positions[idx] else "Byte 0",
+                    "data_len": str(data_lengths[idx]) if data_lengths[idx] else "1 Byte",
+                    "data_type": str(data_types[idx]) if data_types[idx] else "int8",
+                    "endianness": str(endianness_list[idx]) if endianness_list[idx] else "Big Endian",
+                    "var_name": str(var_names[idx]) if var_names[idx] is not None else "Variable Name",
+                    "scale": str(scales[idx]) if scales[idx] is not None else "1",
+                    "offset": str(offsets[idx]) if offsets[idx] is not None else "0"
+                })
+        else:
+            # Fallback: Use store data if UI values not available
+            logger.debug(f"   UI values not available, using store data")
+            for idx, mapping in enumerate(mappings_data):
+                updated_mappings.append({
+                    "index": idx,
+                    "can_id": str(mapping.get("can_id", "0x123")),
+                    "byte_pos": str(mapping.get("byte_pos", "Byte 0")),
+                    "data_len": str(mapping.get("data_len", "1 Byte")),
+                    "data_type": str(mapping.get("data_type", "int8")),
+                    "endianness": str(mapping.get("endianness", "Big Endian")),
+                    "var_name": str(mapping.get("var_name", "Variable Name")),
+                    "scale": str(mapping.get("scale", "1")),
+                    "offset": str(mapping.get("offset", "0"))
+                })
         
         # Calculate next CAN ID by finding the maximum existing CAN ID and incrementing
         max_can_id = 0x123  # Default starting CAN ID
@@ -791,7 +869,13 @@ def manage_can_data_mappings(add_clicks, remove_clicks_list, mappings_data, trig
             "offset": "0"
         })
         
-        return updated_mappings, (trigger_value if trigger_value is not None else 0) + 1
+        logger.info(f"✅ CAN Data Mapping: Added new mapping. Store now has {len(updated_mappings)} row(s). New CAN ID: {next_can_id}")
+        
+        # Use timestamp for trigger to track when row was added
+        import time
+        new_trigger = time.time()  # Use current timestamp
+        logger.debug(f"✅ CAN Data Mapping: Updated trigger store to {new_trigger} (timestamp)")
+        return updated_mappings, new_trigger
     
     # Handle REMOVE operation
     if 'can-remove-data-mapping' in triggered_id and 'index' in triggered_id:
@@ -833,3 +917,211 @@ def manage_can_data_mappings(add_clicks, remove_clicks_list, mappings_data, trig
         return updated_mappings, (trigger_value if trigger_value is not None else 0) + 1
     
     return no_update, no_update
+
+
+# Sync callback for CAN messages store
+@callback(
+    Output('can-messages-store', 'data', allow_duplicate=True),
+    [
+        Input({'type': 'can-message-id', 'index': ALL}, 'value'),
+        Input({'type': 'can-message-direction', 'index': ALL}, 'value'),
+        Input({'type': 'can-message-period', 'index': ALL}, 'value'),
+        Input({'type': 'can-message-var-name', 'index': ALL}, 'value'),
+    ],
+    [
+        State('can-messages-store', 'data'),  # Get current store state
+        State('can-messages-trigger-store', 'data'),  # Check if row addition is in progress
+    ],
+    prevent_initial_call=True
+)
+def sync_can_messages_store(can_ids, directions, periods, var_names, current_store, trigger_value):
+    """Synchronize can-messages-store with the latest UI values.
+    
+    CRITICAL: This callback must NEVER reduce the number of rows.
+    It should only update values in existing rows, or add rows if UI has more.
+    
+    IMPORTANT: This callback should NOT run during row addition.
+    It should only run when user actually edits values in existing, fully-rendered rows.
+    """
+    logger = logging.getLogger(__name__)
+    
+    # CRITICAL: Check trigger store - if it changed recently, row addition might be in progress
+    import time
+    current_time = time.time()
+    if trigger_value and isinstance(trigger_value, (int, float)):
+        if trigger_value >= 1000000000:  # Timestamp (seconds since epoch)
+            time_since_trigger = current_time - trigger_value
+            if time_since_trigger < 2.0:
+                logger.debug(f"⚠️ CAN messages sync: Trigger store updated recently ({time_since_trigger:.2f}s ago). Skipping update")
+                return no_update
+        else:
+            if trigger_value < 10:
+                logger.debug(f"⚠️ CAN messages sync: Trigger store has low counter value ({trigger_value}). Skipping update")
+                return no_update
+    
+    if not can_ids or len(can_ids) == 0:
+        logger.debug("⚠️ CAN messages sync: No can_ids from UI, skipping update")
+        return no_update
+    
+    if current_store is None:
+        current_store = []
+    if len(current_store) == 0:
+        current_store = [{"index": 0, "can_id": "0x123", "direction": "TX", "period": "100", "var_name": "Message Name"}]
+    
+    row_count = len(can_ids)
+    collections = [directions, periods, var_names]
+    
+    if any(len(lst) != row_count for lst in collections):
+        logger.debug(f"⚠️ CAN messages sync: Mismatched collection lengths. can_ids: {row_count}, others: {[len(lst) for lst in collections]}. Skipping update")
+        return no_update
+    
+    if any(lst is None or len(lst) == 0 for lst in collections):
+        logger.debug("⚠️ CAN messages sync: Some collections are None or empty. Skipping update")
+        return no_update
+    
+    if row_count < len(current_store):
+        logger.debug(f"⚠️ CAN messages sync: UI has {row_count} rows but store has {len(current_store)} rows. Skipping update")
+        return no_update
+    
+    if row_count > len(current_store) + 1:
+        logger.debug(f"⚠️ CAN messages sync: UI has {row_count} rows but store has {len(current_store)} rows. Large difference suggests rendering. Skipping update.")
+        return no_update
+    
+    # CRITICAL: Merge UI values with current store
+    updated_messages = []
+    store_map = {msg.get("index", idx): msg for idx, msg in enumerate(current_store)}
+    max_store_index = max(store_map.keys()) if store_map else -1
+    
+    # Start with all existing rows from store (preserves all rows)
+    for idx in range(max(len(current_store), row_count)):
+        if idx < len(current_store):
+            msg = current_store[idx].copy()
+        else:
+            msg = {"index": idx, "can_id": "0x123", "direction": "TX", "period": "100", "var_name": "Message Name"}
+        
+        # Override with UI values if available
+        if idx < row_count:
+            if can_ids and idx < len(can_ids) and can_ids[idx] is not None:
+                msg["can_id"] = str(can_ids[idx])
+            if directions and idx < len(directions) and directions[idx]:
+                msg["direction"] = str(directions[idx])
+            if periods and idx < len(periods) and periods[idx] is not None:
+                msg["period"] = str(periods[idx])
+            if var_names and idx < len(var_names) and var_names[idx] is not None:
+                msg["var_name"] = str(var_names[idx])
+        
+        msg["index"] = idx
+        updated_messages.append(msg)
+    
+    logger.debug(f"✅ CAN messages sync: Updated store with {len(updated_messages)} row(s) (UI had {row_count}, store had {len(current_store)})")
+    return updated_messages
+
+
+# Sync callback for CAN data mapping store
+@callback(
+    Output('can-data-mapping-store', 'data', allow_duplicate=True),
+    [
+        Input({'type': 'can-data-can-id', 'index': ALL}, 'value'),
+        Input({'type': 'can-data-byte-pos', 'index': ALL}, 'value'),
+        Input({'type': 'can-data-length', 'index': ALL}, 'value'),
+        Input({'type': 'can-data-type', 'index': ALL}, 'value'),
+        Input({'type': 'can-data-endianness', 'index': ALL}, 'value'),
+        Input({'type': 'can-data-var-name', 'index': ALL}, 'value'),
+        Input({'type': 'can-data-scale', 'index': ALL}, 'value'),
+        Input({'type': 'can-data-offset', 'index': ALL}, 'value'),
+    ],
+    [
+        State('can-data-mapping-store', 'data'),  # Get current store state
+        State('can-data-mapping-trigger-store', 'data'),  # Check if row addition is in progress
+    ],
+    prevent_initial_call=True
+)
+def sync_can_data_mapping_store(can_ids, byte_positions, data_lengths, data_types, endianness_list, var_names, scales, offsets, current_store, trigger_value):
+    """Synchronize can-data-mapping-store with the latest UI values.
+    
+    CRITICAL: This callback must NEVER reduce the number of rows.
+    It should only update values in existing rows, or add rows if UI has more.
+    
+    IMPORTANT: This callback should NOT run during row addition.
+    It should only run when user actually edits values in existing, fully-rendered rows.
+    """
+    logger = logging.getLogger(__name__)
+    
+    # CRITICAL: Check trigger store - if it changed recently, row addition might be in progress
+    import time
+    current_time = time.time()
+    if trigger_value and isinstance(trigger_value, (int, float)):
+        if trigger_value >= 1000000000:  # Timestamp (seconds since epoch)
+            time_since_trigger = current_time - trigger_value
+            if time_since_trigger < 2.0:
+                logger.debug(f"⚠️ CAN data mapping sync: Trigger store updated recently ({time_since_trigger:.2f}s ago). Skipping update")
+                return no_update
+        else:
+            if trigger_value < 10:
+                logger.debug(f"⚠️ CAN data mapping sync: Trigger store has low counter value ({trigger_value}). Skipping update")
+                return no_update
+    
+    if not can_ids or len(can_ids) == 0:
+        logger.debug("⚠️ CAN data mapping sync: No can_ids from UI, skipping update")
+        return no_update
+    
+    if current_store is None:
+        current_store = []
+    if len(current_store) == 0:
+        current_store = [{"index": 0, "can_id": "0x123", "byte_pos": "Byte 0", "data_len": "1 Byte", "data_type": "int8", "endianness": "Big Endian", "var_name": "Variable Name", "scale": "1", "offset": "0"}]
+    
+    row_count = len(can_ids)
+    collections = [byte_positions, data_lengths, data_types, endianness_list, var_names, scales, offsets]
+    
+    if any(len(lst) != row_count for lst in collections):
+        logger.debug(f"⚠️ CAN data mapping sync: Mismatched collection lengths. can_ids: {row_count}, others: {[len(lst) for lst in collections]}. Skipping update")
+        return no_update
+    
+    if any(lst is None or len(lst) == 0 for lst in collections):
+        logger.debug("⚠️ CAN data mapping sync: Some collections are None or empty. Skipping update")
+        return no_update
+    
+    if row_count < len(current_store):
+        logger.debug(f"⚠️ CAN data mapping sync: UI has {row_count} rows but store has {len(current_store)} rows. Skipping update")
+        return no_update
+    
+    if row_count > len(current_store) + 1:
+        logger.debug(f"⚠️ CAN data mapping sync: UI has {row_count} rows but store has {len(current_store)} rows. Large difference suggests rendering. Skipping update.")
+        return no_update
+    
+    # CRITICAL: Merge UI values with current store
+    updated_mappings = []
+    store_map = {mapping.get("index", idx): mapping for idx, mapping in enumerate(current_store)}
+    max_store_index = max(store_map.keys()) if store_map else -1
+    
+    # Start with all existing rows from store (preserves all rows)
+    for idx in range(max(len(current_store), row_count)):
+        if idx < len(current_store):
+            mapping = current_store[idx].copy()
+        else:
+            mapping = {"index": idx, "can_id": "0x123", "byte_pos": "Byte 0", "data_len": "1 Byte", "data_type": "int8", "endianness": "Big Endian", "var_name": "Variable Name", "scale": "1", "offset": "0"}
+        
+        # Override with UI values if available
+        if idx < row_count:
+            if can_ids and idx < len(can_ids) and can_ids[idx] is not None:
+                mapping["can_id"] = str(can_ids[idx])
+            if byte_positions and idx < len(byte_positions) and byte_positions[idx]:
+                mapping["byte_pos"] = str(byte_positions[idx])
+            if data_lengths and idx < len(data_lengths) and data_lengths[idx]:
+                mapping["data_len"] = str(data_lengths[idx])
+            if data_types and idx < len(data_types) and data_types[idx]:
+                mapping["data_type"] = str(data_types[idx])
+            if endianness_list and idx < len(endianness_list) and endianness_list[idx]:
+                mapping["endianness"] = str(endianness_list[idx])
+            if var_names and idx < len(var_names) and var_names[idx] is not None:
+                mapping["var_name"] = str(var_names[idx])
+            if scales and idx < len(scales) and scales[idx] is not None:
+                mapping["scale"] = str(scales[idx])
+            if offsets and idx < len(offsets) and offsets[idx] is not None:
+                mapping["offset"] = str(offsets[idx])
+        
+        mapping["index"] = idx
+        updated_mappings.append(mapping)
+    
+    logger.debug(f"✅ CAN data mapping sync: Updated store with {len(updated_mappings)} row(s) (UI had {row_count}, store had {len(current_store)})")
+    return updated_mappings
