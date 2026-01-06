@@ -238,8 +238,10 @@ class ConfigJSONBuilder:
                     "index": message.get("index", idx),
                     "can_id": str(message.get("can_id", "0x123")),
                     "direction": str(message.get("direction", "TX")),
-                    "period_ms": int(message.get("period", "100")),
-                    "variable_name": str(message.get("var_name", "Message Name")),
+                    # CRITICAL: Check period_ms first (new format), then period (old format)
+                    "period_ms": int(message.get("period_ms") if "period_ms" in message and message.get("period_ms") is not None else (message.get("period", 100) if message.get("period") is not None else 100)),
+                    # CRITICAL: Check variable_name first (new format), then var_name (old format)
+                    "variable_name": str(message.get("variable_name") if "variable_name" in message and message.get("variable_name") else (message.get("var_name", "Message Name"))),
                     "data_length": 8
                 }
                 for idx, message in enumerate(can_messages)
