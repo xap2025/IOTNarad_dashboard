@@ -869,8 +869,8 @@ class DeviceConfigDBService:
                     break  # Only need first record (latest)
             
             # Execute slave devices query - get ALL slave devices
-            # CRITICAL: Process ALL tables from the result (InfluxDB returns one table per group)
-            # Since we group by slave_id, each unique slave_id becomes a separate table
+            # CRITICAL: Since we don't group by slave_id, we get all records sorted by time
+            # We need to find the latest timestamp and get ALL slaves from that timestamp
             slave_devices_result = self.query_api.query(org=self.org, query=slave_devices_query)
             slave_devices = []
             latest_slave_timestamp = None
@@ -894,6 +894,8 @@ class DeviceConfigDBService:
                         "register_count": record.values.get("register_count", 1)
                     })
             
+            logger.debug(f"   Found {len(all_slave_records)} total slave record(s), latest timestamp: {latest_slave_timestamp}")
+            
             # Second pass: Filter to only slaves from the latest timestamp
             # This ensures we get ALL slaves from the latest save operation
             # All slaves are saved with the same timestamp, so we get all of them
@@ -915,6 +917,7 @@ class DeviceConfigDBService:
                             "register_count": record["register_count"]
                         })
                 logger.debug(f"   Filtered to {len(slave_devices)} slave(s) from latest timestamp {latest_slave_timestamp}")
+                logger.debug(f"   Slave IDs from latest save: {[s.get('slave_id') for s in slave_devices]}")
             else:
                 # Fallback: Use all records if no timestamp found
                 for record in all_slave_records:

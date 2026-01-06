@@ -337,12 +337,15 @@ def load_modbus_configuration(device_id, pathname, reload_trigger, active_tab, s
             
             # Convert slave devices to store format
             # Load from Device: Create rows dynamically based on device data
+            # CRITICAL: Sort by index first to ensure correct order, then re-index sequentially
             slave_devices_list = modbus_config.get("slave_devices", [])
             if slave_devices_list and len(slave_devices_list) > 0:
                 devices_store = []
-                for idx, device in enumerate(slave_devices_list):
+                # Sort by index first to ensure correct order (handles any index gaps)
+                sorted_slaves = sorted(slave_devices_list, key=lambda x: x.get("index", 0))
+                for idx, device in enumerate(sorted_slaves):
                     devices_store.append({
-                        "index": idx,  # Re-index to ensure sequential indices
+                        "index": idx,  # Re-index to ensure sequential indices (0, 1, 2, ...)
                         "slave_id": str(device.get("slave_id", str(idx + 1))),
                         "function_code": str(device.get("function_code", "0x03")),
                         "register_addr": str(device.get("register_address", device.get("register_addr", "0"))),  # Support both field names
@@ -351,6 +354,9 @@ def load_modbus_configuration(device_id, pathname, reload_trigger, active_tab, s
                         "var_name": str(device.get("variable_name", device.get("var_name", "")))
                     })
                 logger.info(f"✅ Loaded {len(devices_store)} slave device(s) from database for device {device_id}")
+                logger.debug(f"   Slave IDs loaded: {[d.get('slave_id') for d in devices_store]}")
+                logger.debug(f"   Original indices: {[s.get('index') for s in sorted_slaves]}")
+                logger.debug(f"   Re-indexed to: {[d.get('index') for d in devices_store]}")
             else:
                 # No slave devices in database - use default single row
                 devices_store = [{"index": 0, "slave_id": "1", "function_code": "0x03", "register_addr": "0", "data_type": "int8", "endianness": "Big Endian", "var_name": "Variable Name"}]
@@ -599,8 +605,11 @@ def manage_modbus_devices(add_clicks, remove_clicks_list, devices_data, trigger_
         
         logger.info(f"✅ MODBUS: Added new device. Store now has {len(updated_devices)} row(s). New slave ID: {next_slave_id}")
         
-        # Increment trigger to force update detection
-        new_trigger = (trigger_value if trigger_value is not None else 0) + 1
+        # Use timestamp for trigger to track when row was added
+        # This helps sync callback detect when row addition just happened
+        import time
+        new_trigger = time.time()  # Use current timestamp
+        logger.debug(f"✅ MODBUS: Updated trigger store to {new_trigger} (timestamp)")
         return updated_devices, new_trigger
     
     # Handle REMOVE operation
@@ -693,13 +702,20 @@ def sync_modbus_devices_store(slave_ids, function_codes, register_addrs, data_ty
     # Wait a bit before syncing to avoid race conditions
     import time
     current_time = time.time()
-    if trigger_value and isinstance(trigger_value, (int, float)) and trigger_value > 1000000000:  # Timestamp (seconds since epoch)
-        # If trigger was updated very recently (< 1 second ago), skip sync
-        # This prevents sync from running immediately after row addition
-        time_since_trigger = current_time - trigger_value
-        if time_since_trigger < 1.0:
-            logger.debug(f"⚠️ MODBUS sync: Trigger store updated recently ({time_since_trigger:.2f}s ago). Skipping update (row addition likely in progress)")
-            return no_update
+    if trigger_value and isinstance(trigger_value, (int, float)):
+        # Check if trigger_value is a timestamp (>= 1000000000 = year 2001) or counter (< 1000000000)
+        if trigger_value >= 1000000000:  # Timestamp (seconds since epoch)
+            # If trigger was updated very recently (< 2 seconds ago), skip sync
+            # This prevents sync from running immediately after row addition
+            time_since_trigger = current_time - trigger_value
+            if time_since_trigger < 2.0:
+                logger.debug(f"⚠️ MODBUS sync: Trigger store updated recently ({time_since_trigger:.2f}s ago). Skipping update (row addition likely in progress)")
+                return no_update
+        else:
+            # Old counter format - treat as recent if < 10 (likely just added)
+            if trigger_value < 10:
+                logger.debug(f"⚠️ MODBUS sync: Trigger store has low counter value ({trigger_value}). Skipping update (row addition likely in progress)")
+                return no_update
     
     # If no slave_ids from UI, don't update (inputs not ready)
     if not slave_ids or len(slave_ids) == 0:
@@ -727,17 +743,11 @@ def sync_modbus_devices_store(slave_ids, function_codes, register_addrs, data_ty
         logger.debug("⚠️ MODBUS sync: Some collections are None or empty. Skipping update (inputs not ready)")
         return no_update
     
-    # CRITICAL: If UI has fewer rows than store, it means rows are being added
-    # Don't update store during row addition - wait until all rows are rendered
-    # Also check if UI has significantly more rows - might be rendering
-    if row_count < len(current_store):
-        logger.debug(f"⚠️ MODBUS sync: UI has {row_count} rows but store has {len(current_store)} rows. Skipping update (row addition in progress)")
-        return no_update
-    
-    # CRITICAL: If UI has more rows than store, but the difference is large, might be rendering
-    # Only allow sync if UI rows match or are slightly more (1-2 rows difference max)
-    if row_count > len(current_store) + 2:
-        logger.debug(f"⚠️ MODBUS sync: UI has {row_count} rows but store has {len(current_store)} rows. Large difference suggests rendering in progress. Skipping update.")
+    # CRITICAL: Only sync when UI rows EXACTLY match store rows
+    # This ensures all rows are fully rendered before syncing
+    # If there's any mismatch, it means rendering is in progress - skip sync
+    if row_count != len(current_store):
+        logger.debug(f"⚠️ MODBUS sync: UI has {row_count} rows but store has {len(current_store)} rows. Skipping update (row count mismatch - rendering in progress)")
         return no_update
     
     # CRITICAL: Merge UI values with current store
