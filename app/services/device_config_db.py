@@ -987,7 +987,11 @@ class DeviceConfigDBService:
             return None
     
     def get_can_bus_config(self, device_id: str) -> Optional[Dict[str, Any]]:
-        """Get latest CAN Bus configuration from Device_Config_CANBus table"""
+        """Get latest CAN Bus configuration from Device_Config_CANBus table
+        
+        CRITICAL: This must retrieve ALL CAN messages and data mappings, not just one.
+        The query separates settings (limit to 1) from messages/mappings (get all).
+        """
         if not self.connected or not device_id or not device_id.strip():
             return None
         
@@ -995,64 +999,136 @@ class DeviceConfigDBService:
             # Escape device_id for Flux query (replace backslashes and quotes)
             escaped_device_id = device_id.replace('\\', '\\\\').replace('"', '\\"')
             
-            query = f'''
+            # Query 1: Get latest settings (only 1 record needed)
+            settings_query = f'''
                 from(bucket: "{self.bucket}")
                 |> range(start: -365d)
                 |> filter(fn: (r) => r._measurement == "Device_Config_CANBus")
                 |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
-                |> pivot(rowKey: ["_time", "config_type"], columnKey: ["_field"], valueColumn: "_value")
-                |> group(columns: ["config_type"])
+                |> filter(fn: (r) => r.config_type == "settings")
+                |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
                 |> sort(columns: ["_time"], desc: true)
                 |> limit(n: 1)
             '''
             
-            logger.debug(f"🔍 Executing CAN Bus config query for device_id: {device_id}")
-            result = self.query_api.query(org=self.org, query=query)
+            # Query 2: Get ALL CAN messages and data mappings from the latest save
+            # CRITICAL FIX: The old query grouped by config_type and limited to 1, which only returned 1 record
+            # New strategy: All messages/mappings are saved with the SAME timestamp in one save operation
+            # We need to get ALL records from the latest timestamp, not just 1 per config_type
             
+            # Step 1: Find the latest timestamp for any CAN Bus config
+            latest_timestamp_query = f'''
+                from(bucket: "{self.bucket}")
+                |> range(start: -365d)
+                |> filter(fn: (r) => r._measurement == "Device_Config_CANBus")
+                |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
+                |> sort(columns: ["_time"], desc: true)
+                |> limit(n: 1)
+            '''
+            
+            # Get latest timestamp
+            latest_timestamp_result = self.query_api.query(org=self.org, query=latest_timestamp_query)
+            latest_timestamp = None
+            for table in latest_timestamp_result:
+                for record in table.records:
+                    latest_timestamp = record.get_time()
+                    break
+            
+            # Step 2: Get ALL CAN messages and data mappings from the latest timestamp
+            # IMPORTANT: Removed group(columns: ["config_type"]) to get ALL records from the timestamp
+            from datetime import timedelta
+            can_records_query = f'''
+                from(bucket: "{self.bucket}")
+                |> range(start: {latest_timestamp.isoformat()}Z, stop: {(latest_timestamp + timedelta(seconds=5)).isoformat()}Z)
+                |> filter(fn: (r) => r._measurement == "Device_Config_CANBus")
+                |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
+                |> filter(fn: (r) => r.config_type == "can_message" or r.config_type == "data_mapping")
+                |> pivot(rowKey: ["_time", "_measurement"], columnKey: ["_field"], valueColumn: "_value")
+            '''
+            
+            logger.debug(f"🔍 Executing CAN Bus config queries for device_id: {device_id}")
+            logger.debug(f"   Latest timestamp: {latest_timestamp}")
+            
+            # Execute settings query
+            settings_result = self.query_api.query(org=self.org, query=settings_query)
             settings = {}
+            for table in settings_result:
+                for record in table.records:
+                    settings = {
+                        "enabled": record.values.get("enabled", False),
+                        "communication_settings": {
+                            "baud_rate": record.values.get("baud_rate", 125),
+                            "identifier_length": record.values.get("identifier_length", "11-bit"),
+                            "can_mode": record.values.get("can_mode", "Normal"),
+                            "filter_mode": record.values.get("filter_mode", "None"),
+                            "filter_id": record.values.get("filter_id", "0x123"),
+                            "filter_mask": record.values.get("filter_mask", "0x7FF")
+                        }
+                    }
+                    break
+            
+            # Execute CAN messages and data mappings query
             can_messages = []
             data_mapping = []
             
-            for table in result:
-                for record in table.records:
-                    config_type = record.values.get("config_type", "")
-                    
-                    if config_type == "settings":
-                        settings = {
-                            "enabled": record.values.get("enabled", False),
-                            "communication_settings": {
-                                "baud_rate": record.values.get("baud_rate", 125),
-                                "identifier_length": record.values.get("identifier_length", "11-bit"),
-                                "can_mode": record.values.get("can_mode", "Normal"),
-                                "filter_mode": record.values.get("filter_mode", "None"),
-                                "filter_id": record.values.get("filter_id", "0x123"),
-                                "filter_mask": record.values.get("filter_mask", "0x7FF")
-                            }
-                        }
-                    elif config_type == "can_message":
-                        can_messages.append({
-                            "index": record.values.get("index", 0),
-                            "can_id": record.values.get("can_id", "0x123"),
-                            "direction": record.values.get("direction", "TX"),
-                            "period_ms": record.values.get("period_ms", 100),
-                            "variable_name": record.values.get("variable_name", ""),
-                            "data_length": record.values.get("data_length", 8)
-                        })
-                    elif config_type == "data_mapping":
-                        data_mapping.append({
-                            "index": record.values.get("index", 0),
-                            "can_id": record.values.get("can_id", "0x123"),
-                            "byte_position": record.values.get("byte_position", "Byte 0"),
-                            "data_length": record.values.get("data_length", "1 Byte"),
-                            "data_type": record.values.get("data_type", "int8"),
-                            "endianness": record.values.get("endianness", "Big Endian"),
-                            "variable_name": record.values.get("variable_name", ""),
-                            "scale_factor": record.values.get("scale_factor", 1.0),
-                            "offset": record.values.get("offset", 0.0)
-                        })
+            if latest_timestamp:
+                can_records_result = self.query_api.query(org=self.org, query=can_records_query)
+                time_window = timedelta(seconds=5)
+                
+                for table in can_records_result:
+                    for record in table.records:
+                        record_time = record.get_time()
+                        time_diff = abs(record_time - latest_timestamp)
+                        
+                        # Only include records from the latest timestamp (within 5 second window)
+                        if time_diff <= time_window:
+                            config_type = record.values.get("config_type", "")
+                            
+                            if config_type == "can_message":
+                                can_messages.append({
+                                    "index": record.values.get("index", 0),
+                                    "can_id": record.values.get("can_id", "0x123"),
+                                    "direction": record.values.get("direction", "TX"),
+                                    "period_ms": record.values.get("period_ms", 100),
+                                    "variable_name": record.values.get("variable_name", ""),
+                                    "data_length": record.values.get("data_length", 8)
+                                })
+                            elif config_type == "data_mapping":
+                                # Use data_length_str if available (new format), otherwise fallback
+                                data_length_value = record.values.get("data_length_str")
+                                if data_length_value is None:
+                                    data_length_value = record.values.get("data_length", "1 Byte")
+                                    if isinstance(data_length_value, (int, float)):
+                                        data_length_value = f"{int(data_length_value)} Byte" if int(data_length_value) == 1 else f"{int(data_length_value)} Bytes"
+                                
+                                data_mapping.append({
+                                    "index": record.values.get("index", 0),
+                                    "can_id": record.values.get("can_id", "0x123"),
+                                    "byte_position": record.values.get("byte_position", "Byte 0"),
+                                    "data_length": str(data_length_value) if data_length_value else "1 Byte",
+                                    "data_type": record.values.get("data_type", "int8"),
+                                    "endianness": record.values.get("endianness", "Big Endian"),
+                                    "variable_name": record.values.get("variable_name", ""),
+                                    "scale_factor": record.values.get("scale_factor", 1.0),
+                                    "offset": record.values.get("offset", 0.0)
+                                })
+                
+                # Sort by index to ensure correct order
+                can_messages.sort(key=lambda x: x.get("index", 0))
+                data_mapping.sort(key=lambda x: x.get("index", 0))
+                
+                logger.debug(f"   Found {len(can_messages)} CAN message(s) and {len(data_mapping)} data mapping(s) from latest timestamp")
+                if len(can_messages) > 0:
+                    logger.debug(f"   CAN Message IDs: {[m.get('can_id') for m in can_messages]}")
+                    logger.debug(f"   CAN Message Indices: {[m.get('index') for m in can_messages]}")
+                if len(data_mapping) > 0:
+                    logger.debug(f"   Data Mapping CAN IDs: {[m.get('can_id') for m in data_mapping]}")
+                    logger.debug(f"   Data Mapping Indices: {[m.get('index') for m in data_mapping]}")
             
             if not settings:
                 return None
+            
+            logger.info(f"✅ CAN Bus config loaded: {len(can_messages)} CAN message(s) and {len(data_mapping)} data mapping(s) found for device {device_id}")
             
             settings["can_messages"] = can_messages
             settings["data_mapping"] = data_mapping
