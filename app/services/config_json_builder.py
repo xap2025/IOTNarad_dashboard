@@ -238,8 +238,10 @@ class ConfigJSONBuilder:
                     "index": message.get("index", idx),
                     "can_id": str(message.get("can_id", "0x123")),
                     "direction": str(message.get("direction", "TX")),
-                    "period_ms": int(message.get("period", "100")),
-                    "variable_name": str(message.get("var_name", "Message Name")),
+                    # CRITICAL: Support both field names - new format (period_ms) and old format (period)
+                    "period_ms": int(message.get("period_ms") if "period_ms" in message and message.get("period_ms") is not None else (message.get("period", 100) if message.get("period") is not None else 100)),
+                    # CRITICAL: Support both field names - new format (variable_name) and old format (var_name)
+                    "variable_name": str(message.get("variable_name") if "variable_name" in message and message.get("variable_name") else (message.get("var_name", "Message Name"))),
                     "data_length": 8
                 }
                 for idx, message in enumerate(can_messages)
@@ -248,13 +250,17 @@ class ConfigJSONBuilder:
                 {
                     "index": mapping.get("index", idx),
                     "can_id": str(mapping.get("can_id", "0x123")),
-                    "byte_position": str(mapping.get("byte_pos", "Byte 0")),
-                    "data_length": str(mapping.get("data_len", "1 Byte")),
+                    # CRITICAL: Support both field names - new format (byte_position) and old format (byte_pos)
+                    "byte_position": str(mapping.get("byte_position") if "byte_position" in mapping and mapping.get("byte_position") else (mapping.get("byte_pos", "Byte 0"))),
+                    # CRITICAL: Support both field names - new format (data_length) and old format (data_len)
+                    "data_length": str(mapping.get("data_length") if "data_length" in mapping and mapping.get("data_length") else (mapping.get("data_len", "1 Byte"))),
                     "data_type": str(mapping.get("data_type", "int8")),
                     "endianness": str(mapping.get("endianness", "Big Endian")),
-                    "variable_name": str(mapping.get("var_name", "Variable Name")),
-                    "scale_factor": float(mapping.get("scale", "1")),
-                    "offset": float(mapping.get("offset", "0"))
+                    # CRITICAL: Support both field names - new format (variable_name) and old format (var_name)
+                    "variable_name": str(mapping.get("variable_name") if "variable_name" in mapping and mapping.get("variable_name") else (mapping.get("var_name", "Variable Name"))),
+                    # CRITICAL: Support both field names - new format (scale_factor) and old format (scale)
+                    "scale_factor": float(mapping.get("scale_factor") if "scale_factor" in mapping and mapping.get("scale_factor") is not None else (mapping.get("scale", 1.0) if mapping.get("scale") is not None else 1.0)),
+                    "offset": float(mapping.get("offset", 0.0) if mapping.get("offset") is not None else 0.0)
                 }
                 for idx, mapping in enumerate(data_mappings)
             ]
