@@ -998,8 +998,11 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
             analog_scan_rate = analog_config.get("scan_rate", 1000)
             logger.info(f"✅ Final analog_scan_rate: {analog_scan_rate}")
             logger.info(f"✅ Final analog_input_enable: {analog_input_enable}")
+            logger.info(f"✅ Final analog_input_div: {analog_input_div}")
+            logger.info(f"✅ Final analog_input_mul: {analog_input_mul}")
             logger.info(f"✅ Final analog_input_name: {analog_input_name}")
             logger.info(f"✅ Final analog_output_enable: {analog_output_enable}")
+            logger.info(f"✅ Final analog_output_value: {analog_output_value}")
             logger.info(f"✅ Final analog_output_name: {analog_output_name}")
         else:
             logger.info(f"ℹ️ No Analog config found in database for device {device_id}, using default values")
@@ -1046,6 +1049,33 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
                     relay_name[ch] = channel_data.get("name", "")
         else:
             logger.info(f"ℹ️ No Digital config found in database for device {device_id}, using default values")
+        
+        logger.info(f"🔄 Returning values to UI - analog_input_enable: {analog_input_enable}, analog_input_div: {analog_input_div}, analog_input_mul: {analog_input_mul}, analog_input_name: {analog_input_name}")
+        logger.info(f"🔄 Returning values to UI - analog_output_enable: {analog_output_enable}, analog_output_value: {analog_output_value}, analog_output_name: {analog_output_name}")
+        logger.info(f"🔄 Returning values to UI - analog_scan_rate: {analog_scan_rate}")
+        
+        # CRITICAL: Force update by creating new list objects (even if values are same)
+        # This ensures Dash will update the UI even when values are identical
+        # Dash sometimes skips updates if the list reference is the same
+        analog_input_enable = list(analog_input_enable)
+        analog_input_div = list(analog_input_div)
+        analog_input_mul = list(analog_input_mul)
+        analog_input_name = list(analog_input_name)
+        analog_output_enable = list(analog_output_enable)
+        analog_output_value = list(analog_output_value)
+        analog_output_name = list(analog_output_name)
+        npn_input_enable = list(npn_input_enable)
+        npn_input_name = list(npn_input_name)
+        npn_output_enable = list(npn_output_enable)
+        npn_output_name = list(npn_output_name)
+        pnp_input_enable = list(pnp_input_enable)
+        pnp_input_name = list(pnp_input_name)
+        pnp_output_enable = list(pnp_output_enable)
+        pnp_output_name = list(pnp_output_name)
+        relay_enable = list(relay_enable)
+        relay_name = list(relay_name)
+        
+        logger.info(f"✅ Returning fresh list objects to force UI update")
         
         return (
             analog_input_enable,
