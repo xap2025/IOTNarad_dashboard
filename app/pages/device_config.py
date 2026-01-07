@@ -1091,6 +1091,9 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
 )
 def load_config_from_device(n_clicks, serial_number, active_tab):
     """Request configuration from the device via MQTT and refresh UI."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     if not n_clicks:
         return no_update, no_update, no_update
     
