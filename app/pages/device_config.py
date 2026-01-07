@@ -1424,7 +1424,49 @@ def send_configuration_to_device(
             for idx in range(2):
                 channel = idx + 1
                 io_pin = f"DOUT{idx}"
-                value = analog_output_value[idx] if idx < len(analog_output_value) and analog_output_value[idx] is not None else 0.0
+                
+                # Get value from array with proper type conversion (same logic as save callback)
+                if not analog_output_value or idx >= len(analog_output_value):
+                    raw_value = None
+                else:
+                    raw_value = analog_output_value[idx]
+                
+                # Convert to float - handle None, empty string, and numeric values (including 0)
+                # CRITICAL: Same robust conversion logic as save callback
+                if raw_value is None:
+                    value = 0.0
+                elif isinstance(raw_value, str):
+                    raw_value = raw_value.strip()
+                    if raw_value == '' or raw_value.lower() == 'none':
+                        value = 0.0
+                    else:
+                        try:
+                            value = float(raw_value)
+                            # Validate and clamp to 0-10V range
+                            if value < 0.0:
+                                value = 0.0
+                            elif value > 10.0:
+                                value = 10.0
+                        except (ValueError, TypeError):
+                            value = 0.0
+                elif isinstance(raw_value, (int, float)):
+                    value = float(raw_value)  # Convert int/float to float
+                    # Validate and clamp to 0-10V range
+                    if value < 0.0:
+                        value = 0.0
+                    elif value > 10.0:
+                        value = 10.0
+                else:
+                    try:
+                        value = float(raw_value)
+                        # Validate and clamp to 0-10V range
+                        if value < 0.0:
+                            value = 0.0
+                        elif value > 10.0:
+                            value = 10.0
+                    except (ValueError, TypeError):
+                        value = 0.0
+                
                 name = analog_output_name[idx] if idx < len(analog_output_name) and analog_output_name[idx] else io_pin
                 if not name or name.strip() == '':
                     name = io_pin
@@ -1432,7 +1474,7 @@ def send_configuration_to_device(
                 output_0_10v_data.append({
                     "channel": channel,
                     "enabled": analog_output_enable[idx] if idx < len(analog_output_enable) else False,
-                    "value": float(value) if value is not None else 0.0,
+                    "value": value,
                     "io_pin": io_pin,
                     "name": name.strip()
                 })
@@ -1934,6 +1976,7 @@ def save_analog_configuration(
             logger.info(f"🔍 STEP 2: Processing output channel {channel} (array index {idx})")
             
             # Get value from array - handle bounds checking
+            logger.info(f"🔍 DEBUG: analog_output_value array: {analog_output_value}, length: {len(analog_output_value) if analog_output_value else 0}, accessing index: {idx}")
             if not analog_output_value or idx >= len(analog_output_value):
                 raw_value = None
                 logger.error(f"❌ Channel {channel} - analog_output_value is None or index {idx} out of range")
@@ -1942,6 +1985,7 @@ def save_analog_configuration(
                 logger.info(f"🔍 Channel {channel} - raw_value from array[{idx}]: {raw_value} (type: {type(raw_value)})")
             
             # Convert to float - handle None, empty string, and numeric values (including 0)
+            # CRITICAL: Handle all possible input types including strings that might come from HTML5 validation
             if raw_value is None:
                 value = None
                 logger.warning(f"⚠️ Channel {channel} - raw_value is None")
@@ -1953,16 +1997,37 @@ def save_analog_configuration(
                 else:
                     try:
                         value = float(raw_value)
+                        # Validate and clamp to 0-10V range
+                        if value < 0.0:
+                            logger.warning(f"⚠️ Channel {channel} - value {value} < 0, clamping to 0.0")
+                            value = 0.0
+                        elif value > 10.0:
+                            logger.warning(f"⚠️ Channel {channel} - value {value} > 10.0, clamping to 10.0")
+                            value = 10.0
                         logger.info(f"✅ Channel {channel} - converted string '{raw_value}' to float: {value}")
                     except (ValueError, TypeError) as e:
                         value = None
                         logger.error(f"❌ Channel {channel} - cannot convert '{raw_value}' to float: {e}")
             elif isinstance(raw_value, (int, float)):
                 value = float(raw_value)  # Convert int/float to float
+                # Validate and clamp to 0-10V range
+                if value < 0.0:
+                    logger.warning(f"⚠️ Channel {channel} - value {value} < 0, clamping to 0.0")
+                    value = 0.0
+                elif value > 10.0:
+                    logger.warning(f"⚠️ Channel {channel} - value {value} > 10.0, clamping to 10.0")
+                    value = 10.0
                 logger.info(f"✅ Channel {channel} - converted {raw_value} (type: {type(raw_value)}) to float: {value}")
             else:
                 try:
                     value = float(raw_value)
+                    # Validate and clamp to 0-10V range
+                    if value < 0.0:
+                        logger.warning(f"⚠️ Channel {channel} - value {value} < 0, clamping to 0.0")
+                        value = 0.0
+                    elif value > 10.0:
+                        logger.warning(f"⚠️ Channel {channel} - value {value} > 10.0, clamping to 10.0")
+                        value = 10.0
                     logger.info(f"✅ Channel {channel} - converted {raw_value} (type: {type(raw_value)}) to float: {value}")
                 except (ValueError, TypeError) as e:
                     value = None
