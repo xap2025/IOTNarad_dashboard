@@ -844,9 +844,12 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
     if not device_id:
         if triggered_id == 'config-reload-trigger' and reload_trigger:
             # Extract device_id from reload trigger data
+            logger.info(f"📌 Reload trigger received: {reload_trigger}")
             device_id = reload_trigger.get('device_id')
             if device_id:
                 logger.info(f"📌 Using device_id from reload trigger: {device_id}")
+            else:
+                logger.warning(f"⚠️ Reload trigger missing device_id: {reload_trigger}")
         elif triggered_id == 'config-tabs':
             # For tab switch, use device_id from State if available
             device_id = device_id_state
@@ -900,6 +903,7 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
         # If triggered by reload trigger, add a small delay to ensure DB write is flushed
         if triggered_id == 'config-reload-trigger':
             import time
+            logger.info(f"⏳ Waiting 0.5s for database write to flush (triggered by reload)...")
             time.sleep(0.5)  # Wait 0.5 seconds to ensure database write is fully flushed
         
         logger.info(f"🔄 Loading config from database for device {device_id}, triggered by: {triggered_id}")
@@ -908,9 +912,10 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
         
         logger.info(f"📊 Loaded config - Analog: {analog_config is not None}, Digital: {digital_config is not None}")
         if analog_config:
-            logger.debug(f"📊 Analog config keys: {list(analog_config.keys())}")
+            logger.info(f"📊 Analog config keys: {list(analog_config.keys())}")
+            logger.info(f"📊 Analog config (full): {json.dumps(analog_config, indent=2)}")
         if digital_config:
-            logger.debug(f"📊 Digital config keys: {list(digital_config.keys())}")
+            logger.info(f"📊 Digital config keys: {list(digital_config.keys())}")
         
         # If no configuration exists, use default values (don't reset to factory defaults)
         # Default values are already set in the initialization below
@@ -947,32 +952,55 @@ def load_device_configuration(device_id, pathname, reload_trigger, active_tab, s
             logger.info(f"✅ Loading Analog config from database for device {device_id}")
             
             # Input 4-20mA (channels 1-2)
-            for channel_data in analog_config.get("input_4_20ma", []):
+            input_4_20ma_list = analog_config.get("input_4_20ma", [])
+            logger.info(f"📊 Found {len(input_4_20ma_list)} input_4_20ma channels")
+            for idx, channel_data in enumerate(input_4_20ma_list):
                 ch = channel_data.get("channel", 0) - 1  # Convert to 0-based index
+                logger.info(f"📊 Processing input_4_20ma[{idx}]: channel={channel_data.get('channel')}, ch_index={ch}, enabled={channel_data.get('enabled')}, name={channel_data.get('name')}")
                 if 0 <= ch < 2:
                     analog_input_enable[ch] = channel_data.get("enabled", False)
                     analog_input_div[ch] = channel_data.get("divider", 1)
                     analog_input_mul[ch] = channel_data.get("multiplier", 1)
                     analog_input_name[ch] = channel_data.get("name", "")
+                    logger.info(f"✅ Mapped to UI index {ch}: enabled={analog_input_enable[ch]}, div={analog_input_div[ch]}, mul={analog_input_mul[ch]}, name={analog_input_name[ch]}")
+                else:
+                    logger.warning(f"⚠️ Channel {channel_data.get('channel')} (index {ch}) out of range for input_4_20ma (expected 0-1)")
             
             # Input 0-10V (channels 3-4)
-            for channel_data in analog_config.get("input_1_10v", []):
+            input_1_10v_list = analog_config.get("input_1_10v", [])
+            logger.info(f"📊 Found {len(input_1_10v_list)} input_1_10v channels")
+            for idx, channel_data in enumerate(input_1_10v_list):
                 ch = channel_data.get("channel", 0) - 1  # Convert to 0-based index
+                logger.info(f"📊 Processing input_1_10v[{idx}]: channel={channel_data.get('channel')}, ch_index={ch}, enabled={channel_data.get('enabled')}, name={channel_data.get('name')}")
                 if 2 <= ch < 4:
                     analog_input_enable[ch] = channel_data.get("enabled", False)
                     analog_input_div[ch] = channel_data.get("divider", 1)
                     analog_input_mul[ch] = channel_data.get("multiplier", 1)
                     analog_input_name[ch] = channel_data.get("name", "")
+                    logger.info(f"✅ Mapped to UI index {ch}: enabled={analog_input_enable[ch]}, div={analog_input_div[ch]}, mul={analog_input_mul[ch]}, name={analog_input_name[ch]}")
+                else:
+                    logger.warning(f"⚠️ Channel {channel_data.get('channel')} (index {ch}) out of range for input_1_10v (expected 2-3)")
             
             # Output 0-10V (channels 1-2)
-            for channel_data in analog_config.get("output_0_10v", []):
+            output_0_10v_list = analog_config.get("output_0_10v", [])
+            logger.info(f"📊 Found {len(output_0_10v_list)} output_0_10v channels")
+            for idx, channel_data in enumerate(output_0_10v_list):
                 ch = channel_data.get("channel", 0) - 1  # Convert to 0-based index
+                logger.info(f"📊 Processing output_0_10v[{idx}]: channel={channel_data.get('channel')}, ch_index={ch}, enabled={channel_data.get('enabled')}, value={channel_data.get('value')}, name={channel_data.get('name')}")
                 if 0 <= ch < 2:
                     analog_output_enable[ch] = channel_data.get("enabled", False)
                     analog_output_value[ch] = channel_data.get("value", 0.0)
                     analog_output_name[ch] = channel_data.get("name", "")
+                    logger.info(f"✅ Mapped to UI index {ch}: enabled={analog_output_enable[ch]}, value={analog_output_value[ch]}, name={analog_output_name[ch]}")
+                else:
+                    logger.warning(f"⚠️ Channel {channel_data.get('channel')} (index {ch}) out of range for output_0_10v (expected 0-1)")
             
             analog_scan_rate = analog_config.get("scan_rate", 1000)
+            logger.info(f"✅ Final analog_scan_rate: {analog_scan_rate}")
+            logger.info(f"✅ Final analog_input_enable: {analog_input_enable}")
+            logger.info(f"✅ Final analog_input_name: {analog_input_name}")
+            logger.info(f"✅ Final analog_output_enable: {analog_output_enable}")
+            logger.info(f"✅ Final analog_output_name: {analog_output_name}")
         else:
             logger.info(f"ℹ️ No Analog config found in database for device {device_id}, using default values")
         
@@ -1105,7 +1133,7 @@ def load_config_from_device(n_clicks, serial_number, active_tab):
             raise RuntimeError("Device reply did not contain 'config' payload.")
         
         logger.info(f"✅ Config payload received. Keys: {list(config_payload.keys())}")
-        logger.debug(f"📊 Config payload: {json.dumps(config_payload, indent=2)[:500]}...")
+        logger.info(f"📊 Config payload (full): {json.dumps(config_payload, indent=2)}")
         
         db_service = DeviceConfigDBService()
         if not db_service.is_connected():
@@ -1116,7 +1144,12 @@ def load_config_from_device(n_clicks, serial_number, active_tab):
             section_key: config_payload
         }
         
+        logger.info(f"💾 Saving config to database for device {serial_number}, section: {section_key}")
+        logger.debug(f"💾 Save payload: {json.dumps(save_payload, indent=2)[:1000]}...")
+        
         db_service.save_config_sections_only(serial_number, save_payload)
+        
+        logger.info(f"✅ Config saved to database successfully")
         
         # Build merged view for Device_Config table
         analog_config = config_payload if section_key == 'analog' else db_service.get_analog_config(serial_number)
@@ -1147,6 +1180,8 @@ def load_config_from_device(n_clicks, serial_number, active_tab):
             'timestamp': time.time(),
             'device_id': serial_number
         }
+        
+        logger.info(f"🔄 Setting reload trigger with timestamp: {reload_payload['timestamp']}, device_id: {reload_payload['device_id']}")
         
         return True, success_msg, reload_payload
     
