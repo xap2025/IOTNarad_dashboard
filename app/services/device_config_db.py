@@ -496,7 +496,7 @@ class DeviceConfigDBService:
             point = Point("Device_Config_CANBus") \
                 .tag("device_id", device_id) \
                 .tag("config_type", "settings") \
-                .field("enabled", can_bus_config.get("enabled", False)) \
+                .field("enabled", can_bus_config.get("enabled", True)) \
                 .field("baud_rate", comm_settings.get("baud_rate", 125)) \
                 .field("identifier_length", comm_settings.get("identifier_length", "11-bit")) \
                 .field("can_mode", comm_settings.get("can_mode", "Normal")) \

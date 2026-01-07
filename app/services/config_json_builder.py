@@ -224,7 +224,6 @@ class ConfigJSONBuilder:
             CAN Bus configuration dictionary
         """
         return {
-            "enabled": True,
             "communication_settings": {
                 "baud_rate": int(baud_rate),
                 "identifier_length": identifier_length,
@@ -241,8 +240,8 @@ class ConfigJSONBuilder:
                     # CRITICAL: Support both field names - new format (period_ms) and old format (period)
                     "period_ms": int(message.get("period_ms") if "period_ms" in message and message.get("period_ms") is not None else (message.get("period", 100) if message.get("period") is not None else 100)),
                     # CRITICAL: Support both field names - new format (variable_name) and old format (var_name)
-                    "variable_name": str(message.get("variable_name") if "variable_name" in message and message.get("variable_name") else (message.get("var_name", "Message Name"))),
-                    "data_length": 8
+                    "variable_name": str(message.get("variable_name") if "variable_name" in message and message.get("variable_name") else (message.get("var_name", "Message Name")))
+                    # Removed "data_length": 8 - not in UI
                 }
                 for idx, message in enumerate(can_messages)
             ],
