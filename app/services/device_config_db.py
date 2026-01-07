@@ -538,7 +538,7 @@ class DeviceConfigDBService:
                     .tag("endianness", str(mapping.get("endianness", ""))) \
                     .tag("variable_name", str(mapping.get("variable_name", ""))) \
                     .field("index", mapping.get("index", 0)) \
-                    .field("data_length", str(mapping.get("data_length", ""))) \
+                    .field("data_length_str", str(mapping.get("data_length", "1 Byte"))) \
                     .field("scale_factor", mapping.get("scale_factor", 1.0)) \
                     .field("offset", mapping.get("offset", 0.0)) \
                     .time(timestamp, WritePrecision.NS)
@@ -1035,11 +1035,11 @@ class DeviceConfigDBService:
                     break
             
             # Step 2: Get ALL CAN messages and data mappings from the latest timestamp
-            # IMPORTANT: Removed group(columns: ["config_type"]) to get ALL records from the timestamp
-            from datetime import timedelta
+            # CRITICAL FIX: Use same approach as MODBUS - query all records, then filter by timestamp in Python
+            # This avoids Flux query syntax issues with timestamp formatting
             can_records_query = f'''
                 from(bucket: "{self.bucket}")
-                |> range(start: {latest_timestamp.isoformat()}Z, stop: {(latest_timestamp + timedelta(seconds=5)).isoformat()}Z)
+                |> range(start: -365d)
                 |> filter(fn: (r) => r._measurement == "Device_Config_CANBus")
                 |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
                 |> filter(fn: (r) => r.config_type == "can_message" or r.config_type == "data_mapping")
