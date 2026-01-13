@@ -345,8 +345,43 @@ class DeviceInfoService:
                         logger.debug(f"   Skipping device {sr_no} - Owner '{owner}' != filter '{owner_filter}'")
                         continue
                     
-                    device_name = record.values.get('Device_Name', 'Unnamed') if hasattr(record, 'values') and record.values else 'Unnamed'
-                    date_of_register = record.values.get('Date_Of_Register', '') if hasattr(record, 'values') and record.values else ''
+                    # Extract Device_Name from record values
+                    # After pivot, Device_Name should be in record.values as a field
+                    device_name = None
+                    if hasattr(record, 'values') and record.values:
+                        # Try getting Device_Name from values dict
+                        device_name = record.values.get('Device_Name')
+                        # Also check if it's an empty string and convert to None
+                        if device_name == '':
+                            device_name = None
+                        logger.debug(f"   Device_Name from record.values: {repr(device_name)}")
+                        logger.debug(f"   All record.values keys: {list(record.values.keys()) if record.values else 'None'}")
+                    
+                    # If not found, try getting from record directly (for tags)
+                    if not device_name:
+                        device_name = getattr(record, 'Device_Name', None)
+                        logger.debug(f"   Device_Name from record attribute: {repr(device_name)}")
+                    
+                    # Also try getting field value using get_field() and get_value() if it's a field
+                    if not device_name and hasattr(record, 'get_field'):
+                        field_name = record.get_field()
+                        if field_name == 'Device_Name':
+                            device_name = record.get_value()
+                            logger.debug(f"   Device_Name from get_value(): {repr(device_name)}")
+                    
+                    # Default to 'Unnamed' if still not found
+                    if not device_name:
+                        device_name = 'Unnamed'
+                        logger.warning(f"   ⚠️ Could not extract Device_Name for {sr_no}, defaulting to 'Unnamed'. Record values: {record.values if hasattr(record, 'values') else 'N/A'}")
+                    
+                    # Extract Date_Of_Register
+                    date_of_register = None
+                    if hasattr(record, 'values') and record.values:
+                        date_of_register = record.values.get('Date_Of_Register', '')
+                    if not date_of_register:
+                        date_of_register = ''
+                    
+                    logger.debug(f"   Final device data: Sr_No={sr_no}, Owner={owner}, Device_Name={device_name}, Date_Of_Register={date_of_register}")
                     
                     devices.append({
                         'Sr_No': sr_no,

@@ -1745,6 +1745,9 @@ def load_device_list_table(filter_value, assign_modal_open, delete_modal_open):
             user_id = device.get('Owner', 'admin')
             device_name = device.get('Device_Name', 'Unnamed')
             
+            # Debug logging to check device data
+            logger.debug(f"Device in table: Sr_No={device_id}, Owner={user_id}, Device_Name={device_name}")
+            
             # Status badge
             if filter_value == 'unassigned':
                 status_badge = html.Span("Not Alloted", className='badge bg-secondary')
