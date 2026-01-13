@@ -1156,6 +1156,61 @@ def create_settings_content():
                 }),
             ]),
         ]),
+        
+        # Assign Devices Modal
+        dbc.Modal([
+            dbc.ModalHeader(dbc.ModalTitle("Assign Device to User")),
+            dbc.ModalBody([
+                dbc.Form([
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Label("Select Unassigned Device ID", className='fw-bold'),
+                            dcc.Dropdown(
+                                id='assign-device-selector',
+                                placeholder='Select device...',
+                                options=[],
+                                value=None,
+                                clearable=True
+                            ),
+                            html.Small("Only devices with Owner = 'admin' are shown", className='text-muted mt-1 d-block'),
+                        ], md=12),
+                    ], className='mb-3'),
+                    
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Label("Select User ID", className='fw-bold'),
+                            dcc.Dropdown(
+                                id='assign-user-selector',
+                                placeholder='Select user...',
+                                options=[],
+                                value=None,
+                                clearable=True
+                            ),
+                            html.Small("Admin user is excluded from this list", className='text-muted mt-1 d-block'),
+                        ], md=12),
+                    ], className='mb-3'),
+                    
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Label("Enter Device Name", className='fw-bold'),
+                            dbc.Input(
+                                id='assign-device-name',
+                                type='text',
+                                placeholder='Enter device name...',
+                                value=''
+                            ),
+                        ], md=12),
+                    ], className='mb-3'),
+                    
+                    # Alert for success/error messages
+                    html.Div(id='assign-device-alert', children=[]),
+                ]),
+            ]),
+            dbc.ModalFooter([
+                dbc.Button("Cancel", id="close-assign-device-modal", className="ms-auto", n_clicks=0, color="secondary"),
+                dbc.Button("Assign Device", id="save-assign-device-btn", color="primary", n_clicks=0),
+            ]),
+        ], id="assign-device-modal", is_open=False, size="lg"),
     ])
 
 
@@ -1170,6 +1225,233 @@ def navigate_to_create_user_from_settings(n_clicks):
     if n_clicks and n_clicks > 0:
         return '/create-user'
     return no_update
+
+
+# Settings Page Callbacks - Assign Devices Modal
+@callback(
+    Output("assign-device-modal", "is_open"),
+    [Input("assign-devices-btn", "n_clicks"),
+     Input("close-assign-device-modal", "n_clicks"),
+     Input("save-assign-device-btn", "n_clicks")],
+    [State("assign-device-modal", "is_open")],
+    prevent_initial_call=True
+)
+def toggle_assign_device_modal(open_clicks, close_clicks, save_clicks, is_open):
+    """Toggle assign device modal"""
+    from dash import ctx
+    
+    if not ctx.triggered:
+        return is_open
+    
+    ctx_triggered = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    if ctx_triggered == "assign-devices-btn" and open_clicks:
+        return True
+    elif ctx_triggered in ["close-assign-device-modal", "save-assign-device-btn"]:
+        return False
+    return is_open
+
+
+# Load unassigned devices (Owner = "admin") in dropdown
+@callback(
+    Output('assign-device-selector', 'options'),
+    Input('assign-device-modal', 'is_open'),
+    prevent_initial_call=True
+)
+def load_unassigned_devices(modal_is_open):
+    """Load devices where Owner = 'admin' for assignment"""
+    if not modal_is_open:
+        return no_update
+    
+    try:
+        from app.services.device_info_service import DeviceInfoService
+        device_info_service = DeviceInfoService()
+        
+        if not device_info_service.is_connected():
+            logger.error("❌ Device Info Service not connected")
+            return [{'label': '⚠️ Database not connected', 'value': None, 'disabled': True}]
+        
+        # Get all devices with Owner = "admin"
+        all_devices = device_info_service.get_all_devices_info(
+            owner_filter="admin",
+            is_admin=False
+        )
+        
+        # Filter to only show devices with Owner = "admin"
+        unassigned_devices = [
+            {'label': f"{device.get('Sr_No')} - {device.get('Device_Name', 'Unnamed')}", 
+             'value': device.get('Sr_No')}
+            for device in all_devices
+            if device.get('Owner') == 'admin'
+        ]
+        
+        if not unassigned_devices:
+            return [{'label': 'No unassigned devices found', 'value': None, 'disabled': True}]
+        
+        logger.info(f"✅ Loaded {len(unassigned_devices)} unassigned devices")
+        return unassigned_devices
+        
+    except Exception as e:
+        logger.error(f"Error loading unassigned devices: {e}")
+        logger.exception("Full error traceback:")
+        return [{'label': f'⚠️ Error loading devices: {str(e)}', 'value': None, 'disabled': True}]
+
+
+# Load users (excluding admin) in dropdown
+@callback(
+    Output('assign-user-selector', 'options'),
+    Input('assign-device-modal', 'is_open'),
+    prevent_initial_call=True
+)
+def load_users_for_assignment(modal_is_open):
+    """Load all users except 'admin' for device assignment"""
+    if not modal_is_open:
+        return no_update
+    
+    try:
+        from app.services.user_service import UserService
+        user_service = UserService()
+        
+        if not user_service.connected:
+            logger.error("❌ User Service not connected")
+            return [{'label': '⚠️ Database not connected', 'value': None, 'disabled': True}]
+        
+        # Get all users
+        all_users = user_service.get_all_users()
+        
+        # Filter out 'admin' user and get unique user IDs
+        seen_user_ids = set()
+        user_options = []
+        
+        for user in all_users:
+            user_id = user.get('User_Id')
+            if user_id and user_id != 'admin' and user_id not in seen_user_ids:
+                seen_user_ids.add(user_id)
+                # Get user details for label
+                email = user.get('Email_Id', '')
+                company = user.get('Company_Name', '')
+                label_parts = [user_id]
+                if email:
+                    label_parts.append(f"({email})")
+                if company:
+                    label_parts.append(f"- {company}")
+                
+                user_options.append({
+                    'label': ' - '.join(label_parts),
+                    'value': user_id
+                })
+        
+        # Sort by user ID
+        user_options.sort(key=lambda x: x['value'])
+        
+        if not user_options:
+            return [{'label': 'No users found (excluding admin)', 'value': None, 'disabled': True}]
+        
+        logger.info(f"✅ Loaded {len(user_options)} users for assignment (admin excluded)")
+        return user_options
+        
+    except Exception as e:
+        logger.error(f"Error loading users: {e}")
+        logger.exception("Full error traceback:")
+        return [{'label': f'⚠️ Error loading users: {str(e)}', 'value': None, 'disabled': True}]
+
+
+# Assign device to user callback
+@callback(
+    [Output('assign-device-alert', 'children'),
+     Output('assign-device-modal', 'is_open', allow_duplicate=True),
+     Output('assign-device-selector', 'value'),
+     Output('assign-user-selector', 'value'),
+     Output('assign-device-name', 'value')],
+    Input('save-assign-device-btn', 'n_clicks'),
+    [State('assign-device-selector', 'value'),
+     State('assign-user-selector', 'value'),
+     State('assign-device-name', 'value')],
+    prevent_initial_call=True
+)
+def assign_device_to_user(n_clicks, serial_number, user_id, device_name):
+    """Assign device to user by deleting old records and creating new one"""
+    if not n_clicks:
+        return no_update, no_update, no_update, no_update, no_update
+    
+    # Validation
+    if not serial_number:
+        alert = dbc.Alert(
+            "⚠️ Please select a device to assign",
+            color="warning",
+            dismissable=True,
+            duration=3000
+        )
+        return alert, True, no_update, no_update, no_update
+    
+    if not user_id:
+        alert = dbc.Alert(
+            "⚠️ Please select a user to assign the device to",
+            color="warning",
+            dismissable=True,
+            duration=3000
+        )
+        return alert, True, no_update, no_update, no_update
+    
+    if not device_name or not device_name.strip():
+        alert = dbc.Alert(
+            "⚠️ Please enter a device name",
+            color="warning",
+            dismissable=True,
+            duration=3000
+        )
+        return alert, True, no_update, no_update, no_update
+    
+    try:
+        from app.services.device_info_service import DeviceInfoService
+        device_info_service = DeviceInfoService()
+        
+        if not device_info_service.is_connected():
+            alert = dbc.Alert(
+                "❌ Database connection error. Please try again.",
+                color="danger",
+                dismissable=True,
+                duration=5000
+            )
+            return alert, True, no_update, no_update, no_update
+        
+        # Assign device using the new method that deletes old records first
+        success = device_info_service.assign_device_to_user(
+            serial_number=serial_number,
+            new_owner=user_id,
+            device_name=device_name.strip()
+        )
+        
+        if success:
+            alert = dbc.Alert(
+                f"✅ Device '{serial_number}' successfully assigned to user '{user_id}' with name '{device_name.strip()}'",
+                color="success",
+                dismissable=True,
+                duration=5000
+            )
+            logger.info(f"✅ Device assignment successful: {serial_number} -> {user_id}")
+            # Clear form and close modal
+            return alert, False, None, None, ""
+        else:
+            alert = dbc.Alert(
+                f"❌ Failed to assign device. Please check logs for details.",
+                color="danger",
+                dismissable=True,
+                duration=5000
+            )
+            logger.error(f"❌ Device assignment failed: {serial_number} -> {user_id}")
+            return alert, True, no_update, no_update, no_update
+        
+    except Exception as e:
+        logger.error(f"Error assigning device: {e}")
+        logger.exception("Full error traceback:")
+        alert = dbc.Alert(
+            f"❌ Error: {str(e)}",
+            color="danger",
+            dismissable=True,
+            duration=5000
+        )
+        return alert, True, no_update, no_update, no_update
 
 
 # Profile Page Callbacks - Navigate to change password page

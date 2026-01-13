@@ -383,6 +383,112 @@ class DeviceInfoService:
                 logger.error(f"Fallback query also failed: {fallback_error}")
                 return []
     
+    def delete_device_records(self, serial_number: str) -> bool:
+        """
+        Delete all records for a device by serial number
+        
+        Args:
+            serial_number: Device serial number
+            
+        Returns:
+            True if deleted successfully, False otherwise
+        """
+        if not self.connected:
+            logger.warning("InfluxDB not connected. Cannot delete device records.")
+            return False
+        
+        try:
+            from influxdb_client import DeleteApi
+            from datetime import timedelta
+            
+            delete_api = DeleteApi(self.client)
+            
+            # Delete all entries for this device in the last 365 days
+            start_time = datetime.utcnow() - timedelta(days=365)
+            stop_time = datetime.utcnow()
+            
+            # Create delete predicate - Sr_No is a TAG
+            predicate = f'_measurement="Device_info" AND Sr_No="{serial_number}"'
+            
+            delete_api.delete(
+                start=start_time,
+                stop=stop_time,
+                predicate=predicate,
+                bucket=self.bucket,
+                org=self.org
+            )
+            
+            logger.info(f"✅ All records deleted for device '{serial_number}'")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error deleting device records: {e}")
+            logger.exception("Full error traceback:")
+            return False
+    
+    def assign_device_to_user(self, serial_number: str, new_owner: str, device_name: str) -> bool:
+        """
+        Assign device to a user by deleting old records and creating new one
+        
+        IMPORTANT: This method deletes ALL old records for the device first,
+        then creates a new record with updated Owner, Device_Name, and Date_Of_Register.
+        Date_Of_Register is set to current date when device is assigned to user.
+        This prevents duplicate entries in the database.
+        
+        Args:
+            serial_number: Device serial number
+            new_owner: New owner/user ID
+            device_name: Device name
+            
+        Returns:
+            True if assigned successfully, False otherwise
+        """
+        if not self.connected:
+            logger.warning("InfluxDB not connected. Cannot assign device.")
+            return False
+        
+        try:
+            # Step 1: Verify device exists before assignment
+            device_info = self.get_device_info(serial_number)
+            if not device_info:
+                logger.warning(f"Device with serial number '{serial_number}' not found")
+                return False
+            
+            # Step 2: Delete all old records for this device
+            logger.info(f"🗑️ Deleting old records for device '{serial_number}'...")
+            delete_success = self.delete_device_records(serial_number)
+            if not delete_success:
+                logger.error(f"Failed to delete old records for device '{serial_number}'")
+                return False
+            
+            # Step 3: Create new record with updated information
+            # Date_Of_Register = current date (when device is assigned to user)
+            current_date = datetime.utcnow().strftime("%Y-%m-%d")
+            timestamp = datetime.utcnow()
+            
+            # Create new point with updated Owner, Device_Name, and Date_Of_Register
+            point = Point("Device_info") \
+                .tag("Sr_No", serial_number) \
+                .tag("Owner", new_owner) \
+                .field("Date_Of_Register", current_date) \
+                .field("Device_Name", device_name) \
+                .time(timestamp, WritePrecision.NS)
+            
+            # Write to InfluxDB
+            self.write_api.write(bucket=self.bucket, org=self.org, record=point)
+            
+            logger.info(f"✅ Device assigned successfully!")
+            logger.info(f"   Serial Number: {serial_number}")
+            logger.info(f"   New Owner: {new_owner}")
+            logger.info(f"   Device Name: {device_name}")
+            logger.info(f"   Date of Register (updated to assignment date): {current_date}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error assigning device: {e}")
+            logger.exception("Full error traceback:")
+            return False
+    
     def update_device_info(self, serial_number: str, owner: str = None, device_name: str = None) -> bool:
         """
         Update device information
