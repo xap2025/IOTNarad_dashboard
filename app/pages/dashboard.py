@@ -996,70 +996,6 @@ def create_settings_content():
                         ], id='delete-user-btn', color='danger', size='lg', className='mb-3'),
                     ], className='mb-4'),
                     
-                    # User Management Table
-                    html.Div([
-                        html.H6("Users List", className='fw-bold mb-3'),
-                        dbc.Table([
-                            html.Thead([
-                                html.Tr([
-                                    html.Th("User ID"),
-                                    html.Th("Name"),
-                                    html.Th("Email"),
-                                    html.Th("User Type"),
-                                    html.Th("Status"),
-                                    html.Th("Actions"),
-                                ])
-                            ]),
-                            html.Tbody([
-                                html.Tr([
-                                    html.Td("admin"),
-                                    html.Td("Administrator"),
-                                    html.Td("admin@iotnarad.com"),
-                                    html.Td([
-                                        html.Span("Admin", className='badge bg-danger')
-                                    ]),
-                                    html.Td([
-                                        html.Span("Active", className='badge bg-success')
-                                    ]),
-                                    html.Td([
-                                        dbc.Button("Edit", size='sm', color='primary', className='me-1'),
-                                        dbc.Button("Delete", size='sm', color='danger'),
-                                    ]),
-                                ]),
-                                html.Tr([
-                                    html.Td("sanjay"),
-                                    html.Td("Sanjay Kumar"),
-                                    html.Td("sanjay@company.com"),
-                                    html.Td([
-                                        html.Span("User", className='badge bg-primary')
-                                    ]),
-                                    html.Td([
-                                        html.Span("Active", className='badge bg-success')
-                                    ]),
-                                    html.Td([
-                                        dbc.Button("Edit", size='sm', color='primary', className='me-1'),
-                                        dbc.Button("Delete", size='sm', color='danger'),
-                                    ]),
-                                ]),
-                                html.Tr([
-                                    html.Td("ridhi"),
-                                    html.Td("Ridhi Sharma"),
-                                    html.Td("ridhi@company.com"),
-                                    html.Td([
-                                        html.Span("User", className='badge bg-primary')
-                                    ]),
-                                    html.Td([
-                                        html.Span("Active", className='badge bg-success')
-                                    ]),
-                                    html.Td([
-                                        dbc.Button("Edit", size='sm', color='primary', className='me-1'),
-                                        dbc.Button("Delete", size='sm', color='danger'),
-                                    ]),
-                                ]),
-                            ])
-                        ], striped=True, bordered=True, hover=True, responsive=True),
-                    ], className='mt-3'),
-                    
                 ], className='stat-card', style={
                     'background': 'white',
                     'borderRadius': '12px',
@@ -1077,74 +1013,36 @@ def create_settings_content():
                 html.Div([
                     html.H5("Device List", className='fw-bold mb-4'),
                     
-                    # Device Assignment Table
-                    dbc.Table([
-                        html.Thead([
-                            html.Tr([
-                                html.Th("Device ID"),
-                                html.Th("User ID"),
-                                html.Th("Device Name"),
-                                html.Th("UnAssigned / Assigned"),
-                                html.Th("Actions"),
-                            ])
-                        ]),
-                        html.Tbody([
-                            html.Tr([
-                                html.Td("XAP-1308"),
-                                html.Td("sanjay"),
-                                html.Td("Noida"),
-                                html.Td([
-                                    html.Div([
-                                        html.Span("Allotted", className='badge bg-success me-2'),
-                                        html.Div([
-                                            html.Span("UnAssigned", className='badge bg-secondary me-1'),
-                                            html.Div(className='toggle-switch', style={
-                                                'width': '40px', 'height': '20px', 'backgroundColor': '#007bff',
-                                                'borderRadius': '10px', 'position': 'relative', 'display': 'inline-block'
-                                            }, children=[
-                                                html.Div(style={
-                                                    'width': '16px', 'height': '16px', 'backgroundColor': 'white',
-                                                    'borderRadius': '50%', 'position': 'absolute', 'top': '2px', 'right': '2px'
-                                                })
-                                            ]),
-                                            html.Span("Assigned", className='badge bg-primary ms-1'),
-                                        ])
-                                    ])
-                                ]),
-                                html.Td([
-                                    dbc.Button("Edit", size='sm', color='primary', className='me-1'),
-                                    dbc.Button("Free", size='sm', color='warning'),
-                                ]),
+                    # Toggle Switch for Filter
+                    html.Div([
+                        dbc.Label("Filter Devices:", className='fw-bold me-3'),
+                        dbc.RadioItems(
+                            id='device-filter-toggle',
+                            options=[
+                                {'label': ' UnAssigned', 'value': 'unassigned'},
+                                {'label': ' Assigned', 'value': 'assigned'},
+                            ],
+                            value='unassigned',
+                            inline=True,
+                            className='mb-3'
+                        ),
+                    ], className='mb-3'),
+                    
+                    # Device Assignment Table (Dynamic)
+                    html.Div(id='device-list-table-container', children=[
+                        dbc.Table([
+                            html.Thead([
+                                html.Tr([
+                                    html.Th("Device ID"),
+                                    html.Th("User ID"),
+                                    html.Th("Device Name"),
+                                    html.Th("Status"),
+                                    html.Th("Actions"),
+                                ])
                             ]),
-                            html.Tr([
-                                html.Td("XAP-2652"),
-                                html.Td("ridhi"),
-                                html.Td("Flora"),
-                                html.Td([
-                                    html.Div([
-                                        html.Span("Allotted", className='badge bg-success me-2'),
-                                        html.Div([
-                                            html.Span("UnAssigned", className='badge bg-secondary me-1'),
-                                            html.Div(className='toggle-switch', style={
-                                                'width': '40px', 'height': '20px', 'backgroundColor': '#007bff',
-                                                'borderRadius': '10px', 'position': 'relative', 'display': 'inline-block'
-                                            }, children=[
-                                                html.Div(style={
-                                                    'width': '16px', 'height': '16px', 'backgroundColor': 'white',
-                                                    'borderRadius': '50%', 'position': 'absolute', 'top': '2px', 'right': '2px'
-                                                })
-                                            ]),
-                                            html.Span("Assigned", className='badge bg-primary ms-1'),
-                                        ])
-                                    ])
-                                ]),
-                                html.Td([
-                                    dbc.Button("Edit", size='sm', color='primary', className='me-1'),
-                                    dbc.Button("Free", size='sm', color='warning'),
-                                ]),
-                            ]),
-                        ])
-                    ], striped=True, bordered=True, hover=True, responsive=True),
+                            html.Tbody(id='device-list-tbody', children=[])
+                        ], striped=True, bordered=True, hover=True, responsive=True, id='device-list-table')
+                    ]),
                     
                 ], className='stat-card', style={
                     'background': 'white',
@@ -1794,6 +1692,112 @@ def delete_user(n_clicks, user_id):
             duration=5000
         )
         return alert, True, no_update
+
+
+# Settings Page Callbacks - Device List Table (Real-time)
+@callback(
+    Output('device-list-tbody', 'children'),
+    [Input('device-filter-toggle', 'value'),
+     Input('assign-device-modal', 'is_open'),  # Refresh when assign modal closes
+     Input('delete-user-modal', 'is_open')],  # Refresh when delete modal closes
+    prevent_initial_call=False
+)
+def load_device_list_table(filter_value, assign_modal_open, delete_modal_open):
+    """Load device list table based on filter toggle"""
+    from dash import ctx
+    
+    try:
+        from app.services.device_info_service import DeviceInfoService
+        device_info_service = DeviceInfoService()
+        
+        if not device_info_service.is_connected():
+            logger.error("❌ Device Info Service not connected")
+            return [html.Tr([
+                html.Td("Database not connected", colSpan=5, className='text-center text-muted')
+            ])]
+        
+        # Get all devices (admin sees all)
+        all_devices = device_info_service.get_all_devices_info(owner_filter=None, is_admin=True)
+        
+        if not all_devices:
+            return [html.Tr([
+                html.Td("No devices found", colSpan=5, className='text-center text-muted')
+            ])]
+        
+        # Filter devices based on toggle
+        if filter_value == 'unassigned':
+            # Show only devices with Owner = "admin"
+            filtered_devices = [d for d in all_devices if d.get('Owner') == 'admin']
+        else:  # assigned
+            # Show only devices with Owner != "admin"
+            filtered_devices = [d for d in all_devices if d.get('Owner') != 'admin']
+        
+        if not filtered_devices:
+            status_text = "UnAssigned" if filter_value == 'unassigned' else "Assigned"
+            return [html.Tr([
+                html.Td(f"No {status_text.lower()} devices found", colSpan=5, className='text-center text-muted')
+            ])]
+        
+        # Build table rows
+        rows = []
+        for device in filtered_devices:
+            device_id = device.get('Sr_No', 'N/A')
+            user_id = device.get('Owner', 'admin')
+            device_name = device.get('Device_Name', 'Unnamed')
+            
+            # Status badge
+            if filter_value == 'unassigned':
+                status_badge = html.Span("Not Alloted", className='badge bg-secondary')
+            else:
+                status_badge = html.Span("Allotted", className='badge bg-success')
+            
+            # Actions buttons
+            if filter_value == 'unassigned':
+                # UnAssigned devices: Only Delete button
+                actions = dbc.Button(
+                    "Delete",
+                    size='sm',
+                    color='danger',
+                    id={'type': 'delete-device-btn', 'index': device_id},
+                    n_clicks=0
+                )
+            else:
+                # Assigned devices: Edit + Free buttons
+                actions = html.Div([
+                    dbc.Button(
+                        "Edit",
+                        size='sm',
+                        color='primary',
+                        className='me-1',
+                        id={'type': 'edit-device-btn', 'index': device_id},
+                        n_clicks=0
+                    ),
+                    dbc.Button(
+                        "Free",
+                        size='sm',
+                        color='warning',
+                        id={'type': 'free-device-btn', 'index': device_id},
+                        n_clicks=0
+                    )
+                ])
+            
+            rows.append(html.Tr([
+                html.Td(device_id),
+                html.Td(user_id if filter_value == 'assigned' else 'Unassigned'),
+                html.Td(device_name),
+                html.Td(status_badge),
+                html.Td(actions)
+            ]))
+        
+        logger.info(f"✅ Loaded {len(rows)} {filter_value} devices in table")
+        return rows
+        
+    except Exception as e:
+        logger.error(f"Error loading device list: {e}")
+        logger.exception("Full error traceback:")
+        return [html.Tr([
+            html.Td(f"Error loading devices: {str(e)}", colSpan=5, className='text-center text-danger')
+        ])]
 
 
 # Profile Page Callbacks - Navigate to change password page
