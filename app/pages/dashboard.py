@@ -1211,6 +1211,38 @@ def create_settings_content():
                 dbc.Button("Assign Device", id="save-assign-device-btn", color="primary", n_clicks=0),
             ]),
         ], id="assign-device-modal", is_open=False, size="lg"),
+        
+        # Delete User Modal
+        dbc.Modal([
+            dbc.ModalHeader(dbc.ModalTitle("Delete User")),
+            dbc.ModalBody([
+                dbc.Form([
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Label("Select User ID to Delete", className='fw-bold'),
+                            dcc.Dropdown(
+                                id='delete-user-selector',
+                                placeholder='Select user...',
+                                options=[],
+                                value=None,
+                                clearable=True
+                            ),
+                            html.Small("Admin user is excluded from this list", className='text-muted mt-1 d-block'),
+                        ], md=12),
+                    ], className='mb-3'),
+                    
+                    # User Details Display (shown when user is selected)
+                    html.Div(id='delete-user-details', children=[]),
+                    
+                    # Alert for messages
+                    html.Div(id='delete-user-alert', children=[]),
+                ]),
+            ]),
+            dbc.ModalFooter([
+                dbc.Button("Cancel", id="close-delete-user-modal", className="ms-auto", n_clicks=0, color="secondary"),
+                dbc.Button("Delete User", id="confirm-delete-user-btn", color="danger", n_clicks=0, disabled=True),
+            ]),
+        ], id="delete-user-modal", is_open=False, size="lg"),
     ])
 
 
@@ -1452,6 +1484,316 @@ def assign_device_to_user(n_clicks, serial_number, user_id, device_name):
             duration=5000
         )
         return alert, True, no_update, no_update, no_update
+
+
+# Settings Page Callbacks - Delete User Modal
+@callback(
+    Output("delete-user-modal", "is_open"),
+    [Input("delete-user-btn", "n_clicks"),
+     Input("close-delete-user-modal", "n_clicks"),
+     Input("confirm-delete-user-btn", "n_clicks")],
+    [State("delete-user-modal", "is_open")],
+    prevent_initial_call=True
+)
+def toggle_delete_user_modal(open_clicks, close_clicks, delete_clicks, is_open):
+    """Toggle delete user modal"""
+    from dash import ctx
+    
+    if not ctx.triggered:
+        return is_open
+    
+    ctx_triggered = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    if ctx_triggered == "delete-user-btn" and open_clicks:
+        return True
+    elif ctx_triggered in ["close-delete-user-modal", "confirm-delete-user-btn"]:
+        return False
+    return is_open
+
+
+# Load users (excluding admin) for delete dropdown
+@callback(
+    Output('delete-user-selector', 'options'),
+    Input('delete-user-modal', 'is_open'),
+    prevent_initial_call=True
+)
+def load_users_for_deletion(modal_is_open):
+    """Load all users except 'admin' for deletion"""
+    if not modal_is_open:
+        return no_update
+    
+    try:
+        from app.services.user_service import UserService
+        user_service = UserService()
+        
+        if not user_service.connected:
+            logger.error("❌ User Service not connected")
+            return [{'label': '⚠️ Database not connected', 'value': None, 'disabled': True}]
+        
+        # Get all users
+        all_users = user_service.get_all_users()
+        
+        # Filter out 'admin' user and get unique user IDs
+        seen_user_ids = set()
+        user_options = []
+        
+        for user in all_users:
+            user_id = user.get('User_Id')
+            if user_id and user_id != 'admin' and user_id not in seen_user_ids:
+                seen_user_ids.add(user_id)
+                # Get user details for label
+                email = user.get('Email_Id', '')
+                company = user.get('Company_Name', '')
+                label_parts = [user_id]
+                if email:
+                    label_parts.append(f"({email})")
+                if company:
+                    label_parts.append(f"- {company}")
+                
+                user_options.append({
+                    'label': ' - '.join(label_parts),
+                    'value': user_id
+                })
+        
+        # Sort by user ID
+        user_options.sort(key=lambda x: x['value'])
+        
+        if not user_options:
+            return [{'label': 'No users found (excluding admin)', 'value': None, 'disabled': True}]
+        
+        logger.info(f"✅ Loaded {len(user_options)} users for deletion (admin excluded)")
+        return user_options
+        
+    except Exception as e:
+        logger.error(f"Error loading users: {e}")
+        logger.exception("Full error traceback:")
+        return [{'label': f'⚠️ Error loading users: {str(e)}', 'value': None, 'disabled': True}]
+
+
+# Show user details and check for assigned devices when user is selected
+@callback(
+    [Output('delete-user-details', 'children'),
+     Output('confirm-delete-user-btn', 'disabled'),
+     Output('delete-user-alert', 'children')],
+    Input('delete-user-selector', 'value'),
+    prevent_initial_call=True
+)
+def show_user_details_and_check_devices(selected_user_id):
+    """Show user details and check if user has assigned devices"""
+    if not selected_user_id:
+        return [], True, []
+    
+    # Safety check: Never allow admin deletion
+    if selected_user_id == 'admin':
+        alert = dbc.Alert(
+            "❌ Admin user cannot be deleted",
+            color="danger",
+            dismissable=True,
+            duration=3000
+        )
+        return [], True, alert
+    
+    try:
+        from app.services.user_service import UserService
+        from app.services.device_info_service import DeviceInfoService
+        
+        user_service = UserService()
+        device_info_service = DeviceInfoService()
+        
+        if not user_service.connected:
+            alert = dbc.Alert(
+                "❌ Database connection error",
+                color="danger",
+                dismissable=True,
+                duration=3000
+            )
+            return [], True, alert
+        
+        # Get user details
+        user = user_service.get_user_by_id(selected_user_id)
+        if not user:
+            alert = dbc.Alert(
+                f"❌ User '{selected_user_id}' not found",
+                color="danger",
+                dismissable=True,
+                duration=3000
+            )
+            return [], True, alert
+        
+        # Check if user has assigned devices
+        has_devices = device_info_service.user_has_assigned_devices(selected_user_id)
+        
+        # Build user details display
+        user_details = [
+            html.Hr(className='my-3'),
+            html.H6("User Details", className='fw-bold mb-3'),
+            dbc.Row([
+                dbc.Col([
+                    html.Div([
+                        html.I(className="fas fa-building me-2", style={'color': '#e91e63'}),
+                        html.Strong("Company Name: "),
+                        html.Span(user.get('Company_Name', 'N/A'))
+                    ], className='mb-2')
+                ], md=6),
+                dbc.Col([
+                    html.Div([
+                        html.I(className="fas fa-envelope me-2", style={'color': '#dc3545'}),
+                        html.Strong("Email ID: "),
+                        html.Span(user.get('Email_Id', 'N/A'))
+                    ], className='mb-2')
+                ], md=6),
+            ], className='mb-2'),
+            dbc.Row([
+                dbc.Col([
+                    html.Div([
+                        html.I(className="fas fa-phone me-2", style={'color': '#9c27b0'}),
+                        html.Strong("Phone Number: "),
+                        html.Span(user.get('Phone_No', 'N/A'))
+                    ], className='mb-2')
+                ], md=6),
+                dbc.Col([
+                    html.Div([
+                        html.I(className="fas fa-user-tag me-2", style={'color': '#9c27b0'}),
+                        html.Strong("User Type: "),
+                        html.Span(user.get('User_Type', 'N/A'))
+                    ], className='mb-2')
+                ], md=6),
+            ], className='mb-3'),
+        ]
+        
+        # Check for assigned devices
+        if has_devices:
+            # Get device list for display
+            devices = device_info_service.get_all_devices_info(owner_filter=selected_user_id, is_admin=False)
+            device_list = [device.get('Sr_No') for device in devices]
+            
+            alert = dbc.Alert([
+                html.H6("⚠️ Cannot Delete User", className='alert-heading'),
+                html.P(f"This user cannot be deleted because {len(devices)} device(s) are still assigned:"),
+                html.Ul([html.Li(device_id) for device_id in device_list[:10]], className='mb-0'),
+                html.P("Please unassign all devices first before deleting this user.", className='mb-0 mt-2')
+            ], color="warning", dismissable=True)
+            
+            # Disable delete button
+            return user_details, True, alert
+        else:
+            alert = dbc.Alert(
+                "✅ This user has no assigned devices. Safe to delete.",
+                color="success",
+                dismissable=True,
+                duration=5000
+            )
+            # Enable delete button
+            return user_details, False, alert
+        
+    except Exception as e:
+        logger.error(f"Error showing user details: {e}")
+        logger.exception("Full error traceback:")
+        alert = dbc.Alert(
+            f"❌ Error: {str(e)}",
+            color="danger",
+            dismissable=True,
+            duration=5000
+        )
+        return [], True, alert
+
+
+# Delete user callback
+@callback(
+    [Output('delete-user-alert', 'children', allow_duplicate=True),
+     Output('delete-user-modal', 'is_open', allow_duplicate=True),
+     Output('delete-user-selector', 'value')],
+    Input('confirm-delete-user-btn', 'n_clicks'),
+    [State('delete-user-selector', 'value')],
+    prevent_initial_call=True
+)
+def delete_user(n_clicks, user_id):
+    """Delete user after safety checks"""
+    if not n_clicks:
+        return no_update, no_update, no_update
+    
+    # Safety check: Never allow admin deletion
+    if user_id == 'admin':
+        alert = dbc.Alert(
+            "❌ Admin user cannot be deleted",
+            color="danger",
+            dismissable=True,
+            duration=5000
+        )
+        return alert, True, no_update
+    
+    if not user_id:
+        alert = dbc.Alert(
+            "⚠️ Please select a user to delete",
+            color="warning",
+            dismissable=True,
+            duration=3000
+        )
+        return alert, True, no_update
+    
+    try:
+        from app.services.user_service import UserService
+        from app.services.device_info_service import DeviceInfoService
+        
+        user_service = UserService()
+        device_info_service = DeviceInfoService()
+        
+        if not user_service.connected:
+            alert = dbc.Alert(
+                "❌ Database connection error. Please try again.",
+                color="danger",
+                dismissable=True,
+                duration=5000
+            )
+            return alert, True, no_update
+        
+        # Final safety check: Verify user has no assigned devices
+        has_devices = device_info_service.user_has_assigned_devices(user_id)
+        if has_devices:
+            devices = device_info_service.get_all_devices_info(owner_filter=user_id, is_admin=False)
+            device_list = [device.get('Sr_No') for device in devices]
+            
+            alert = dbc.Alert([
+                html.H6("❌ Cannot Delete User", className='alert-heading'),
+                html.P(f"This user cannot be deleted because {len(devices)} device(s) are still assigned:"),
+                html.Ul([html.Li(device_id) for device_id in device_list[:10]], className='mb-0'),
+                html.P("Please unassign all devices first before deleting this user.", className='mb-0 mt-2')
+            ], color="danger", dismissable=True)
+            return alert, True, no_update
+        
+        # Delete user - this will delete all User_info records for this user
+        success = user_service.delete_all_user_entries(user_id)
+        
+        if success:
+            alert = dbc.Alert(
+                f"✅ User '{user_id}' has been successfully deleted from the system.",
+                color="success",
+                dismissable=True,
+                duration=5000
+            )
+            logger.info(f"✅ User deletion successful: {user_id}")
+            # Clear form and close modal
+            return alert, False, None
+        else:
+            alert = dbc.Alert(
+                f"❌ Failed to delete user. Please check logs for details.",
+                color="danger",
+                dismissable=True,
+                duration=5000
+            )
+            logger.error(f"❌ User deletion failed: {user_id}")
+            return alert, True, no_update
+        
+    except Exception as e:
+        logger.error(f"Error deleting user: {e}")
+        logger.exception("Full error traceback:")
+        alert = dbc.Alert(
+            f"❌ Error: {str(e)}",
+            color="danger",
+            dismissable=True,
+            duration=5000
+        )
+        return alert, True, no_update
 
 
 # Profile Page Callbacks - Navigate to change password page

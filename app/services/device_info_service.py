@@ -535,6 +535,35 @@ class DeviceInfoService:
             logger.error(f"Error updating device info: {e}")
             return False
     
+    def user_has_assigned_devices(self, user_id: str) -> bool:
+        """
+        Check if a user has any devices assigned to them
+        
+        Args:
+            user_id: User ID to check
+            
+        Returns:
+            True if user has assigned devices, False otherwise
+        """
+        if not self.connected:
+            return False
+        
+        try:
+            # Get all devices for this user
+            devices = self.get_all_devices_info(owner_filter=user_id, is_admin=False)
+            
+            if devices and len(devices) > 0:
+                logger.info(f"✅ User '{user_id}' has {len(devices)} device(s) assigned")
+                return True
+            
+            logger.info(f"ℹ️ User '{user_id}' has no devices assigned")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error checking assigned devices for user '{user_id}': {e}")
+            # Return True on error to be safe (prevent deletion if check fails)
+            return True
+    
     def is_connected(self) -> bool:
         """Check if InfluxDB client is connected"""
         return self.connected
