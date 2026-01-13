@@ -1754,7 +1754,8 @@ def delete_user(n_clicks, user_id):
     Output('device-list-tbody', 'children'),
     [Input('device-filter-toggle', 'value'),
      Input('assign-device-modal', 'is_open'),  # Refresh when assign modal closes
-     Input('delete-user-modal', 'is_open')],  # Refresh when delete modal closes
+     Input('delete-user-modal', 'is_open'),  # Refresh when delete modal closes
+     Input('edit-device-modal', 'is_open')],  # Refresh when edit modal closes
     prevent_initial_call=False
 )
 def load_device_list_table(filter_value, assign_modal_open, delete_modal_open, edit_modal_open):
@@ -1893,10 +1894,10 @@ def toggle_edit_device_modal(edit_clicks_list, close_clicks, save_clicks, is_ope
         except Exception as e:
             logger.warning(f"Could not parse device_id from prop_id: {e}")
             # Fallback: try to find from button IDs and clicks
-            if edit_button_ids and edit_clicks_list:
+            if edit_button_ids and edit_clicks_list and len(edit_button_ids) == len(edit_clicks_list):
                 for i, btn_id in enumerate(edit_button_ids):
                     if btn_id and isinstance(btn_id, dict) and btn_id.get('type') == 'edit-device-btn':
-                        if i < len(edit_clicks_list) and edit_clicks_list[i] and edit_clicks_list[i] > 0:
+                        if edit_clicks_list[i] and edit_clicks_list[i] > 0:
                             device_id = btn_id.get('index')
                             break
         
@@ -1916,6 +1917,7 @@ def toggle_edit_device_modal(edit_clicks_list, close_clicks, save_clicks, is_ope
                     return True, device_id, '', None
             except Exception as e:
                 logger.error(f"Error loading device info: {e}")
+                logger.exception("Full error traceback:")
                 return True, device_id, '', None
         else:
             logger.warning("Could not extract device_id from edit button click")
