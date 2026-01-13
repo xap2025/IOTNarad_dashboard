@@ -2,7 +2,7 @@
 Dashboard Page Layout
 Main dashboard with sidebar navigation and content area
 """
-from dash import html, dcc, Input, Output, State, callback, no_update
+from dash import html, dcc, Input, Output, State, callback, no_update, ALL
 import dash_bootstrap_components as dbc
 from datetime import datetime, timedelta
 import pytz
