@@ -1879,7 +1879,8 @@ def toggle_edit_device_modal(edit_clicks, close_clicks, save_clicks, is_open, st
     from dash import ctx
     
     if not ctx.triggered:
-        return is_open, store_data
+        # On initial load or no trigger, ensure modal is closed
+        return False, {'device_id': None}
     
     ctx_triggered_id = ctx.triggered_id
     
@@ -1892,9 +1893,28 @@ def toggle_edit_device_modal(edit_clicks, close_clicks, save_clicks, is_open, st
     
     # If close or save button was clicked, close modal
     elif ctx_triggered_id in ["close-edit-device-modal", "save-edit-device-btn"]:
+        logger.info("❌ Edit modal closed via Cancel/Update button")
         return False, {'device_id': None}
     
+    # Default: keep current state but ensure store is cleared if modal is closed
+    if not is_open:
+        return False, {'device_id': None}
     return is_open, store_data
+
+
+# Handle modal close via cross button (backdrop click or X button)
+@callback(
+    Output("edit-device-store", "data", allow_duplicate=True),
+    Input("edit-device-modal", "is_open"),
+    State("edit-device-store", "data"),
+    prevent_initial_call=True
+)
+def handle_edit_modal_close(modal_is_open, store_data):
+    """Clear store data when modal is closed via cross button or backdrop"""
+    if not modal_is_open and store_data and store_data.get('device_id'):
+        logger.info("❌ Edit modal closed via cross button or backdrop - clearing store data")
+        return {'device_id': None}
+    return no_update
 
 
 # Load current device data when edit modal opens
@@ -1908,10 +1928,15 @@ def toggle_edit_device_modal(edit_clicks, close_clicks, save_clicks, is_open, st
 )
 def load_device_data_for_edit(modal_is_open, store_data):
     """Load current device data when edit modal opens"""
+    # Only load data when modal is actually open (True) and has valid device_id
     if not modal_is_open:
         return no_update, no_update, no_update
     
-    device_id = store_data.get('device_id') if store_data else None
+    # Additional safety check: ensure store_data exists and has device_id
+    if not store_data or not isinstance(store_data, dict):
+        return no_update, no_update, no_update
+    
+    device_id = store_data.get('device_id')
     
     if not device_id:
         return no_update, no_update, no_update
