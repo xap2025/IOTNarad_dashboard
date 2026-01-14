@@ -2,7 +2,7 @@
 Dashboard Page Layout
 Main dashboard with sidebar navigation and content area
 """
-from dash import html, dcc, Input, Output, State, callback, no_update
+from dash import html, dcc, Input, Output, State, callback, no_update, ALL
 import dash_bootstrap_components as dbc
 from datetime import datetime, timedelta
 import pytz
@@ -1141,6 +1141,65 @@ def create_settings_content():
                 dbc.Button("Delete User", id="confirm-delete-user-btn", color="danger", n_clicks=0, disabled=True),
             ]),
         ], id="delete-user-modal", is_open=False, size="lg"),
+        
+        # Edit Device Modal
+        dbc.Modal([
+            dbc.ModalHeader(dbc.ModalTitle("Edit Device Assignment")),
+            dbc.ModalBody([
+                dbc.Form([
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Label("Device ID", className='fw-bold'),
+                            dbc.Input(
+                                id='edit-device-id',
+                                type='text',
+                                placeholder='Device ID...',
+                                value='',
+                                disabled=True,
+                                style={'backgroundColor': '#f8f9fa', 'cursor': 'not-allowed'}
+                            ),
+                            html.Small("Device ID cannot be changed", className='text-muted mt-1 d-block'),
+                        ], md=12),
+                    ], className='mb-3'),
+                    
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Label("Select User ID", className='fw-bold'),
+                            dcc.Dropdown(
+                                id='edit-user-selector',
+                                placeholder='Select user...',
+                                options=[],
+                                value=None,
+                                clearable=True
+                            ),
+                            html.Small("Admin user is excluded from this list", className='text-muted mt-1 d-block'),
+                        ], md=12),
+                    ], className='mb-3'),
+                    
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Label("Enter Device Name", className='fw-bold'),
+                            dbc.Input(
+                                id='edit-device-name',
+                                type='text',
+                                placeholder='Enter device name...',
+                                value=''
+                            ),
+                        ], md=12),
+                    ], className='mb-3'),
+                    
+                    # Alert for success/error messages
+                    html.Div(id='edit-device-alert', children=[]),
+                ]),
+            ]),
+            dbc.ModalFooter([
+                dbc.Button("Cancel", id="close-edit-device-modal", className="ms-auto", n_clicks=0, color="secondary"),
+                dbc.Button("Update Device", id="save-edit-device-btn", color="primary", n_clicks=0),
+            ]),
+        ], id="edit-device-modal", is_open=False, size="lg"),
+        
+        # Store for edit device data
+        dcc.Store(id='edit-device-store', data={'device_id': None}),
     ])
 
 
@@ -1699,10 +1758,11 @@ def delete_user(n_clicks, user_id):
     Output('device-list-tbody', 'children'),
     [Input('device-filter-toggle', 'value'),
      Input('assign-device-modal', 'is_open'),  # Refresh when assign modal closes
-     Input('delete-user-modal', 'is_open')],  # Refresh when delete modal closes
+     Input('delete-user-modal', 'is_open'),  # Refresh when delete modal closes
+     Input('edit-device-modal', 'is_open')],  # Refresh when edit modal closes
     prevent_initial_call=False
 )
-def load_device_list_table(filter_value, assign_modal_open, delete_modal_open):
+def load_device_list_table(filter_value, assign_modal_open, delete_modal_open, edit_modal_open):
     """Load device list table based on filter toggle"""
     from dash import ctx
     
@@ -1801,6 +1861,244 @@ def load_device_list_table(filter_value, assign_modal_open, delete_modal_open):
         return [html.Tr([
             html.Td(f"Error loading devices: {str(e)}", colSpan=5, className='text-center text-danger')
         ])]
+
+
+# Settings Page Callbacks - Edit Device Modal
+@callback(
+    [Output("edit-device-modal", "is_open"),
+     Output("edit-device-store", "data")],
+    [Input({'type': 'edit-device-btn', 'index': ALL}, 'n_clicks'),
+     Input("close-edit-device-modal", "n_clicks"),
+     Input("save-edit-device-btn", "n_clicks")],
+    [State("edit-device-modal", "is_open"),
+     State("edit-device-store", "data")],
+    prevent_initial_call=True
+)
+def toggle_edit_device_modal(edit_clicks, close_clicks, save_clicks, is_open, store_data):
+    """Toggle edit device modal and store device ID"""
+    from dash import ctx
+    
+    if not ctx.triggered:
+        return is_open, store_data
+    
+    ctx_triggered_id = ctx.triggered_id
+    
+    # If Edit button was clicked, open modal and store device ID
+    if ctx_triggered_id and isinstance(ctx_triggered_id, dict) and ctx_triggered_id.get('type') == 'edit-device-btn':
+        device_id = ctx_triggered_id.get('index')
+        if device_id:
+            logger.info(f"📝 Opening edit modal for device: {device_id}")
+            return True, {'device_id': device_id}
+    
+    # If close or save button was clicked, close modal
+    elif ctx_triggered_id in ["close-edit-device-modal", "save-edit-device-btn"]:
+        return False, {'device_id': None}
+    
+    return is_open, store_data
+
+
+# Load current device data when edit modal opens
+@callback(
+    [Output('edit-device-id', 'value'),
+     Output('edit-user-selector', 'value'),
+     Output('edit-device-name', 'value')],
+    Input('edit-device-modal', 'is_open'),
+    State('edit-device-store', 'data'),
+    prevent_initial_call=True
+)
+def load_device_data_for_edit(modal_is_open, store_data):
+    """Load current device data when edit modal opens"""
+    if not modal_is_open:
+        return no_update, no_update, no_update
+    
+    device_id = store_data.get('device_id') if store_data else None
+    
+    if not device_id:
+        return no_update, no_update, no_update
+    
+    try:
+        from app.services.device_info_service import DeviceInfoService
+        device_info_service = DeviceInfoService()
+        
+        if not device_info_service.is_connected():
+            logger.error("❌ Device Info Service not connected")
+            return device_id, None, ""
+        
+        # Get current device info
+        device_info = device_info_service.get_device_info(device_id)
+        
+        if not device_info:
+            logger.warning(f"Device '{device_id}' not found")
+            return device_id, None, ""
+        
+        current_owner = device_info.get('Owner', '')
+        current_device_name = device_info.get('Device_Name', '')
+        
+        logger.info(f"✅ Loaded device data for edit: ID={device_id}, Owner={current_owner}, Name={current_device_name}")
+        
+        return device_id, current_owner, current_device_name
+        
+    except Exception as e:
+        logger.error(f"Error loading device data: {e}")
+        logger.exception("Full error traceback:")
+        return device_id, None, ""
+
+
+# Load users (excluding admin) in edit dropdown
+@callback(
+    Output('edit-user-selector', 'options'),
+    Input('edit-device-modal', 'is_open'),
+    prevent_initial_call=True
+)
+def load_users_for_edit(modal_is_open):
+    """Load all users except 'admin' for device editing"""
+    if not modal_is_open:
+        return no_update
+    
+    try:
+        from app.services.user_service import UserService
+        user_service = UserService()
+        
+        if not user_service.connected:
+            logger.error("❌ User Service not connected")
+            return [{'label': '⚠️ Database not connected', 'value': None, 'disabled': True}]
+        
+        # Get all users
+        all_users = user_service.get_all_users()
+        
+        # Filter out 'admin' user and get unique user IDs
+        seen_user_ids = set()
+        user_options = []
+        
+        for user in all_users:
+            user_id = user.get('User_Id')
+            if user_id and user_id != 'admin' and user_id not in seen_user_ids:
+                seen_user_ids.add(user_id)
+                # Get user details for label
+                email = user.get('Email_Id', '')
+                company = user.get('Company_Name', '')
+                label_parts = [user_id]
+                if email:
+                    label_parts.append(f"({email})")
+                if company:
+                    label_parts.append(f"- {company}")
+                
+                user_options.append({
+                    'label': ' - '.join(label_parts),
+                    'value': user_id
+                })
+        
+        # Sort by user ID
+        user_options.sort(key=lambda x: x['value'])
+        
+        if not user_options:
+            return [{'label': 'No users found (excluding admin)', 'value': None, 'disabled': True}]
+        
+        logger.info(f"✅ Loaded {len(user_options)} users for edit (admin excluded)")
+        return user_options
+        
+    except Exception as e:
+        logger.error(f"Error loading users: {e}")
+        logger.exception("Full error traceback:")
+        return [{'label': f'⚠️ Error loading users: {str(e)}', 'value': None, 'disabled': True}]
+
+
+# Save edited device callback
+@callback(
+    [Output('edit-device-alert', 'children'),
+     Output('edit-device-modal', 'is_open', allow_duplicate=True),
+     Output('edit-user-selector', 'value', allow_duplicate=True),
+     Output('edit-device-name', 'value', allow_duplicate=True),
+     Output('edit-device-store', 'data', allow_duplicate=True)],
+    Input('save-edit-device-btn', 'n_clicks'),
+    [State('edit-device-id', 'value'),
+     State('edit-user-selector', 'value'),
+     State('edit-device-name', 'value')],
+    prevent_initial_call=True
+)
+def save_edited_device(n_clicks, device_id, user_id, device_name):
+    """Save edited device by deleting old records and creating new one"""
+    if not n_clicks:
+        return no_update, no_update, no_update, no_update, no_update
+    
+    # Validation
+    if not device_id:
+        alert = dbc.Alert(
+            "⚠️ Device ID is missing",
+            color="warning",
+            dismissable=True,
+            duration=3000
+        )
+        return alert, True, no_update, no_update, no_update
+    
+    if not user_id:
+        alert = dbc.Alert(
+            "⚠️ Please select a user to assign the device to",
+            color="warning",
+            dismissable=True,
+            duration=3000
+        )
+        return alert, True, no_update, no_update, no_update
+    
+    if not device_name or not device_name.strip():
+        alert = dbc.Alert(
+            "⚠️ Please enter a device name",
+            color="warning",
+            dismissable=True,
+            duration=3000
+        )
+        return alert, True, no_update, no_update, no_update
+    
+    try:
+        from app.services.device_info_service import DeviceInfoService
+        device_info_service = DeviceInfoService()
+        
+        if not device_info_service.is_connected():
+            alert = dbc.Alert(
+                "❌ Database connection error. Please try again.",
+                color="danger",
+                dismissable=True,
+                duration=5000
+            )
+            return alert, True, no_update, no_update, no_update
+        
+        # Edit device using the same method as assign (deletes old records first)
+        success = device_info_service.assign_device_to_user(
+            serial_number=device_id,
+            new_owner=user_id,
+            device_name=device_name.strip()
+        )
+        
+        if success:
+            alert = dbc.Alert(
+                f"✅ Device '{device_id}' successfully updated! New owner: '{user_id}', New name: '{device_name.strip()}'",
+                color="success",
+                dismissable=True,
+                duration=5000
+            )
+            logger.info(f"✅ Device edit successful: {device_id} -> {user_id}")
+            # Clear form and close modal
+            return alert, False, None, "", {'device_id': None}
+        else:
+            alert = dbc.Alert(
+                f"❌ Failed to update device. Please check logs for details.",
+                color="danger",
+                dismissable=True,
+                duration=5000
+            )
+            logger.error(f"❌ Device edit failed: {device_id} -> {user_id}")
+            return alert, True, no_update, no_update, no_update
+        
+    except Exception as e:
+        logger.error(f"Error editing device: {e}")
+        logger.exception("Full error traceback:")
+        alert = dbc.Alert(
+            f"❌ Error: {str(e)}",
+            color="danger",
+            dismissable=True,
+            duration=5000
+        )
+        return alert, True, no_update, no_update, no_update
 
 
 # Profile Page Callbacks - Navigate to change password page
