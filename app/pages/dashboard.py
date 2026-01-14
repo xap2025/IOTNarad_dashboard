@@ -1894,10 +1894,16 @@ def toggle_edit_device_modal(edit_clicks_list, close_clicks, save_clicks, is_ope
         except Exception as e:
             logger.warning(f"Could not parse device_id from prop_id: {e}")
             # Fallback: try to find from button IDs and clicks
-            if edit_button_ids and edit_clicks_list and len(edit_button_ids) == len(edit_clicks_list):
-                for i, btn_id in enumerate(edit_button_ids):
+            # Handle case when lists might be empty or have different lengths
+            if edit_button_ids and edit_clicks_list:
+                # Ensure both lists have same length before iterating
+                min_length = min(len(edit_button_ids), len(edit_clicks_list))
+                for i in range(min_length):
+                    btn_id = edit_button_ids[i] if i < len(edit_button_ids) else None
+                    click_count = edit_clicks_list[i] if i < len(edit_clicks_list) else 0
+                    
                     if btn_id and isinstance(btn_id, dict) and btn_id.get('type') == 'edit-device-btn':
-                        if i < len(edit_clicks_list) and edit_clicks_list[i] and edit_clicks_list[i] > 0:
+                        if click_count and click_count > 0:
                             device_id = btn_id.get('index')
                             break
         
