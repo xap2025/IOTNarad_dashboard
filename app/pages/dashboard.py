@@ -1876,6 +1876,12 @@ def toggle_edit_device_modal(edit_clicks_list, close_clicks, save_clicks, is_ope
     """Toggle edit device modal and load device info"""
     from dash import ctx
     
+    # Handle None or empty lists
+    if edit_clicks_list is None:
+        edit_clicks_list = []
+    if edit_button_ids is None:
+        edit_button_ids = []
+    
     if not ctx.triggered:
         return is_open, '', '', None
     
@@ -1895,7 +1901,7 @@ def toggle_edit_device_modal(edit_clicks_list, close_clicks, save_clicks, is_ope
             logger.warning(f"Could not parse device_id from prop_id: {e}")
             # Fallback: try to find from button IDs and clicks
             # Handle case when lists might be empty or have different lengths
-            if edit_button_ids and edit_clicks_list:
+            if edit_button_ids and edit_clicks_list and len(edit_button_ids) > 0 and len(edit_clicks_list) > 0:
                 # Ensure both lists have same length before iterating
                 min_length = min(len(edit_button_ids), len(edit_clicks_list))
                 for i in range(min_length):
