@@ -1869,12 +1869,13 @@ def load_device_list_table(filter_value, assign_modal_open, delete_modal_open, e
      Output("edit-device-store", "data")],
     [Input({'type': 'edit-device-btn', 'index': ALL}, 'n_clicks'),
      Input("close-edit-device-modal", "n_clicks"),
-     Input("save-edit-device-btn", "n_clicks")],
+     Input("save-edit-device-btn", "n_clicks"),
+     Input("edit-device-modal", "is_open")],  # Listen to modal is_open to handle cross button
     [State("edit-device-modal", "is_open"),
      State("edit-device-store", "data")],
     prevent_initial_call=True
 )
-def toggle_edit_device_modal(edit_clicks, close_clicks, save_clicks, is_open, store_data):
+def toggle_edit_device_modal(edit_clicks_list, close_clicks, save_clicks, modal_is_open_input, is_open_state, store_data):
     """Toggle edit device modal and store device ID"""
     from dash import ctx
     
@@ -1884,37 +1885,42 @@ def toggle_edit_device_modal(edit_clicks, close_clicks, save_clicks, is_open, st
     
     ctx_triggered_id = ctx.triggered_id
     
-    # If Edit button was clicked, open modal and store device ID
+    # Handle cross button or backdrop click - modal's is_open changed to False externally
+    if ctx_triggered_id == "edit-device-modal" and not modal_is_open_input:
+        logger.info("❌ Edit modal closed via cross button or backdrop")
+        return False, {'device_id': None}
+    
+    # If Edit button was clicked
     if ctx_triggered_id and isinstance(ctx_triggered_id, dict) and ctx_triggered_id.get('type') == 'edit-device-btn':
         device_id = ctx_triggered_id.get('index')
         if device_id:
-            logger.info(f"📝 Opening edit modal for device: {device_id}")
-            return True, {'device_id': device_id}
+            # CRITICAL: Only open modal if:
+            # 1. A button was actually clicked (n_clicks > 0)
+            # 2. Modal is currently closed
+            # 3. This is not a button recreation (table refresh)
+            any_button_clicked = any(clicks and clicks > 0 for clicks in edit_clicks_list if clicks is not None)
+            
+            if any_button_clicked and not is_open_state:
+                # Button was clicked and modal is closed - open it
+                logger.info(f"📝 Opening edit modal for device: {device_id}")
+                return True, {'device_id': device_id}
+            elif not any_button_clicked:
+                # Button was recreated but not clicked - keep modal closed
+                # This happens when table refreshes and buttons are recreated
+                logger.debug(f"Edit button recreated for device {device_id} but not clicked - keeping modal closed")
+                return False, {'device_id': None}
+            else:
+                # Button clicked but modal already open - don't change state
+                logger.debug(f"Edit button clicked for device {device_id} but modal already open")
+                return no_update, no_update
     
     # If close or save button was clicked, close modal
-    elif ctx_triggered_id in ["close-edit-device-modal", "save-edit-device-btn"]:
-        logger.info("❌ Edit modal closed via Cancel/Update button")
+    if ctx_triggered_id in ["close-edit-device-modal", "save-edit-device-btn"]:
+        logger.info(f"❌ Edit modal closed via {ctx_triggered_id}")
         return False, {'device_id': None}
     
-    # Default: keep current state but ensure store is cleared if modal is closed
-    if not is_open:
-        return False, {'device_id': None}
-    return is_open, store_data
-
-
-# Handle modal close via cross button (backdrop click or X button)
-@callback(
-    Output("edit-device-store", "data", allow_duplicate=True),
-    Input("edit-device-modal", "is_open"),
-    State("edit-device-store", "data"),
-    prevent_initial_call=True
-)
-def handle_edit_modal_close(modal_is_open, store_data):
-    """Clear store data when modal is closed via cross button or backdrop"""
-    if not modal_is_open and store_data and store_data.get('device_id'):
-        logger.info("❌ Edit modal closed via cross button or backdrop - clearing store data")
-        return {'device_id': None}
-    return no_update
+    # Default: keep modal closed
+    return False, {'device_id': None}
 
 
 # Load current device data when edit modal opens
