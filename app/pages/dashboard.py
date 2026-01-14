@@ -1028,6 +1028,9 @@ def create_settings_content():
                         ),
                     ], className='mb-3'),
                     
+                    # Alert for free device messages
+                    html.Div(id='free-device-alert', children=[], className='mb-3'),
+                    
                     # Device Assignment Table (Dynamic)
                     html.Div(id='device-list-table-container', children=[
                         dbc.Table([
@@ -1200,6 +1203,9 @@ def create_settings_content():
         
         # Store for edit device data
         dcc.Store(id='edit-device-store', data={'device_id': None}),
+        
+        # Store for free device trigger (to refresh device list)
+        dcc.Store(id='free-device-trigger', data={'trigger': 0}),
     ])
 
 
@@ -1759,10 +1765,11 @@ def delete_user(n_clicks, user_id):
     [Input('device-filter-toggle', 'value'),
      Input('assign-device-modal', 'is_open'),  # Refresh when assign modal closes
      Input('delete-user-modal', 'is_open'),  # Refresh when delete modal closes
-     Input('edit-device-modal', 'is_open')],  # Refresh when edit modal closes
+     Input('edit-device-modal', 'is_open'),  # Refresh when edit modal closes
+     Input('free-device-trigger', 'data')],  # Refresh when device is freed
     prevent_initial_call=False
 )
-def load_device_list_table(filter_value, assign_modal_open, delete_modal_open, edit_modal_open):
+def load_device_list_table(filter_value, assign_modal_open, delete_modal_open, edit_modal_open, free_trigger):
     """Load device list table based on filter toggle"""
     from dash import ctx
     
@@ -2130,6 +2137,96 @@ def save_edited_device(n_clicks, device_id, user_id, device_name):
             duration=5000
         )
         return alert, True, no_update, no_update, no_update
+
+
+# Settings Page Callbacks - Free Device
+@callback(
+    [Output('free-device-alert', 'children'),
+     Output('free-device-trigger', 'data')],
+    Input({'type': 'free-device-btn', 'index': ALL}, 'n_clicks'),
+    State('free-device-trigger', 'data'),
+    prevent_initial_call=True
+)
+def free_device(free_clicks_list, trigger_data):
+    """Free device by resetting it to default state (Owner=admin, Device_Name=Unnamed)"""
+    from dash import ctx
+    
+    if not ctx.triggered:
+        return no_update, no_update
+    
+    ctx_triggered_id = ctx.triggered_id
+    
+    # Check if a Free button was clicked
+    if not ctx_triggered_id or not isinstance(ctx_triggered_id, dict) or ctx_triggered_id.get('type') != 'free-device-btn':
+        return no_update, no_update
+    
+    device_id = ctx_triggered_id.get('index')
+    
+    if not device_id:
+        return no_update, no_update
+    
+    # Verify that a button was actually clicked (n_clicks > 0)
+    any_button_clicked = any(clicks and clicks > 0 for clicks in free_clicks_list if clicks is not None)
+    
+    if not any_button_clicked:
+        # Button was recreated but not clicked
+        logger.debug(f"Free button recreated for device {device_id} but not clicked")
+        return no_update, no_update
+    
+    logger.info(f"🆓 Freeing device: {device_id}")
+    
+    try:
+        from app.services.device_info_service import DeviceInfoService
+        device_info_service = DeviceInfoService()
+        
+        if not device_info_service.is_connected():
+            alert = dbc.Alert(
+                "❌ Database connection error. Please try again.",
+                color="danger",
+                dismissable=True,
+                duration=5000
+            )
+            return alert, no_update
+        
+        # Free device by assigning it to admin with default name
+        # This will delete old records and create new one with Owner=admin, Device_Name=Unnamed
+        success = device_info_service.assign_device_to_user(
+            serial_number=device_id,
+            new_owner='admin',
+            device_name='Unnamed'
+        )
+        
+        if success:
+            alert = dbc.Alert(
+                f"✅ Device '{device_id}' successfully freed! Device is now unassigned and reset to default state.",
+                color="success",
+                dismissable=True,
+                duration=5000
+            )
+            logger.info(f"✅ Device freed successfully: {device_id}")
+            # Trigger device list refresh by updating trigger store
+            new_trigger = (trigger_data.get('trigger', 0) + 1) if trigger_data else 1
+            return alert, {'trigger': new_trigger}
+        else:
+            alert = dbc.Alert(
+                f"❌ Failed to free device. Please check logs for details.",
+                color="danger",
+                dismissable=True,
+                duration=5000
+            )
+            logger.error(f"❌ Device free failed: {device_id}")
+            return alert, no_update
+        
+    except Exception as e:
+        logger.error(f"Error freeing device: {e}")
+        logger.exception("Full error traceback:")
+        alert = dbc.Alert(
+            f"❌ Error: {str(e)}",
+            color="danger",
+            dismissable=True,
+            duration=5000
+        )
+        return alert, no_update
 
 
 # Profile Page Callbacks - Navigate to change password page
