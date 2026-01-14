@@ -1031,6 +1031,9 @@ def create_settings_content():
                     # Alert for free device messages
                     html.Div(id='free-device-alert', children=[], className='mb-3'),
                     
+                    # Alert for delete device messages
+                    html.Div(id='delete-device-alert', children=[], className='mb-3'),
+                    
                     # Device Assignment Table (Dynamic)
                     html.Div(id='device-list-table-container', children=[
                         dbc.Table([
@@ -1206,6 +1209,9 @@ def create_settings_content():
         
         # Store for free device trigger (to refresh device list)
         dcc.Store(id='free-device-trigger', data={'trigger': 0}),
+        
+        # Store for delete device trigger (to refresh device list)
+        dcc.Store(id='delete-device-trigger', data={'trigger': 0}),
     ])
 
 
@@ -1766,10 +1772,11 @@ def delete_user(n_clicks, user_id):
      Input('assign-device-modal', 'is_open'),  # Refresh when assign modal closes
      Input('delete-user-modal', 'is_open'),  # Refresh when delete modal closes
      Input('edit-device-modal', 'is_open'),  # Refresh when edit modal closes
-     Input('free-device-trigger', 'data')],  # Refresh when device is freed
+     Input('free-device-trigger', 'data'),  # Refresh when device is freed
+     Input('delete-device-trigger', 'data')],  # Refresh when device is deleted
     prevent_initial_call=False
 )
-def load_device_list_table(filter_value, assign_modal_open, delete_modal_open, edit_modal_open, free_trigger):
+def load_device_list_table(filter_value, assign_modal_open, delete_modal_open, edit_modal_open, free_trigger, delete_trigger):
     """Load device list table based on filter toggle"""
     from dash import ctx
     
@@ -2219,6 +2226,91 @@ def free_device(free_clicks_list, trigger_data):
         
     except Exception as e:
         logger.error(f"Error freeing device: {e}")
+        logger.exception("Full error traceback:")
+        alert = dbc.Alert(
+            f"❌ Error: {str(e)}",
+            color="danger",
+            dismissable=True,
+            duration=5000
+        )
+        return alert, no_update
+
+
+# Settings Page Callbacks - Delete Device
+@callback(
+    [Output('delete-device-alert', 'children'),
+     Output('delete-device-trigger', 'data')],
+    Input({'type': 'delete-device-btn', 'index': ALL}, 'n_clicks'),
+    State('delete-device-trigger', 'data'),
+    prevent_initial_call=True
+)
+def delete_device(delete_clicks_list, trigger_data):
+    """Delete device completely from Device_info table"""
+    from dash import ctx
+    
+    if not ctx.triggered:
+        return no_update, no_update
+    
+    ctx_triggered_id = ctx.triggered_id
+    
+    # Check if a Delete button was clicked
+    if not ctx_triggered_id or not isinstance(ctx_triggered_id, dict) or ctx_triggered_id.get('type') != 'delete-device-btn':
+        return no_update, no_update
+    
+    device_id = ctx_triggered_id.get('index')
+    
+    if not device_id:
+        return no_update, no_update
+    
+    # Verify that a button was actually clicked (n_clicks > 0)
+    any_button_clicked = any(clicks and clicks > 0 for clicks in delete_clicks_list if clicks is not None)
+    
+    if not any_button_clicked:
+        # Button was recreated but not clicked
+        logger.debug(f"Delete button recreated for device {device_id} but not clicked")
+        return no_update, no_update
+    
+    logger.info(f"🗑️ Deleting device: {device_id}")
+    
+    try:
+        from app.services.device_info_service import DeviceInfoService
+        device_info_service = DeviceInfoService()
+        
+        if not device_info_service.is_connected():
+            alert = dbc.Alert(
+                "❌ Database connection error. Please try again.",
+                color="danger",
+                dismissable=True,
+                duration=5000
+            )
+            return alert, no_update
+        
+        # Delete all records for this device
+        success = device_info_service.delete_device_records(device_id)
+        
+        if success:
+            alert = dbc.Alert(
+                f"✅ Device '{device_id}' successfully deleted! All device records have been removed from the database.",
+                color="success",
+                dismissable=True,
+                duration=5000
+            )
+            logger.info(f"✅ Device deleted successfully: {device_id}")
+            # Trigger device list refresh by updating trigger store
+            new_trigger = (trigger_data.get('trigger', 0) + 1) if trigger_data else 1
+            return alert, {'trigger': new_trigger}
+        else:
+            alert = dbc.Alert(
+                f"❌ Failed to delete device. Please check logs for details.",
+                color="danger",
+                dismissable=True,
+                duration=5000
+            )
+            logger.error(f"❌ Device deletion failed: {device_id}")
+            return alert, no_update
+        
+    except Exception as e:
+        logger.error(f"Error deleting device: {e}")
         logger.exception("Full error traceback:")
         alert = dbc.Alert(
             f"❌ Error: {str(e)}",
