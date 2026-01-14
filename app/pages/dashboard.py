@@ -1142,6 +1142,9 @@ def create_settings_content():
             ]),
         ], id="delete-user-modal", is_open=False, size="lg"),
         
+        # Store for edit device tracking
+        dcc.Store(id='edit-device-store', data=None),
+        
         # Edit Device Modal
         dbc.Modal([
             dbc.ModalHeader(dbc.ModalTitle("Edit Device Assignment")),
@@ -1860,30 +1863,19 @@ def load_device_list_table(filter_value, assign_modal_open, delete_modal_open, e
 
 
 # Settings Page Callbacks - Edit Device Modal
+# Use store-based approach to avoid ALL pattern matching issues
 @callback(
-    [Output("edit-device-modal", "is_open"),
-     Output("edit-device-id", "value"),
-     Output("edit-device-name", "value"),
-     Output("edit-user-selector", "value")],
-    [Input({'type': 'edit-device-btn', 'index': ALL}, 'n_clicks'),
-     Input("close-edit-device-modal", "n_clicks"),
-     Input("save-edit-device-btn", "n_clicks")],
-    [State("edit-device-modal", "is_open"),
-     State({'type': 'edit-device-btn', 'index': ALL}, 'id')],
+    Output('edit-device-store', 'data'),
+    Input({'type': 'edit-device-btn', 'index': ALL}, 'n_clicks'),
+    State({'type': 'edit-device-btn', 'index': ALL}, 'id'),
     prevent_initial_call=True
 )
-def toggle_edit_device_modal(edit_clicks_list, close_clicks, save_clicks, is_open, edit_button_ids):
-    """Toggle edit device modal and load device info"""
+def capture_edit_device_click(edit_clicks_list, edit_button_ids):
+    """Capture which edit button was clicked and store device_id"""
     from dash import ctx
     
-    # Handle None or empty lists
-    if edit_clicks_list is None:
-        edit_clicks_list = []
-    if edit_button_ids is None:
-        edit_button_ids = []
-    
     if not ctx.triggered:
-        return is_open, '', '', None
+        return no_update
     
     ctx_triggered = ctx.triggered[0]['prop_id']
     
@@ -1899,19 +1891,38 @@ def toggle_edit_device_modal(edit_clicks_list, close_clicks, save_clicks, is_ope
             device_id = prop_id_dict.get('index')
         except Exception as e:
             logger.warning(f"Could not parse device_id from prop_id: {e}")
-            # Fallback: try to find from button IDs and clicks
-            # Handle case when lists might be empty or have different lengths
-            if edit_button_ids and edit_clicks_list and len(edit_button_ids) > 0 and len(edit_clicks_list) > 0:
-                # Ensure both lists have same length before iterating
-                min_length = min(len(edit_button_ids), len(edit_clicks_list))
-                for i in range(min_length):
-                    btn_id = edit_button_ids[i] if i < len(edit_button_ids) else None
-                    click_count = edit_clicks_list[i] if i < len(edit_clicks_list) else 0
-                    
-                    if btn_id and isinstance(btn_id, dict) and btn_id.get('type') == 'edit-device-btn':
-                        if click_count and click_count > 0:
-                            device_id = btn_id.get('index')
-                            break
+            return no_update
+        
+        if device_id:
+            logger.info(f"✅ Edit button clicked for device: {device_id}")
+            return {'device_id': device_id, 'action': 'open'}
+    
+    return no_update
+
+
+@callback(
+    [Output("edit-device-modal", "is_open"),
+     Output("edit-device-id", "value"),
+     Output("edit-device-name", "value"),
+     Output("edit-user-selector", "value")],
+    [Input('edit-device-store', 'data'),
+     Input("close-edit-device-modal", "n_clicks"),
+     Input("save-edit-device-btn", "n_clicks")],
+    [State("edit-device-modal", "is_open")],
+    prevent_initial_call=True
+)
+def toggle_edit_device_modal(store_data, close_clicks, save_clicks, is_open):
+    """Toggle edit device modal and load device info"""
+    from dash import ctx
+    
+    if not ctx.triggered:
+        return is_open, '', '', None
+    
+    ctx_triggered = ctx.triggered[0]['prop_id']
+    
+    # Handle Edit button clicks (from store)
+    if ctx_triggered == 'edit-device-store' and store_data and store_data.get('action') == 'open':
+        device_id = store_data.get('device_id')
         
         if device_id:
             # Load device info
@@ -1931,9 +1942,6 @@ def toggle_edit_device_modal(edit_clicks_list, close_clicks, save_clicks, is_ope
                 logger.error(f"Error loading device info: {e}")
                 logger.exception("Full error traceback:")
                 return True, device_id, '', None
-        else:
-            logger.warning("Could not extract device_id from edit button click")
-            return is_open, '', '', None
     
     # Handle close/save button clicks
     elif ctx_triggered in ["close-edit-device-modal", "save-edit-device-btn"]:
