@@ -651,49 +651,113 @@ def manage_modbus_devices(add_clicks, remove_clicks_list, devices_data, trigger_
         return updated_devices, new_trigger
     
     # Handle REMOVE operation
-    if 'modbus-remove-device' in triggered_id and 'index' in triggered_id:
-        try:
-            # Parse the index from the triggered ID
-            prop_id_json = triggered_id.split('.n_clicks')[0]
-            button_id = json.loads(prop_id_json)
-            index_to_remove = button_id.get('index')
-        except (json.JSONDecodeError, KeyError, ValueError):
-            # Fallback parsing
-            try:
-                start_idx = triggered_id.find('"index":') + 8
-                end_idx = triggered_id.find(',', start_idx)
-                if end_idx == -1:
-                    end_idx = triggered_id.find('}', start_idx)
-                index_to_remove = int(triggered_id[start_idx:end_idx])
-            except (ValueError, AttributeError):
-                return no_update, no_update
+    if 'modbus-remove-device' in triggered_id:
+        logger = logging.getLogger(__name__)
         
-        # Check if we have more than one row
-        if len(devices_data) <= 1:
+        # Parse the index from the triggered ID
+        # ctx.triggered_id can be either a dict or a string representation
+        index_to_remove = None
+        
+        # Method 1: If triggered_id is already a dict (from ctx.triggered_id)
+        if isinstance(ctx.triggered_id, dict):
+            index_to_remove = ctx.triggered_id.get('index')
+            logger.info(f"🗑️ MODBUS: Delete button clicked - got index from dict: {index_to_remove}")
+        else:
+            # Method 2: Try to parse as JSON string
+            try:
+                prop_id_json = triggered_id.split('.n_clicks')[0]
+                button_id = json.loads(prop_id_json)
+                index_to_remove = button_id.get('index')
+                logger.info(f"🗑️ MODBUS: Delete button clicked - parsed index from JSON: {index_to_remove}")
+            except (json.JSONDecodeError, KeyError, ValueError):
+                # Method 3: Fallback parsing from string
+                try:
+                    start_idx = triggered_id.find('"index":') + 8
+                    end_idx = triggered_id.find(',', start_idx)
+                    if end_idx == -1:
+                        end_idx = triggered_id.find('}', start_idx)
+                    index_to_remove = int(triggered_id[start_idx:end_idx])
+                    logger.info(f"🗑️ MODBUS: Delete button clicked - parsed index from string: {index_to_remove}")
+                except (ValueError, AttributeError) as e:
+                    logger.error(f"❌ MODBUS: Failed to parse delete button index from: {triggered_id}, error: {e}")
+                    return no_update, no_update
+        
+        if index_to_remove is None:
+            logger.error(f"❌ MODBUS: Could not determine index to remove from: {triggered_id}")
             return no_update, no_update
         
-        # Remove the device at index_to_remove and re-index
+        # Check if we have more than one row
+        ui_row_count = len(slave_ids) if slave_ids else 0
+        if ui_row_count <= 1:
+            logger.warning(f"⚠️ MODBUS: Cannot delete - only {ui_row_count} row(s) remaining (minimum 1 required)")
+            return no_update, no_update
+        
+        logger.info(f"🗑️ MODBUS: Attempting to delete row at index {index_to_remove}. Current UI has {ui_row_count} row(s)")
+        logger.debug(f"   Current store has {len(devices_data) if devices_data else 0} device(s)")
+        if devices_data:
+            logger.debug(f"   Store indices: {[d.get('index') for d in devices_data]}")
+            logger.debug(f"   Store slave IDs: {[d.get('slave_id') for d in devices_data]}")
+        if slave_ids:
+            logger.debug(f"   UI slave IDs: {slave_ids}")
+            if index_to_remove is not None and 0 <= index_to_remove < len(slave_ids):
+                logger.info(f"   🎯 Will delete row {index_to_remove} with slave_id={slave_ids[index_to_remove]}, var_name={var_names[index_to_remove] if var_names and index_to_remove < len(var_names) else 'N/A'}")
+        
+        # CRITICAL: Build updated devices from CURRENT UI values, not from stale store
+        # This ensures we're working with the most up-to-date data
+        # The index_to_remove corresponds to the UI row position (0-based)
         updated_devices = []
-        for idx, device in enumerate(devices_data):
-            device_index = device.get("index")
-            # Skip the device we want to remove
-            if device_index == index_to_remove:
-                continue
-            
-            # Add remaining devices with re-indexed values
-            updated_devices.append({
-                "index": len(updated_devices),
-                "slave_id": str(device.get("slave_id", "1")),
-                "function_code": str(device.get("function_code", "0x03")),
-                "register_addr": str(device.get("register_addr", "0")),
-                "data_type": str(device.get("data_type", "int8")),
-                "endianness": str(device.get("endianness", "Big Endian")),
-                "var_name": str(device.get("var_name", "Variable Name"))
-            })
+        
+        # Use UI values if available (most up-to-date)
+        if ui_row_count > 0 and slave_ids and function_codes and register_addrs and data_types and endianness_list and var_names:
+            logger.debug(f"   Using UI values to build updated list")
+            for idx in range(ui_row_count):
+                # Skip the row we want to remove
+                if idx == index_to_remove:
+                    deleted_slave_id = slave_ids[idx] if idx < len(slave_ids) else "N/A"
+                    deleted_var_name = var_names[idx] if idx < len(var_names) else "N/A"
+                    logger.info(f"   ✅ Skipping row {idx} (index_to_remove={index_to_remove}) - slave_id={deleted_slave_id}, var_name={deleted_var_name}")
+                    continue
+                
+                # Add remaining rows with sequential indices
+                updated_devices.append({
+                    "index": len(updated_devices),  # Sequential index starting from 0
+                    "slave_id": str(slave_ids[idx]) if slave_ids[idx] is not None else str(len(updated_devices) + 1),
+                    "function_code": str(function_codes[idx]) if function_codes[idx] else "0x03",
+                    "register_addr": str(register_addrs[idx]) if register_addrs[idx] is not None else "0",
+                    "data_type": str(data_types[idx]) if data_types[idx] else "int8",
+                    "endianness": str(endianness_list[idx]) if endianness_list[idx] else "Big Endian",
+                    "var_name": str(var_names[idx]) if var_names[idx] is not None else "Variable Name"
+                })
+                logger.debug(f"   Added row {len(updated_devices)-1}: slave_id={updated_devices[-1]['slave_id']}, var_name={updated_devices[-1]['var_name']}")
+        else:
+            # Fallback: Use store data if UI values not available
+            logger.debug(f"   UI values not available, using store data")
+            for idx, device in enumerate(devices_data):
+                device_index = device.get("index", idx)
+                # Skip the device we want to remove (compare by index)
+                if device_index == index_to_remove:
+                    logger.debug(f"   Skipping device at store index {idx} (device_index={device_index}, index_to_remove={index_to_remove})")
+                    continue
+                
+                # Add remaining devices with sequential indices
+                updated_devices.append({
+                    "index": len(updated_devices),  # Sequential index starting from 0
+                    "slave_id": str(device.get("slave_id", "1")),
+                    "function_code": str(device.get("function_code", "0x03")),
+                    "register_addr": str(device.get("register_addr", "0")),
+                    "data_type": str(device.get("data_type", "int8")),
+                    "endianness": str(device.get("endianness", "Big Endian")),
+                    "var_name": str(device.get("var_name", "Variable Name"))
+                })
         
         # Ensure at least one device remains
         if len(updated_devices) == 0:
+            logger.warning(f"⚠️ MODBUS: All devices would be removed, creating default device")
             updated_devices = [{"index": 0, "slave_id": "1", "function_code": "0x03", "register_addr": "0", "data_type": "int8", "endianness": "Big Endian", "var_name": "Variable Name"}]
+        
+        logger.info(f"✅ MODBUS: Deleted row at index {index_to_remove}. Store now has {len(updated_devices)} row(s)")
+        logger.debug(f"   Remaining slave IDs: {[d.get('slave_id') for d in updated_devices]}")
+        logger.debug(f"   Remaining indices: {[d.get('index') for d in updated_devices]}")
         
         # Increment trigger to force update detection
         new_trigger = (trigger_value if trigger_value is not None else 0) + 1
