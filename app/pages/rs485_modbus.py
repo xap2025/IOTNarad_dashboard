@@ -339,10 +339,12 @@ def load_modbus_configuration(device_id, pathname, reload_trigger, active_tab, s
             # Load from Device: Create rows dynamically based on device data
             # CRITICAL: Sort by index first to ensure correct order, then re-index sequentially
             slave_devices_list = modbus_config.get("slave_devices", [])
+            logger.info(f"📊 MODBUS: Found {len(slave_devices_list) if slave_devices_list else 0} slave device(s) in config for device {device_id}")
             if slave_devices_list and len(slave_devices_list) > 0:
                 devices_store = []
                 # Sort by index first to ensure correct order (handles any index gaps)
                 sorted_slaves = sorted(slave_devices_list, key=lambda x: x.get("index", 0))
+                logger.info(f"📊 MODBUS: Processing {len(sorted_slaves)} slave device(s) - creating rows for all devices")
                 for idx, device in enumerate(sorted_slaves):
                     devices_store.append({
                         "index": idx,  # Re-index to ensure sequential indices (0, 1, 2, ...)
@@ -353,8 +355,10 @@ def load_modbus_configuration(device_id, pathname, reload_trigger, active_tab, s
                         "endianness": str(device.get("endianness", "Big Endian")),
                         "var_name": str(device.get("variable_name", device.get("var_name", "")))
                     })
-                logger.info(f"✅ Loaded {len(devices_store)} slave device(s) from database for device {device_id}")
-                logger.debug(f"   Slave IDs loaded: {[d.get('slave_id') for d in devices_store]}")
+                    logger.debug(f"   Row {idx}: slave_id={devices_store[-1]['slave_id']}, var_name={devices_store[-1]['var_name']}")
+                logger.info(f"✅ MODBUS: Loaded {len(devices_store)} slave device(s) from database for device {device_id}")
+                logger.info(f"   Slave IDs: {[d.get('slave_id') for d in devices_store]}")
+                logger.info(f"   Variable Names: {[d.get('var_name') for d in devices_store]}")
                 logger.debug(f"   Original indices: {[s.get('index') for s in sorted_slaves]}")
                 logger.debug(f"   Re-indexed to: {[d.get('index') for d in devices_store]}")
             else:
@@ -512,6 +516,7 @@ def update_modbus_table(devices_data):
         devices_data = [{"index": 0, "slave_id": "1", "function_code": "0x03", "register_addr": "0", "data_type": "int8", "endianness": "Big Endian", "var_name": "Variable Name"}]
     
     logger.info(f"📊 MODBUS table: Creating {len(devices_data)} row(s) from store data")
+    logger.debug(f"   Store data: {[{'index': d.get('index'), 'slave_id': d.get('slave_id'), 'var_name': d.get('var_name')} for d in devices_data]}")
     
     # Create rows for ALL devices - preserve all rows
     # Sort by index to ensure correct order
@@ -529,8 +534,11 @@ def update_modbus_table(devices_data):
             device.get("var_name", "Variable Name")
         )
         rows.append(row)
+        logger.debug(f"   Created row {device.get('index', 0)}: slave_id={device.get('slave_id')}, var_name={device.get('var_name')}")
     
     logger.info(f"✅ MODBUS table: Created {len(rows)} row(s) - all rows displayed")
+    if len(rows) != len(devices_data):
+        logger.warning(f"⚠️ MODBUS table: Row count mismatch! Store has {len(devices_data)} devices but created {len(rows)} rows")
     return rows
 
 
@@ -708,10 +716,11 @@ def manage_modbus_devices(add_clicks, remove_clicks_list, devices_data, trigger_
     [
         State('modbus-devices-store', 'data'),  # Get current store state
         State('modbus-trigger-store', 'data'),  # Check if row addition is in progress
+        State('config-reload-trigger', 'data'),  # Check if config was just loaded from device/database
     ],
     prevent_initial_call=True
 )
-def sync_modbus_devices_store(slave_ids, function_codes, register_addrs, data_types, endianness_list, var_names, current_store, trigger_value):
+def sync_modbus_devices_store(slave_ids, function_codes, register_addrs, data_types, endianness_list, var_names, current_store, trigger_value, reload_trigger):
     """Synchronize modbus-devices-store with the latest UI values.
     
     CRITICAL: This callback must NEVER reduce the number of rows.
@@ -728,10 +737,20 @@ def sync_modbus_devices_store(slave_ids, function_codes, register_addrs, data_ty
     """
     logger = logging.getLogger(__name__)
     
-    # CRITICAL: Check trigger store - if it changed recently, row addition might be in progress
-    # Wait a bit before syncing to avoid race conditions
+    # CRITICAL: Check if config was just loaded from device/database
+    # If reload_trigger was updated recently, skip sync to avoid overwriting loaded data
     import time
     current_time = time.time()
+    if reload_trigger and isinstance(reload_trigger, dict):
+        reload_timestamp = reload_trigger.get('timestamp', 0)
+        if reload_timestamp and isinstance(reload_timestamp, (int, float)) and reload_timestamp > 0:
+            time_since_reload = current_time - reload_timestamp
+            if time_since_reload < 3.0:  # Skip sync for 3 seconds after load
+                logger.info(f"⚠️ MODBUS sync: Config reloaded {time_since_reload:.2f}s ago. Skipping sync to preserve loaded data (store has {len(current_store) if current_store else 0} rows, UI has {len(slave_ids) if slave_ids else 0} rows)")
+                return no_update
+    
+    # CRITICAL: Check trigger store - if it changed recently, row addition might be in progress
+    # Wait a bit before syncing to avoid race conditions
     if trigger_value and isinstance(trigger_value, (int, float)):
         # Check if trigger_value is a timestamp (>= 1000000000 = year 2001) or counter (< 1000000000)
         if trigger_value >= 1000000000:  # Timestamp (seconds since epoch)
@@ -775,9 +794,9 @@ def sync_modbus_devices_store(slave_ids, function_codes, register_addrs, data_ty
     
     # CRITICAL: Only sync when UI rows match or are slightly more than store rows
     # If UI has fewer rows, it means rows are being removed or rendering - skip sync
-    # If UI has significantly more rows (> 2), it means rows are being added - skip sync
+    # This is especially important after "Load from Device" - store might have 4 rows but UI is still rendering
     if row_count < len(current_store):
-        logger.debug(f"⚠️ MODBUS sync: UI has {row_count} rows but store has {len(current_store)} rows. Skipping update (row removal or rendering in progress)")
+        logger.info(f"⚠️ MODBUS sync: UI has {row_count} rows but store has {len(current_store)} rows. Skipping update (UI still rendering after load from device or row removal in progress)")
         return no_update
     
     # If UI has many more rows, might be rendering - wait a bit
