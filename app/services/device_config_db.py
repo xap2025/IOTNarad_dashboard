@@ -853,27 +853,23 @@ class DeviceConfigDBService:
                     break
             
             # Query ALL slave devices from the latest save
-            # CRITICAL FIX: The old query grouped by config_type and limited to 1, which only returned 1 slave device
-            # New strategy: Group by slave_id (not config_type) to get latest version of each unique slave
-            # Since all slaves are saved with the same timestamp in one save, grouping by slave_id gets all of them
-            # 
-            # IMPORTANT: This query groups by slave_id and gets the latest for each
-            # If user saves 5 slaves, we get all 5 (one per unique slave_id)
-            # If user saves 1 slave later, we get that 1 (but previous 4 are still in DB with older timestamp)
-            # So we need to get ALL slaves from the LATEST timestamp, not just latest per slave_id
+            # CRITICAL FIX: We need to get ALL slaves from the LATEST timestamp, not just one per slave_id
+            # The old query grouped by slave_id which caused issues when multiple slaves have the same slave_id
+            # New strategy: Get all slave devices without grouping, sort by timestamp, find latest timestamp,
+            # then filter to only slaves from that timestamp (all slaves saved together have same timestamp)
             #
-            # Better approach: Get all slave devices, sort by timestamp, get the latest timestamp,
-            # then filter to only slaves from that timestamp
+            # IMPORTANT: Do NOT group by slave_id - we want ALL slaves even if they have the same slave_id
+            # Multiple slaves can have the same slave_id but different register addresses (like user's case)
+            # Use keep() to preserve tags, then pivot only by _time - tags will be in record.values
             slave_devices_query = f'''
                 from(bucket: "{self.bucket}")
                 |> range(start: -365d)
                 |> filter(fn: (r) => r._measurement == "Device_Config_MODBUS")
                 |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
                 |> filter(fn: (r) => r.config_type == "slave_device")
-                |> pivot(rowKey: ["_time", "slave_id"], columnKey: ["_field"], valueColumn: "_value")
+                |> keep(columns: ["_time", "_field", "_value", "slave_id", "register_address", "function_code", "data_type", "endianness", "variable_name"])
+                |> pivot(rowKey: ["_time", "slave_id", "register_address", "function_code", "data_type", "endianness", "variable_name"], columnKey: ["_field"], valueColumn: "_value")
                 |> sort(columns: ["_time"], desc: true)
-                |> group(columns: ["slave_id"])
-                |> limit(n: 1)
             '''
             
             logger.debug(f"🔍 Executing MODBUS config queries for device_id: {device_id}")
@@ -901,32 +897,39 @@ class DeviceConfigDBService:
                     break  # Only need first record (latest)
             
             # Execute slave devices query - get ALL slave devices
-            # CRITICAL: Since we don't group by slave_id, we get all records sorted by time
-            # We need to find the latest timestamp and get ALL slaves from that timestamp
+            # CRITICAL: We get all records sorted by time, then find the latest timestamp
+            # and filter to only slaves from that timestamp (all slaves saved together have same timestamp)
+            # Tags (slave_id, register_address, etc.) are included in pivot rowKey, so they're in record.values
             slave_devices_result = self.query_api.query(org=self.org, query=slave_devices_query)
             slave_devices = []
             latest_slave_timestamp = None
             
             # First pass: Collect all slave devices and find the latest timestamp
+            # CRITICAL: After pivot with tags in rowKey, tags are available in record.values
             all_slave_records = []
             for table in slave_devices_result:
                 for record in table.records:
                     record_time = record.get_time()
                     if latest_slave_timestamp is None or record_time > latest_slave_timestamp:
                         latest_slave_timestamp = record_time
+                    
+                    # Extract data from record - tags are in values after pivot with tags in rowKey
+                    # Fields (index, register_count) are also in values
                     all_slave_records.append({
                         "time": record_time,
                         "index": record.values.get("index", 0),
-                        "slave_id": record.values.get("slave_id", "1"),
-                        "function_code": record.values.get("function_code", "0x03"),
-                        "register_address": record.values.get("register_address", "0"),
-                        "data_type": record.values.get("data_type", "int8"),
-                        "endianness": record.values.get("endianness", "Big Endian"),
-                        "variable_name": record.values.get("variable_name", ""),
-                        "register_count": record.values.get("register_count", 1)
+                        "slave_id": record.values.get("slave_id", "1"),  # Tag from rowKey
+                        "function_code": record.values.get("function_code", "0x03"),  # Tag from rowKey
+                        "register_address": record.values.get("register_address", "0"),  # Tag from rowKey
+                        "data_type": record.values.get("data_type", "int8"),  # Tag from rowKey
+                        "endianness": record.values.get("endianness", "Big Endian"),  # Tag from rowKey
+                        "variable_name": record.values.get("variable_name", ""),  # Tag from rowKey
+                        "register_count": record.values.get("register_count", 1)  # Field
                     })
             
-            logger.debug(f"   Found {len(all_slave_records)} total slave record(s), latest timestamp: {latest_slave_timestamp}")
+            logger.info(f"📊 MODBUS: Found {len(all_slave_records)} total slave record(s) in database, latest timestamp: {latest_slave_timestamp}")
+            if len(all_slave_records) > 0:
+                logger.debug(f"   First few records: {[{'time': r['time'], 'slave_id': r['slave_id'], 'register_address': r['register_address'], 'var_name': r['variable_name']} for r in all_slave_records[:5]]}")
             
             # Second pass: Filter to only slaves from the latest timestamp
             # This ensures we get ALL slaves from the latest save operation
@@ -948,8 +951,8 @@ class DeviceConfigDBService:
                             "variable_name": record["variable_name"],
                             "register_count": record["register_count"]
                         })
-                logger.debug(f"   Filtered to {len(slave_devices)} slave(s) from latest timestamp {latest_slave_timestamp}")
-                logger.debug(f"   Slave IDs from latest save: {[s.get('slave_id') for s in slave_devices]}")
+                logger.info(f"✅ MODBUS: Filtered to {len(slave_devices)} slave(s) from latest timestamp {latest_slave_timestamp}")
+                logger.info(f"   Slave details: {[{'index': s.get('index'), 'slave_id': s.get('slave_id'), 'register_address': s.get('register_address'), 'var_name': s.get('variable_name')} for s in slave_devices]}")
             else:
                 # Fallback: Use all records if no timestamp found
                 for record in all_slave_records:
