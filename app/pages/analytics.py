@@ -496,10 +496,13 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
                     if isinstance(latest_value, (int, float)):
                         int_value = int(latest_value)
                         value_text = "ON" if int_value == 1 else "OFF"
+                        logger.info(f"   ✅ Digital value converted: {latest_value} → {value_text}")
                     elif isinstance(latest_value, bool):
                         value_text = "ON" if latest_value else "OFF"
+                        logger.info(f"   ✅ Digital boolean value: {latest_value} → {value_text}")
                     else:
                         value_text = str(latest_value)
+                        logger.warning(f"   ⚠️ Unexpected Digital value type: {type(latest_value)} = {latest_value}")
                 elif isinstance(latest_value, (int, float)):
                     # Show integers without decimals, floats with 2 decimals
                     if isinstance(latest_value, float) and latest_value.is_integer():
@@ -517,6 +520,7 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
                 ]
             else:
                 # Show only "No value" when no value is available
+                logger.warning(f"   ⚠️ No latest value found for parameter '{clean_param_name}'")
                 live_value_display = [
                     html.Span("No value", className='fw-bold fs-5', style={'color': color})
                 ]
