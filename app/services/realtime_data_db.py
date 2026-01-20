@@ -88,7 +88,7 @@ class RealtimeDataDBService:
                 # Convert boolean to integer to avoid type conflicts
                 # true = 1, false = 0
                 field_value = 1 if parameter_value else 0
-                logger.info(f"   ✅ Converted boolean {parameter_value} to integer {field_value}")
+                logger.info(f"   ✅ Converted boolean {parameter_value} to integer {field_value} for Digital data")
             elif isinstance(parameter_value, str):
                 # Try to convert string to number if possible
                 try:

@@ -1279,6 +1279,12 @@ def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
         
         logger.info(f"   Original Type: '{original_type}' → Normalized Type: '{normalized_type}'")
         
+        # CRITICAL: Log if Digital data is received
+        if normalized_type == 'Digital':
+            logger.info(f"🔵 DIGITAL DATA DETECTED: Processing {len(values)} Digital parameters")
+            for param_name, param_val in values.items():
+                logger.info(f"   🔵 Digital param: '{param_name}' = {param_val} (type: {type(param_val)})")
+        
         # Save each parameter to database
         saved_count = 0
         failed_count = 0
