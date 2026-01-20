@@ -1257,6 +1257,9 @@ def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
         # Save each parameter to database
         for parameter_name, parameter_value in values.items():
             if parameter_name and parameter_name.strip():
+                # Clean parameter name (remove extra spaces)
+                clean_param_name = parameter_name.strip()
+                
                 # Normalize data type name (Modbus -> Modbus, Canbus -> Canbus, etc.)
                 normalized_type = data_type
                 if normalized_type.lower() == 'canbus':
@@ -1264,19 +1267,21 @@ def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
                 elif normalized_type.lower() == 'modbus':
                     normalized_type = 'Modbus'
                 
+                logger.info(f"💾 Saving RTD: device={device_id}, type={normalized_type}, param='{clean_param_name}', value={parameter_value}")
+                
                 # Save to database
                 success = realtime_data_db_service.save_realtime_data(
                     device_id=device_id,
                     data_type=normalized_type,
-                    parameter_name=parameter_name,
+                    parameter_name=clean_param_name,
                     parameter_value=parameter_value,
                     timestamp=timestamp
                 )
                 
                 if success:
-                    logger.debug(f"✅ Saved RTD: {device_id}/{normalized_type}/{parameter_name} = {parameter_value}")
+                    logger.info(f"✅ Saved RTD: {device_id}/{normalized_type}/{clean_param_name} = {parameter_value}")
                 else:
-                    logger.warning(f"⚠️ Failed to save RTD: {device_id}/{normalized_type}/{parameter_name}")
+                    logger.warning(f"⚠️ Failed to save RTD: {device_id}/{normalized_type}/{clean_param_name}")
         
         logger.info(f"✅ Processed {len(values)} real-time data parameters from device {device_id}")
         

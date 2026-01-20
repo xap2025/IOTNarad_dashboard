@@ -88,14 +88,12 @@ def create_parameter_chart(parameter_name: str, data_type: str, chart_id: str):
                     html.I(className=f"{icon_class} me-2", style={'color': color}),
                     parameter_name
                 ], className='fw-bold mb-2'),
-                # Live value display
-                html.Div([
-                    html.Span("Current: ", className='text-muted small'),
-                    html.Span(id={'type': 'live-value', 'parameter': parameter_name}, 
-                             children="--", 
-                             className='fw-bold fs-5',
-                             style={'color': color})
-                ], className='mb-2'),
+                # Live value display (will be updated by callback)
+                html.Div(id={'type': 'live-value-container', 'parameter': parameter_name}, 
+                        children=[
+                            html.Span("No value", className='fw-bold fs-5', style={'color': color})
+                        ], 
+                        className='mb-2'),
             ], className='d-flex justify-content-between align-items-center'),
             
             dcc.Graph(
@@ -205,17 +203,25 @@ def load_enabled_parameters(device_id):
         
         # Analog parameters
         if analog_config:
-            # 4-20mA inputs
-            for channel in analog_config.get('input_4_20ma', []):
-                if channel.get('enabled', False):
-                    name = channel.get('name', f"Channel {channel.get('channel', '?')}")
-                    enabled_params[name] = 'Analog'
+            logger.info(f"📊 ANALOG: Loading analog config for device {device_id}")
             
-            # 0-10V inputs
-            for channel in analog_config.get('input_0_10v', []):
+            # 4-20mA inputs
+            input_4_20ma_list = analog_config.get('input_4_20ma', [])
+            logger.info(f"📊 ANALOG: Found {len(input_4_20ma_list)} input_4_20ma channel(s)")
+            for channel in input_4_20ma_list:
                 if channel.get('enabled', False):
                     name = channel.get('name', f"Channel {channel.get('channel', '?')}")
                     enabled_params[name] = 'Analog'
+                    logger.debug(f"   Added Analog parameter (4-20mA): '{name}'")
+            
+            # 0-10V inputs (Note: Database uses 'input_1_10v' but it's 0-10V range)
+            input_1_10v_list = analog_config.get('input_1_10v', [])
+            logger.info(f"📊 ANALOG: Found {len(input_1_10v_list)} input_1_10v channel(s)")
+            for channel in input_1_10v_list:
+                if channel.get('enabled', False):
+                    name = channel.get('name', f"Channel {channel.get('channel', '?')}")
+                    enabled_params[name] = 'Analog'
+                    logger.debug(f"   Added Analog parameter (0-10V): '{name}'")
         
         # Digital parameters
         if digital_config:
@@ -252,10 +258,16 @@ def load_enabled_parameters(device_id):
         # Modbus parameters
         if modbus_config:
             slave_devices = modbus_config.get('slave_devices', [])
+            logger.info(f"📊 MODBUS: Found {len(slave_devices)} slave device(s) in config")
             for slave in slave_devices:
                 var_name = slave.get('variable_name', '')
                 if var_name:
-                    enabled_params[var_name] = 'Modbus'
+                    # Clean variable name (remove extra spaces)
+                    clean_var_name = var_name.strip()
+                    enabled_params[clean_var_name] = 'Modbus'
+                    logger.debug(f"   Added Modbus parameter: '{clean_var_name}'")
+                else:
+                    logger.warning(f"   ⚠️ Modbus slave device has empty variable_name: {slave}")
         
         # CAN Bus parameters
         if can_bus_config:
@@ -393,7 +405,7 @@ def update_device_status(n_intervals, device_id):
 @callback(
     [
         Output({'type': 'analytics-chart', 'parameter': ALL}, 'figure'),
-        Output({'type': 'live-value', 'parameter': ALL}, 'children'),
+        Output({'type': 'live-value-container', 'parameter': ALL}, 'children'),
     ],
     [
         Input('analytics-refresh-interval', 'n_intervals'),
@@ -469,25 +481,33 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
             
             logger.debug(f"   Latest value: {latest_value} (type: {type(latest_value)})")
             
-            # Format latest value for display
+            # Format latest value for display (without "Current:" prefix)
             if latest_value is not None:
                 # Handle boolean values (Digital data)
                 if isinstance(latest_value, bool):
-                    live_value = "ON" if latest_value else "OFF"
+                    value_text = "ON" if latest_value else "OFF"
                 elif isinstance(latest_value, (int, float)):
                     # Show integers without decimals, floats with 2 decimals
                     if isinstance(latest_value, float) and latest_value.is_integer():
-                        live_value = str(int(latest_value))
+                        value_text = str(int(latest_value))
                     elif isinstance(latest_value, float):
-                        live_value = f"{latest_value:.2f}"
+                        value_text = f"{latest_value:.2f}"
                     else:
-                        live_value = str(latest_value)
+                        value_text = str(latest_value)
                 else:
-                    live_value = str(latest_value)
+                    value_text = str(latest_value)
+                
+                # Show only value (no "Current:" prefix)
+                live_value_display = [
+                    html.Span(value_text, className='fw-bold fs-5', style={'color': color})
+                ]
             else:
-                live_value = "--"
+                # Show only "No value" when no value is available
+                live_value_display = [
+                    html.Span("No value", className='fw-bold fs-5', style={'color': color})
+                ]
             
-            live_values.append(live_value)
+            live_values.append(live_value_display)
             
             # Create figure
             if data_points:
