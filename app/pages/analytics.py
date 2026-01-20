@@ -490,9 +490,16 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
             
             # Format latest value for display (without "Current:" prefix)
             if latest_value is not None:
-                # Handle boolean values (Digital data)
-                if isinstance(latest_value, bool):
-                    value_text = "ON" if latest_value else "OFF"
+                # Handle Digital data: values are stored as integers (1/0) but should display as ON/OFF
+                if param_type == 'Digital':
+                    # Digital values are stored as integers: 1 = true/ON, 0 = false/OFF
+                    if isinstance(latest_value, (int, float)):
+                        int_value = int(latest_value)
+                        value_text = "ON" if int_value == 1 else "OFF"
+                    elif isinstance(latest_value, bool):
+                        value_text = "ON" if latest_value else "OFF"
+                    else:
+                        value_text = str(latest_value)
                 elif isinstance(latest_value, (int, float)):
                     # Show integers without decimals, floats with 2 decimals
                     if isinstance(latest_value, float) and latest_value.is_integer():
@@ -536,13 +543,22 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
             fig = go.Figure()
             
             if timestamps and values:
-                # Convert boolean values to 0/1 for Digital data
+                # Values are already stored as integers in database
+                # Digital: 1 = ON, 0 = OFF
+                # Other types: numeric values as-is
                 plot_values = []
                 for v in values:
                     if isinstance(v, bool):
+                        # Handle boolean (shouldn't happen after fix, but keep for safety)
                         plot_values.append(1 if v else 0)
-                    else:
+                    elif isinstance(v, (int, float)):
                         plot_values.append(v)
+                    else:
+                        # Try to convert to number
+                        try:
+                            plot_values.append(float(v))
+                        except (ValueError, TypeError):
+                            plot_values.append(0)
                 
                 fig.add_trace(go.Scatter(
                     x=timestamps,

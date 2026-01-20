@@ -79,9 +79,17 @@ class RealtimeDataDBService:
                 timestamp = datetime.utcnow()
             
             # Convert value to appropriate type for InfluxDB
-            # InfluxDB supports: float, int, str, bool
+            # CRITICAL: InfluxDB does not allow field type conflicts in the same measurement
+            # We need to convert all values to numeric types (int/float) to avoid conflicts
+            # Boolean values will be converted to integers (true=1, false=0)
             field_value = parameter_value
-            if isinstance(parameter_value, str):
+            
+            if isinstance(parameter_value, bool):
+                # Convert boolean to integer to avoid type conflicts
+                # true = 1, false = 0
+                field_value = 1 if parameter_value else 0
+                logger.debug(f"   Converted boolean {parameter_value} to integer {field_value}")
+            elif isinstance(parameter_value, str):
                 # Try to convert string to number if possible
                 try:
                     # Try float first (handles decimals)
@@ -89,17 +97,19 @@ class RealtimeDataDBService:
                         field_value = float(parameter_value)
                     else:
                         field_value = int(parameter_value)
+                    logger.debug(f"   Converted string '{parameter_value}' to number {field_value}")
                 except (ValueError, TypeError):
-                    # Keep as string if conversion fails
-                    field_value = str(parameter_value)
-            elif isinstance(parameter_value, bool):
-                # InfluxDB supports boolean
-                field_value = parameter_value
+                    # If conversion fails, we have a problem - InfluxDB doesn't like mixed types
+                    # Try to convert to a numeric representation
+                    logger.warning(f"⚠️ Cannot convert string '{parameter_value}' to number. Using 0 as fallback.")
+                    field_value = 0
             elif isinstance(parameter_value, (int, float)):
+                # Already numeric - use as is
                 field_value = parameter_value
             else:
-                # Convert to string for other types
-                field_value = str(parameter_value)
+                # For other types, try to convert to number
+                logger.warning(f"⚠️ Unknown value type {type(parameter_value)}: {parameter_value}. Converting to 0.")
+                field_value = 0
             
             # Create Point with measurement "Realtime_Data"
             # Tags: device_id, data_type, parameter_name (for fast filtering)
@@ -245,6 +255,8 @@ class RealtimeDataDBService:
                 for record in table.records:
                     record_count += 1
                     value = record.values.get("value")
+                    # Note: Values are stored as integers (boolean true=1, false=0)
+                    # Return as-is, let the UI layer handle display conversion
                     logger.info(f"✅ Found latest value for {device_id}/{parameter_name}: {value} (type: {type(value)})")
                     return value
             
