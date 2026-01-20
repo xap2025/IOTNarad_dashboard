@@ -11,6 +11,7 @@ from flask import Flask, session, request
 from flask_socketio import SocketIO, emit
 import logging
 import time
+import json
 from datetime import datetime
 from typing import Dict, Any
 from threading import Lock
@@ -1240,53 +1241,82 @@ def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
     """
     try:
         logger.info(f"📊 Real-time data received from device: {device_id}")
-        logger.debug(f"   Payload: {data}")
+        logger.info(f"   Full Payload: {json.dumps(data, indent=2)}")
         
         # Extract data type and values
         data_type = data.get('type', 'Unknown')
         values = data.get('value', {})
         
+        logger.info(f"   Data Type: '{data_type}'")
+        logger.info(f"   Values count: {len(values) if values else 0}")
+        
         if not values:
             logger.warning(f"⚠️ No 'value' field in RTD payload from device {device_id}")
+            return
+        
+        if not data_type or data_type == 'Unknown':
+            logger.warning(f"⚠️ Invalid or missing 'type' field in RTD payload from device {device_id}")
             return
         
         # Get current timestamp
         from datetime import datetime
         timestamp = datetime.utcnow()
         
+        # Normalize data type name (Modbus -> Modbus, Canbus -> Canbus, etc.)
+        normalized_type = data_type.strip()
+        if normalized_type.lower() == 'canbus':
+            normalized_type = 'Canbus'
+        elif normalized_type.lower() == 'modbus':
+            normalized_type = 'Modbus'
+        elif normalized_type.lower() == 'analog':
+            normalized_type = 'Analog'
+        elif normalized_type.lower() == 'digital':
+            normalized_type = 'Digital'
+        
+        logger.info(f"   Normalized Type: '{normalized_type}'")
+        
         # Save each parameter to database
+        saved_count = 0
+        failed_count = 0
+        
         for parameter_name, parameter_value in values.items():
             if parameter_name and parameter_name.strip():
                 # Clean parameter name (remove extra spaces)
                 clean_param_name = parameter_name.strip()
                 
-                # Normalize data type name (Modbus -> Modbus, Canbus -> Canbus, etc.)
-                normalized_type = data_type
-                if normalized_type.lower() == 'canbus':
-                    normalized_type = 'Canbus'
-                elif normalized_type.lower() == 'modbus':
-                    normalized_type = 'Modbus'
+                logger.info(f"💾 Attempting to save RTD: device={device_id}, type={normalized_type}, param='{clean_param_name}', value={parameter_value} (type: {type(parameter_value)})")
                 
-                logger.info(f"💾 Saving RTD: device={device_id}, type={normalized_type}, param='{clean_param_name}', value={parameter_value}")
-                
-                # Save to database
-                success = realtime_data_db_service.save_realtime_data(
-                    device_id=device_id,
-                    data_type=normalized_type,
-                    parameter_name=clean_param_name,
-                    parameter_value=parameter_value,
-                    timestamp=timestamp
-                )
-                
-                if success:
-                    logger.info(f"✅ Saved RTD: {device_id}/{normalized_type}/{clean_param_name} = {parameter_value}")
-                else:
-                    logger.warning(f"⚠️ Failed to save RTD: {device_id}/{normalized_type}/{clean_param_name}")
+                try:
+                    # Save to database
+                    success = realtime_data_db_service.save_realtime_data(
+                        device_id=device_id,
+                        data_type=normalized_type,
+                        parameter_name=clean_param_name,
+                        parameter_value=parameter_value,
+                        timestamp=timestamp
+                    )
+                    
+                    if success:
+                        saved_count += 1
+                        logger.info(f"✅ Successfully saved RTD: {device_id}/{normalized_type}/{clean_param_name} = {parameter_value}")
+                    else:
+                        failed_count += 1
+                        logger.error(f"❌ FAILED to save RTD: {device_id}/{normalized_type}/{clean_param_name} = {parameter_value}")
+                except Exception as save_error:
+                    failed_count += 1
+                    logger.error(f"❌ Exception while saving RTD: {device_id}/{normalized_type}/{clean_param_name}")
+                    logger.error(f"   Error: {save_error}")
+                    logger.exception("Full traceback:")
+            else:
+                logger.warning(f"⚠️ Skipping empty parameter name in RTD payload")
         
         logger.info(f"✅ Processed {len(values)} real-time data parameters from device {device_id}")
+        logger.info(f"   Saved: {saved_count}, Failed: {failed_count}")
         
     except Exception as e:
         logger.error(f"❌ Error processing real-time data: {e}")
+        logger.error(f"   Device ID: {device_id}")
+        logger.error(f"   Payload: {data}")
         logger.exception("Full error traceback:")
 
 

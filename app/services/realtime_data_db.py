@@ -111,15 +111,25 @@ class RealtimeDataDBService:
                 .field("value", field_value) \
                 .time(timestamp, WritePrecision.NS)
             
+            logger.info(f"💾 Writing to InfluxDB: device={device_id}, type={data_type}, param={parameter_name}, value={field_value} (type: {type(field_value)})")
+            logger.debug(f"   Point tags: device_id={device_id}, data_type={data_type}, parameter_name={parameter_name}")
+            logger.debug(f"   Point field: value={field_value}")
+            logger.debug(f"   Timestamp: {timestamp}")
+            
             # Write to InfluxDB
-            self.write_api.write(bucket=self.bucket, org=self.org, record=point)
-            
-            logger.debug(f"💾 Saved real-time data: device={device_id}, type={data_type}, param={parameter_name}, value={field_value}")
-            
-            return True
+            try:
+                self.write_api.write(bucket=self.bucket, org=self.org, record=point)
+                logger.info(f"✅ Successfully wrote to InfluxDB: {device_id}/{data_type}/{parameter_name}")
+                return True
+            except Exception as write_error:
+                logger.error(f"❌ InfluxDB write error: {write_error}")
+                logger.error(f"   Device: {device_id}, Type: {data_type}, Param: {parameter_name}, Value: {field_value}")
+                logger.exception("Full write error traceback:")
+                return False
             
         except Exception as e:
             logger.error(f"❌ Error saving real-time data: {e}")
+            logger.error(f"   Device: {device_id}, Type: {data_type}, Param: {parameter_name}, Value: {parameter_value}")
             logger.exception("Full error traceback:")
             return False
     
@@ -171,7 +181,8 @@ class RealtimeDataDBService:
                 |> sort(columns: ["_time"], desc: false)
             '''
             
-            logger.debug(f"🔍 Querying real-time data: device={device_id}, param={parameter_name}, range={range_start}")
+            logger.info(f"🔍 Querying real-time data: device={device_id}, param='{parameter_name}', range={range_start}")
+            logger.debug(f"   Query: {query}")
             
             result = self.query_api.query(org=self.org, query=query)
             
@@ -183,7 +194,9 @@ class RealtimeDataDBService:
                         "value": record.values.get("value")
                     })
             
-            logger.debug(f"✅ Retrieved {len(data_points)} data points for {device_id}/{parameter_name}")
+            logger.info(f"✅ Retrieved {len(data_points)} data points for {device_id}/{parameter_name}")
+            if len(data_points) > 0:
+                logger.debug(f"   Sample: timestamp={data_points[0].get('timestamp')}, value={data_points[0].get('value')}")
             return data_points
             
         except Exception as e:
@@ -222,17 +235,20 @@ class RealtimeDataDBService:
                 |> limit(n: 1)
             '''
             
-            logger.debug(f"🔍 Querying latest value: device={device_id}, param={parameter_name}")
+            logger.info(f"🔍 Querying latest value: device={device_id}, param='{parameter_name}'")
+            logger.debug(f"   Query: {query}")
             
             result = self.query_api.query(org=self.org, query=query)
             
+            record_count = 0
             for table in result:
                 for record in table.records:
+                    record_count += 1
                     value = record.values.get("value")
-                    logger.debug(f"✅ Found latest value for {device_id}/{parameter_name}: {value}")
+                    logger.info(f"✅ Found latest value for {device_id}/{parameter_name}: {value} (type: {type(value)})")
                     return value
             
-            logger.debug(f"⚠️ No latest value found for {device_id}/{parameter_name}")
+            logger.warning(f"⚠️ No latest value found for {device_id}/{parameter_name} (checked {record_count} records)")
             return None
             
         except Exception as e:

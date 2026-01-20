@@ -278,7 +278,8 @@ def load_enabled_parameters(device_id):
                     enabled_params[var_name] = 'Canbus'
         
         logger.info(f"✅ Loaded {len(enabled_params)} enabled parameters for device {device_id}")
-        logger.debug(f"   Parameters: {list(enabled_params.keys())}")
+        logger.info(f"   Parameter list: {list(enabled_params.keys())}")
+        logger.info(f"   Parameter details: {enabled_params}")
         
         # Create chart components
         charts = []
@@ -418,7 +419,10 @@ def update_device_status(n_intervals, device_id):
 def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
     """Update all charts with real-time data"""
     
+    logger.info(f"🔄 Analytics callback triggered: n_intervals={n_intervals}, device_id={device_id}, enabled_params_count={len(enabled_params) if enabled_params else 0}")
+    
     if not device_id or not enabled_params:
+        logger.warning(f"⚠️ Missing device_id or enabled_params: device_id={device_id}, enabled_params={enabled_params}")
         return no_update, no_update
     
     try:
@@ -461,7 +465,7 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
             # Clean parameter name (remove extra spaces)
             clean_param_name = param_name.strip()
             
-            logger.debug(f"🔍 Fetching data for parameter: {clean_param_name} (device: {device_id})")
+            logger.info(f"🔍 Fetching data for parameter: '{clean_param_name}' (device: {device_id}, type: {param_type})")
             
             # Get historical data
             data_points = db_service.get_realtime_data(
@@ -471,7 +475,10 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
                 end_time=end_time
             )
             
-            logger.debug(f"   Historical data points: {len(data_points)}")
+            logger.info(f"   Historical data points: {len(data_points)}")
+            if len(data_points) > 0:
+                logger.info(f"   First data point: timestamp={data_points[0].get('timestamp')}, value={data_points[0].get('value')}")
+                logger.info(f"   Last data point: timestamp={data_points[-1].get('timestamp')}, value={data_points[-1].get('value')}")
             
             # Get latest value (check last 24 hours for latest value)
             latest_value = db_service.get_latest_value(
@@ -479,7 +486,7 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
                 parameter_name=clean_param_name
             )
             
-            logger.debug(f"   Latest value: {latest_value} (type: {type(latest_value)})")
+            logger.info(f"   Latest value: {latest_value} (type: {type(latest_value)})")
             
             # Format latest value for display (without "Current:" prefix)
             if latest_value is not None:
