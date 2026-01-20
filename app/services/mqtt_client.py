@@ -42,6 +42,9 @@ class MQTTClientService:
         # Device publishes to: Cmd/DConfig/<Device ID>
         # Server subscribes to: Cmd/DConfig/#
         self.topic_device_config_request = os.getenv('MQTT_TOPIC_DEVICE_CONFIG_REQUEST', 'Cmd/DConfig/#')
+        # Real-Time Data: Device publishes to: RTD/<Device ID>
+        # Server subscribes to: RTD/# (wildcard to receive RTD from any device)
+        self.topic_realtime_data = os.getenv('MQTT_TOPIC_REALTIME_DATA', 'RTD/#')
         
         # Initialize MQTT client
         self.client = mqtt.Client(client_id=self.client_id, clean_session=True)
@@ -54,6 +57,7 @@ class MQTTClientService:
         self.status_callback: Optional[Callable] = None
         self.init_callback: Optional[Callable] = None
         self.config_request_callback: Optional[Callable] = None
+        self.realtime_data_callback: Optional[Callable] = None
         
         # Message deduplication: Track recently processed messages
         self._processed_messages: set = set()
@@ -76,12 +80,14 @@ class MQTTClientService:
             self.client.subscribe(self.topic_device_config_ack)  # Subscribe to config acknowledgements (legacy: Dev/ConfigACK/#)
             self.client.subscribe(self.topic_config_ack)  # Subscribe to config acknowledgements (new: Config/ACK/#)
             self.client.subscribe(self.topic_device_config_request)  # Subscribe to device config requests
+            self.client.subscribe(self.topic_realtime_data)  # Subscribe to real-time data (RTD/#)
             logger.info(f"📡 Subscribed to: {self.topic_device_data}")
             logger.info(f"📡 Subscribed to: {self.topic_device_status}")
             logger.info(f"📡 Subscribed to: {self.topic_device_init_reg}")
             logger.info(f"📡 Subscribed to: {self.topic_device_config_ack} (legacy)")
             logger.info(f"📡 Subscribed to: {self.topic_config_ack} (new format)")
             logger.info(f"📡 Subscribed to: {self.topic_device_config_request}")
+            logger.info(f"📡 Subscribed to: {self.topic_realtime_data}")
         else:
             self.connected = False
             logger.error(f"❌ Failed to connect to MQTT Broker. Return code: {rc}")
@@ -247,6 +253,22 @@ class MQTTClientService:
                 # Extract device ID from topic (e.g., Dev/ConfigACK/TEST78787)
                 ack_device_id = topic.split('/')[-1] if '/' in topic else device_id
                 # You can add a callback for config acknowledgements here if needed
+            elif topic.startswith('RTD/'):
+                # Real-Time Data: Device publishes to RTD/<Device ID>
+                # Extract device ID from topic: RTD/<Device ID>
+                rtd_device_id = topic.split('/')[-1] if '/' in topic else 'unknown'
+                logger.info(f"📊 Real-time data received from device: {rtd_device_id}")
+                logger.debug(f"   Topic: {topic}, Payload: {payload[:200]}...")
+                
+                # Call real-time data callback if set
+                if self.realtime_data_callback:
+                    try:
+                        self.realtime_data_callback(rtd_device_id, data)
+                    except Exception as e:
+                        logger.error(f"❌ Error in real-time data callback: {e}")
+                        logger.exception("Full traceback:")
+                else:
+                    logger.warning(f"⚠️ Real-time data callback not registered!")
             elif '/data' in topic and self.data_callback:
                 self.data_callback(device_id, data)
             elif '/status' in topic and self.status_callback:
@@ -358,6 +380,11 @@ class MQTTClientService:
         """Set callback for device configuration requests"""
         self.config_request_callback = callback
         logger.info("Device config request callback registered")
+    
+    def set_realtime_data_callback(self, callback: Callable):
+        """Set callback for real-time data messages (RTD/#)"""
+        self.realtime_data_callback = callback
+        logger.info("Real-time data callback registered")
     
     def publish_ack(self, serial_number: str, status: str = "success", message: str = "Received"):
         """

@@ -27,6 +27,7 @@ from app.services.email_service import EmailService
 from app.services.device_info_service import DeviceInfoService
 from app.services.device_config_provider import DeviceConfigProviderService
 from app.services.device_config_db import DeviceConfigDBService
+from app.services.realtime_data_db import RealtimeDataDBService
 
 # Import pages
 from app.pages.login import create_login_layout
@@ -88,6 +89,7 @@ user_service = UserService()
 email_service = EmailService()
 device_info_service = DeviceInfoService()
 device_config_db_service = DeviceConfigDBService()
+realtime_data_db_service = RealtimeDataDBService()
 device_config_provider_service = DeviceConfigProviderService(mqtt_service, device_config_db_service)
 
 # Admin credentials from environment
@@ -1220,10 +1222,74 @@ def on_device_config_request(topic: str, data: Dict[str, Any], device_id: str):
         logger.exception("Full error traceback:")
 
 
+# MQTT callback for real-time data (RTD/#)
+def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
+    """
+    Callback when device sends real-time data via MQTT
+    Handles data on topic: RTD/<Device ID>
+    
+    Expected payload format:
+    {
+        "type": "Analog" | "Digital" | "Modbus" | "Canbus",
+        "value": {
+            "parameter_name1": value1,
+            "parameter_name2": value2,
+            ...
+        }
+    }
+    """
+    try:
+        logger.info(f"📊 Real-time data received from device: {device_id}")
+        logger.debug(f"   Payload: {data}")
+        
+        # Extract data type and values
+        data_type = data.get('type', 'Unknown')
+        values = data.get('value', {})
+        
+        if not values:
+            logger.warning(f"⚠️ No 'value' field in RTD payload from device {device_id}")
+            return
+        
+        # Get current timestamp
+        from datetime import datetime
+        timestamp = datetime.utcnow()
+        
+        # Save each parameter to database
+        for parameter_name, parameter_value in values.items():
+            if parameter_name and parameter_name.strip():
+                # Normalize data type name (Modbus -> Modbus, Canbus -> Canbus, etc.)
+                normalized_type = data_type
+                if normalized_type.lower() == 'canbus':
+                    normalized_type = 'Canbus'
+                elif normalized_type.lower() == 'modbus':
+                    normalized_type = 'Modbus'
+                
+                # Save to database
+                success = realtime_data_db_service.save_realtime_data(
+                    device_id=device_id,
+                    data_type=normalized_type,
+                    parameter_name=parameter_name,
+                    parameter_value=parameter_value,
+                    timestamp=timestamp
+                )
+                
+                if success:
+                    logger.debug(f"✅ Saved RTD: {device_id}/{normalized_type}/{parameter_name} = {parameter_value}")
+                else:
+                    logger.warning(f"⚠️ Failed to save RTD: {device_id}/{normalized_type}/{parameter_name}")
+        
+        logger.info(f"✅ Processed {len(values)} real-time data parameters from device {device_id}")
+        
+    except Exception as e:
+        logger.error(f"❌ Error processing real-time data: {e}")
+        logger.exception("Full error traceback:")
+
+
 # Set MQTT callbacks
 mqtt_service.set_data_callback(on_device_data_received)
 mqtt_service.set_init_callback(on_device_init_received)
 mqtt_service.set_config_request_callback(on_device_config_request)
+mqtt_service.set_realtime_data_callback(on_realtime_data_received)
 
 
 # ==================== MAIN ====================
