@@ -222,15 +222,21 @@ class RealtimeDataDBService:
                 |> limit(n: 1)
             '''
             
+            logger.debug(f"🔍 Querying latest value: device={device_id}, param={parameter_name}")
+            
             result = self.query_api.query(org=self.org, query=query)
             
             for table in result:
                 for record in table.records:
-                    return record.values.get("value")
+                    value = record.values.get("value")
+                    logger.debug(f"✅ Found latest value for {device_id}/{parameter_name}: {value}")
+                    return value
             
+            logger.debug(f"⚠️ No latest value found for {device_id}/{parameter_name}")
             return None
             
         except Exception as e:
             logger.error(f"❌ Error getting latest value: {e}")
+            logger.exception("Full error traceback:")
             return None
 

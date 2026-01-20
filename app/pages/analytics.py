@@ -30,9 +30,11 @@ def create_analytics_layout():
                         options=[],
                         value=None,
                         placeholder='Select a device...',
-                        className='mb-3',
+                        className='mb-2',
                         style={'borderRadius': '8px', 'minWidth': '300px', 'width': '100%'}
                     ),
+                    # Device Status Badge
+                    html.Div(id='device-status-container', children=[]),
                 ], className='stat-card p-3'),
             ], md=6),
             
@@ -103,6 +105,13 @@ def create_parameter_chart(parameter_name: str, data_type: str, chart_id: str):
             ),
         ], className='stat-card p-3'),
     ], md=4, className='mb-4')
+
+
+def create_device_status_badge(device_id: str):
+    """Create device status badge (Running/Not Running)"""
+    return html.Div([
+        html.Span(id='device-status-badge', className='badge bg-secondary')
+    ], className='mb-2')
 
 
 # Callback to load device list
@@ -306,6 +315,80 @@ def load_enabled_parameters(device_id):
         ]
 
 
+# Callback to check device status (Running/Not Running)
+@callback(
+    Output('device-status-container', 'children'),
+    [
+        Input('analytics-refresh-interval', 'n_intervals'),
+        Input('analytics-device-store', 'data'),
+    ],
+    prevent_initial_call=False  # Allow initial call
+)
+def update_device_status(n_intervals, device_id):
+    """Check if device is running (has data in last 1 hour)"""
+    if not device_id:
+        return []
+    
+    try:
+        from app.services.realtime_data_db import RealtimeDataDBService
+        
+        db_service = RealtimeDataDBService()
+        
+        if not db_service.is_connected():
+            return []
+        
+        # Check if device has sent data in last 1 hour
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(hours=1)
+        
+        # Query for any data from this device in last 1 hour
+        escaped_device_id = device_id.replace('\\', '\\\\').replace('"', '\\"')
+        
+        query = f'''
+            from(bucket: "{db_service.bucket}")
+            |> range(start: -1h)
+            |> filter(fn: (r) => r._measurement == "Realtime_Data")
+            |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
+            |> limit(n: 1)
+        '''
+        
+        result = db_service.query_api.query(org=db_service.org, query=query)
+        
+        has_data = False
+        for table in result:
+            for record in table.records:
+                has_data = True
+                break
+            if has_data:
+                break
+        
+        # Create status badge
+        if has_data:
+            status_badge = dbc.Badge(
+                [
+                    html.I(className="fas fa-circle me-1", style={'fontSize': '0.6rem'}),
+                    "Running"
+                ],
+                color="success",
+                className="px-3 py-2"
+            )
+        else:
+            status_badge = dbc.Badge(
+                [
+                    html.I(className="fas fa-circle me-1", style={'fontSize': '0.6rem'}),
+                    "Not Running"
+                ],
+                color="secondary",
+                className="px-3 py-2"
+            )
+        
+        return [status_badge]
+        
+    except Exception as e:
+        logger.error(f"❌ Error checking device status: {e}")
+        return []
+
+
 # Callback to update charts with real-time data
 @callback(
     [
@@ -318,7 +401,7 @@ def load_enabled_parameters(device_id):
         Input('analytics-device-store', 'data'),
         Input('analytics-params-store', 'data'),
     ],
-    prevent_initial_call=True
+    prevent_initial_call=False  # Allow initial call to load data immediately
 )
 def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
     """Update all charts with real-time data"""
@@ -363,24 +446,42 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
         live_values = []
         
         for param_name, param_type in zip(param_names, param_types):
+            # Clean parameter name (remove extra spaces)
+            clean_param_name = param_name.strip()
+            
+            logger.debug(f"🔍 Fetching data for parameter: {clean_param_name} (device: {device_id})")
+            
             # Get historical data
             data_points = db_service.get_realtime_data(
                 device_id=device_id,
-                parameter_name=param_name,
+                parameter_name=clean_param_name,
                 start_time=start_time,
                 end_time=end_time
             )
             
-            # Get latest value
+            logger.debug(f"   Historical data points: {len(data_points)}")
+            
+            # Get latest value (check last 24 hours for latest value)
             latest_value = db_service.get_latest_value(
                 device_id=device_id,
-                parameter_name=param_name
+                parameter_name=clean_param_name
             )
+            
+            logger.debug(f"   Latest value: {latest_value} (type: {type(latest_value)})")
             
             # Format latest value for display
             if latest_value is not None:
-                if isinstance(latest_value, (int, float)):
-                    live_value = f"{latest_value:.2f}" if isinstance(latest_value, float) else str(latest_value)
+                # Handle boolean values (Digital data)
+                if isinstance(latest_value, bool):
+                    live_value = "ON" if latest_value else "OFF"
+                elif isinstance(latest_value, (int, float)):
+                    # Show integers without decimals, floats with 2 decimals
+                    if isinstance(latest_value, float) and latest_value.is_integer():
+                        live_value = str(int(latest_value))
+                    elif isinstance(latest_value, float):
+                        live_value = f"{latest_value:.2f}"
+                    else:
+                        live_value = str(latest_value)
                 else:
                     live_value = str(latest_value)
             else:
@@ -408,9 +509,17 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
             fig = go.Figure()
             
             if timestamps and values:
+                # Convert boolean values to 0/1 for Digital data
+                plot_values = []
+                for v in values:
+                    if isinstance(v, bool):
+                        plot_values.append(1 if v else 0)
+                    else:
+                        plot_values.append(v)
+                
                 fig.add_trace(go.Scatter(
                     x=timestamps,
-                    y=values,
+                    y=plot_values,
                     mode='lines+markers',
                     name=param_name,
                     line=dict(color=color, width=3),
@@ -418,13 +527,47 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
                     fill='tozeroy',
                     fillcolor=fill_color
                 ))
+                
+                # Auto-scale Y-axis based on data range
+                if plot_values:
+                    min_val = min(plot_values)
+                    max_val = max(plot_values)
+                    # Add padding (10% on each side)
+                    range_val = max_val - min_val
+                    if range_val == 0:
+                        # If all values are same, add some padding
+                        y_min = min_val - abs(min_val * 0.1) if min_val != 0 else -1
+                        y_max = max_val + abs(max_val * 0.1) if max_val != 0 else 1
+                    else:
+                        y_min = min_val - (range_val * 0.1)
+                        y_max = max_val + (range_val * 0.1)
+                else:
+                    y_min = None
+                    y_max = None
+            else:
+                y_min = None
+                y_max = None
             
+            # Update layout with proper axis labels
             fig.update_layout(
-                margin=dict(l=40, r=20, t=20, b=40),
+                margin=dict(l=60, r=20, t=20, b=50),
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)',
-                xaxis=dict(showgrid=True, gridcolor='#e9ecef'),
-                yaxis=dict(showgrid=True, gridcolor='#e9ecef'),
+                xaxis=dict(
+                    showgrid=True, 
+                    gridcolor='#e9ecef',
+                    title="Time",
+                    titlefont=dict(size=12),
+                    tickfont=dict(size=10)
+                ),
+                yaxis=dict(
+                    showgrid=True, 
+                    gridcolor='#e9ecef',
+                    title="Value",
+                    titlefont=dict(size=12),
+                    tickfont=dict(size=10),
+                    range=[y_min, y_max] if y_min is not None and y_max is not None else None
+                ),
                 hovermode='x unified',
                 showlegend=False
             )
@@ -432,6 +575,7 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
             figures.append(fig)
         
         logger.debug(f"✅ Updated {len(figures)} charts for device {device_id}")
+        logger.debug(f"   Live values: {live_values}")
         return figures, live_values
         
     except Exception as e:
