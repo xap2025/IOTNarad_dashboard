@@ -202,58 +202,58 @@ def load_enabled_parameters(device_id):
         enabled_params = {}
         
         # Analog parameters
+        # IMPORTANT: Only check Input channels (4-20mA Input and 0-10V Input)
+        # Output channels are ignored for Analytics
         if analog_config:
             logger.info(f"📊 ANALOG: Loading analog config for device {device_id}")
             
-            # 4-20mA inputs
+            # 4-20mA inputs (ONLY INPUTS)
             input_4_20ma_list = analog_config.get('input_4_20ma', [])
             logger.info(f"📊 ANALOG: Found {len(input_4_20ma_list)} input_4_20ma channel(s)")
             for channel in input_4_20ma_list:
                 if channel.get('enabled', False):
                     name = channel.get('name', f"Channel {channel.get('channel', '?')}")
                     enabled_params[name] = 'Analog'
-                    logger.debug(f"   Added Analog parameter (4-20mA): '{name}'")
+                    logger.debug(f"   Added Analog parameter (4-20mA Input): '{name}'")
             
-            # 0-10V inputs (Note: Database uses 'input_1_10v' but it's 0-10V range)
+            # 0-10V inputs (ONLY INPUTS) - Note: Database uses 'input_1_10v' but it's 0-10V range
             input_1_10v_list = analog_config.get('input_1_10v', [])
             logger.info(f"📊 ANALOG: Found {len(input_1_10v_list)} input_1_10v channel(s)")
             for channel in input_1_10v_list:
                 if channel.get('enabled', False):
                     name = channel.get('name', f"Channel {channel.get('channel', '?')}")
                     enabled_params[name] = 'Analog'
-                    logger.debug(f"   Added Analog parameter (0-10V): '{name}'")
+                    logger.debug(f"   Added Analog parameter (0-10V Input): '{name}'")
+            
+            # NOTE: Output channels (output_0_10v) are IGNORED for Analytics
+            logger.debug(f"   Skipping Analog output channels (not shown in Analytics)")
         
         # Digital parameters
+        # IMPORTANT: Only check Input channels (NPN Input and PNP Input)
+        # Output channels and Relays are ignored for Analytics
         if digital_config:
-            # NPN inputs
-            for channel in digital_config.get('npn_input', []):
+            logger.info(f"📊 DIGITAL: Loading digital config for device {device_id}")
+            
+            # NPN inputs (ONLY INPUTS)
+            npn_input_list = digital_config.get('npn_input', [])
+            logger.info(f"📊 DIGITAL: Found {len(npn_input_list)} NPN input channel(s)")
+            for channel in npn_input_list:
                 if channel.get('enabled', False):
                     name = channel.get('name', f"NPN_IN_{channel.get('channel', '?')}")
                     enabled_params[name] = 'Digital'
+                    logger.debug(f"   Added Digital parameter (NPN Input): '{name}'")
             
-            # NPN outputs
-            for channel in digital_config.get('npn_output', []):
-                if channel.get('enabled', False):
-                    name = channel.get('name', f"NPN_OUT_{channel.get('channel', '?')}")
-                    enabled_params[name] = 'Digital'
-            
-            # PNP inputs
-            for channel in digital_config.get('pnp_input', []):
+            # PNP inputs (ONLY INPUTS)
+            pnp_input_list = digital_config.get('pnp_input', [])
+            logger.info(f"📊 DIGITAL: Found {len(pnp_input_list)} PNP input channel(s)")
+            for channel in pnp_input_list:
                 if channel.get('enabled', False):
                     name = channel.get('name', f"PNP_IN_{channel.get('channel', '?')}")
                     enabled_params[name] = 'Digital'
+                    logger.debug(f"   Added Digital parameter (PNP Input): '{name}'")
             
-            # PNP outputs
-            for channel in digital_config.get('pnp_output', []):
-                if channel.get('enabled', False):
-                    name = channel.get('name', f"PNP_OUT_{channel.get('channel', '?')}")
-                    enabled_params[name] = 'Digital'
-            
-            # Relays
-            for relay in digital_config.get('relay', []):
-                if relay.get('enabled', False):
-                    name = relay.get('name', f"Relay {relay.get('channel', '?')}")
-                    enabled_params[name] = 'Digital'
+            # NOTE: NPN outputs, PNP outputs, and Relays are IGNORED for Analytics
+            logger.debug(f"   Skipping Digital outputs and Relays (not shown in Analytics)")
         
         # Modbus parameters
         if modbus_config:
