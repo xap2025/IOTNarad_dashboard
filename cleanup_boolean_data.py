@@ -17,15 +17,24 @@ token = os.getenv('INFLUXDB_TOKEN', '')
 org = os.getenv('INFLUXDB_ORG', 'iotnarad')
 bucket = os.getenv('INFLUXDB_BUCKET', 'iotnarad-bucket')
 
-print("⚠️  WARNING: This script will DELETE all boolean data from Realtime_Data measurement")
-print("   This is necessary to fix the field type conflict issue.")
-print("   After deletion, new data will be saved as integers (1/0) instead of booleans.")
-print()
-response = input("Do you want to continue? (yes/no): ")
+import sys
 
-if response.lower() != 'yes':
-    print("Cancelled.")
-    exit(0)
+# Check for --yes flag to skip confirmation
+skip_confirmation = '--yes' in sys.argv
+
+if not skip_confirmation:
+    print("⚠️  WARNING: This script will DELETE all data from Realtime_Data measurement")
+    print("   This is necessary to fix the field type conflict issue.")
+    print("   After deletion, new data will be saved as integers (1/0) instead of booleans.")
+    print()
+    response = input("Do you want to continue? (yes/no): ")
+
+    if response.lower() != 'yes':
+        print("Cancelled.")
+        exit(0)
+else:
+    print("⚠️  WARNING: Deleting all data from Realtime_Data measurement (--yes flag detected)")
+    print("   This is necessary to fix the field type conflict issue.")
 
 try:
     client = InfluxDBClient(url=url, token=token, org=org, timeout=30000)

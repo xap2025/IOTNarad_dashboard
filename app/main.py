@@ -1264,6 +1264,7 @@ def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
         
         # Normalize data type name (Modbus -> Modbus, Canbus -> Canbus, etc.)
         normalized_type = data_type.strip()
+        original_type = normalized_type  # Keep original for logging
         if normalized_type.lower() == 'canbus':
             normalized_type = 'Canbus'
         elif normalized_type.lower() == 'modbus':
@@ -1272,8 +1273,11 @@ def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
             normalized_type = 'Analog'
         elif normalized_type.lower() == 'digital':
             normalized_type = 'Digital'
+        else:
+            # If type doesn't match any known type, log warning but continue
+            logger.warning(f"⚠️ Unknown data type '{original_type}', using as-is: '{normalized_type}'")
         
-        logger.info(f"   Normalized Type: '{normalized_type}'")
+        logger.info(f"   Original Type: '{original_type}' → Normalized Type: '{normalized_type}'")
         
         # Save each parameter to database
         saved_count = 0

@@ -488,6 +488,15 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
             
             logger.info(f"   Latest value: {latest_value} (type: {type(latest_value)})")
             
+            # Determine color based on type (MUST be before using color variable)
+            color_map = {
+                'Analog': ('#8b5cf6', 'rgba(139, 92, 246, 0.1)'),
+                'Digital': ('#10b981', 'rgba(16, 185, 129, 0.1)'),
+                'Modbus': ('#3b82f6', 'rgba(59, 130, 246, 0.1)'),
+                'Canbus': ('#f59e0b', 'rgba(245, 158, 11, 0.1)'),
+            }
+            color, fill_color = color_map.get(param_type, ('#667eea', 'rgba(102, 126, 234, 0.1)'))
+            
             # Format latest value for display (without "Current:" prefix)
             if latest_value is not None:
                 # Handle Digital data: values are stored as integers (1/0) but should display as ON/OFF
@@ -534,15 +543,6 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
             else:
                 timestamps = []
                 values = []
-            
-            # Determine color based on type
-            color_map = {
-                'Analog': ('#8b5cf6', 'rgba(139, 92, 246, 0.1)'),
-                'Digital': ('#10b981', 'rgba(16, 185, 129, 0.1)'),
-                'Modbus': ('#3b82f6', 'rgba(59, 130, 246, 0.1)'),
-                'Canbus': ('#f59e0b', 'rgba(245, 158, 11, 0.1)'),
-            }
-            color, fill_color = color_map.get(param_type, ('#667eea', 'rgba(102, 126, 234, 0.1)'))
             
             fig = go.Figure()
             

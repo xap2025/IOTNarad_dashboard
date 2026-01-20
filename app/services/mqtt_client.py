@@ -258,17 +258,26 @@ class MQTTClientService:
                 # Extract device ID from topic: RTD/<Device ID>
                 rtd_device_id = topic.split('/')[-1] if '/' in topic else 'unknown'
                 logger.info(f"📊 Real-time data received from device: {rtd_device_id}")
-                logger.debug(f"   Topic: {topic}, Payload: {payload[:200]}...")
+                logger.info(f"   Topic: {topic}")
+                logger.info(f"   Payload preview: {payload[:500]}...")
+                
+                # Log data type for debugging
+                if isinstance(data, dict):
+                    data_type = data.get('type', 'Unknown')
+                    values_count = len(data.get('value', {})) if isinstance(data.get('value'), dict) else 0
+                    logger.info(f"   Data Type: '{data_type}', Values count: {values_count}")
                 
                 # Call real-time data callback if set
                 if self.realtime_data_callback:
+                    logger.info(f"   ✅ Real-time data callback exists, calling...")
                     try:
                         self.realtime_data_callback(rtd_device_id, data)
+                        logger.info(f"   ✅ Real-time data callback completed successfully")
                     except Exception as e:
                         logger.error(f"❌ Error in real-time data callback: {e}")
                         logger.exception("Full traceback:")
                 else:
-                    logger.warning(f"⚠️ Real-time data callback not registered!")
+                    logger.error(f"❌ Real-time data callback not registered! Data will be lost!")
             elif '/data' in topic and self.data_callback:
                 self.data_callback(device_id, data)
             elif '/status' in topic and self.status_callback:
