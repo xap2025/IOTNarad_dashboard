@@ -563,6 +563,12 @@ def update_analytics_charts(n_intervals, rtd_trigger, time_range, device_id, ena
                 parameter_name=clean_param_name
             )
             
+            # If latest_value is None but we have historical data, use the last value from historical data
+            # This ensures we show a value even when device is off but historical data exists
+            if latest_value is None and data_points:
+                latest_value = data_points[-1].get('value')
+                logger.info(f"   ⚠️ No latest value found, using last value from historical data: {latest_value}")
+            
             logger.info(f"   Latest value: {latest_value} (type: {type(latest_value)})")
             
             # Determine color based on type (MUST be before using color variable)

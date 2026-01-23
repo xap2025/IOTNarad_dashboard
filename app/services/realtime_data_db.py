@@ -171,19 +171,17 @@ class RealtimeDataDBService:
             escaped_device_id = device_id.replace('\\', '\\\\').replace('"', '\\"')
             escaped_param_name = parameter_name.replace('\\', '\\\\').replace('"', '\\"')
             
-            # Calculate time range
-            time_diff = end_time - start_time
-            if time_diff.days > 0:
-                range_start = f"-{time_diff.days + 1}d"
-            elif time_diff.seconds >= 3600:
-                range_start = f"-{int(time_diff.seconds / 3600) + 1}h"
-            else:
-                range_start = f"-{int(time_diff.seconds / 60) + 1}m"
+            # Convert datetime to RFC3339 format for Flux query (absolute time)
+            # Flux requires RFC3339 format: "2006-01-02T15:04:05Z"
+            # Using absolute time ensures we get data from the exact time range, even if device is off
+            start_time_str = start_time.strftime('%Y-%m-%dT%H:%M:%SZ')
+            end_time_str = end_time.strftime('%Y-%m-%dT%H:%M:%SZ')
             
-            # Flux query to get data points
+            # Flux query with absolute time range
+            # This ensures historical data is fetched even when device is currently off
             query = f'''
                 from(bucket: "{self.bucket}")
-                |> range(start: {range_start})
+                |> range(start: {start_time_str}, stop: {end_time_str})
                 |> filter(fn: (r) => r._measurement == "Realtime_Data")
                 |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
                 |> filter(fn: (r) => r.parameter_name == "{escaped_param_name}")
@@ -191,7 +189,7 @@ class RealtimeDataDBService:
                 |> sort(columns: ["_time"], desc: false)
             '''
             
-            logger.info(f"🔍 Querying real-time data: device={device_id}, param='{parameter_name}', range={range_start}")
+            logger.info(f"🔍 Querying real-time data: device={device_id}, param='{parameter_name}', start={start_time_str}, end={end_time_str}")
             logger.debug(f"   Query: {query}")
             
             result = self.query_api.query(org=self.org, query=query)
