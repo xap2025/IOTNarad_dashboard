@@ -106,11 +106,10 @@ class MQTTClientService:
             topic = msg.topic
             payload = msg.payload.decode('utf-8')
             
-            # CRITICAL: Skip deduplication for:
-            # 1. Dev/Init/Reg/ messages - need to go through callback's deduplication logic
-            # 2. RTD/ messages - Real-time data can have same values continuously (sensor readings)
-            #    Hardware sends continuous data (same or different values) which is expected behavior
-            skip_dedup = topic.startswith('Dev/Init/Reg/') or topic.startswith('RTD/')
+            # CRITICAL: Skip deduplication for Dev/Init/Reg/ messages
+            # These messages need to go through the callback's deduplication logic
+            # which ensures ACK is always sent (even for duplicates)
+            skip_dedup = topic.startswith('Dev/Init/Reg/')
             
             if not skip_dedup:
                 # Create message hash for deduplication (topic + payload)
@@ -127,9 +126,6 @@ class MQTTClientService:
                     if len(self._processed_messages) > 1000:
                         # Remove oldest entries (simple FIFO)
                         self._processed_messages = set(list(self._processed_messages)[-500:])
-            else:
-                if topic.startswith('RTD/'):
-                    logger.debug(f"🔄 RTD message - deduplication skipped (continuous data expected)")
             
             logger.info(f"📨 Message received on {topic}: {payload[:200]}...")
             

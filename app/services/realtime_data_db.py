@@ -132,10 +132,62 @@ class RealtimeDataDBService:
                 logger.info(f"✅ Successfully wrote to InfluxDB: {device_id}/{data_type}/{parameter_name}")
                 return True
             except Exception as write_error:
-                logger.error(f"❌ InfluxDB write error: {write_error}")
-                logger.error(f"   Device: {device_id}, Type: {data_type}, Param: {parameter_name}, Value: {field_value}")
-                logger.exception("Full write error traceback:")
-                return False
+                error_msg = str(write_error)
+                
+                # Check for type conflict error (422 Unprocessable Entity)
+                if "422" in error_msg or "type conflict" in error_msg.lower() or "field type conflict" in error_msg.lower():
+                    logger.warning(f"⚠️ TYPE CONFLICT detected for {device_id}/{data_type}/{parameter_name}")
+                    logger.warning(f"   Attempting automatic cleanup of old records...")
+                    
+                    # Try to delete old records for this specific parameter
+                    try:
+                        # Delete old records for this parameter (last 30 days to be safe)
+                        delete_predicate = f'_measurement="Realtime_Data" AND device_id="{device_id}" AND parameter_name="{parameter_name}"'
+                        
+                        # Use delete API
+                        delete_api = self.client.delete_api()
+                        delete_start = datetime.utcnow() - timedelta(days=30)
+                        delete_stop = datetime.utcnow()
+                        
+                        delete_api.delete(
+                            start=delete_start,
+                            stop=delete_stop,
+                            predicate=delete_predicate,
+                            bucket=self.bucket,
+                            org=self.org
+                        )
+                        
+                        logger.info(f"✅ Deleted old records for {device_id}/{parameter_name} (last 30 days)")
+                        logger.info(f"   Waiting for deletion to commit...")
+                        
+                        # Small delay to ensure deletion is committed
+                        import time
+                        time.sleep(0.2)  # 200ms delay for InfluxDB to commit deletion
+                        
+                        logger.info(f"   Retrying write operation...")
+                        
+                        # Retry write after cleanup
+                        try:
+                            self.write_api.write(bucket=self.bucket, org=self.org, record=point)
+                            logger.info(f"✅ Successfully wrote to InfluxDB after automatic cleanup: {device_id}/{data_type}/{parameter_name}")
+                            return True
+                        except Exception as retry_error:
+                            logger.error(f"❌ Write failed even after cleanup: {retry_error}")
+                            logger.error(f"   Device: {device_id}, Type: {data_type}, Param: {parameter_name}, Value: {field_value}")
+                            logger.error(f"   Manual cleanup may be required")
+                            return False
+                            
+                    except Exception as cleanup_error:
+                        logger.error(f"❌ Failed to cleanup old records automatically: {cleanup_error}")
+                        logger.error(f"   Manual cleanup required for {device_id}/{parameter_name}")
+                        logger.error(f"   Run: docker exec -it iotnarad_influxdb influx delete --org {self.org} --bucket {self.bucket} --token <TOKEN> --start 1970-01-01T00:00:00Z --stop 2100-01-01T00:00:00Z --predicate '{delete_predicate}'")
+                        return False
+                else:
+                    # Other errors - log and return False
+                    logger.error(f"❌ InfluxDB write error: {write_error}")
+                    logger.error(f"   Device: {device_id}, Type: {data_type}, Param: {parameter_name}, Value: {field_value}")
+                    logger.exception("Full write error traceback:")
+                    return False
             
         except Exception as e:
             logger.error(f"❌ Error saving real-time data: {e}")
