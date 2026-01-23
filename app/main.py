@@ -1323,6 +1323,18 @@ def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
         logger.info(f"✅ Processed {len(values)} real-time data parameters from device {device_id}")
         logger.info(f"   Saved: {saved_count}, Failed: {failed_count}")
         
+        # Emit SocketIO event to trigger real-time UI updates
+        try:
+            socketio.emit('rtd_data_update', {
+                'device_id': device_id,
+                'timestamp': timestamp.isoformat(),
+                'data_type': normalized_type,
+                'parameters_count': len(values)
+            })
+            logger.debug(f"📡 Emitted SocketIO RTD update event for device {device_id}")
+        except Exception as socket_error:
+            logger.warning(f"⚠️ Failed to emit SocketIO event: {socket_error}")
+        
     except Exception as e:
         logger.error(f"❌ Error processing real-time data: {e}")
         logger.error(f"   Device ID: {device_id}")
