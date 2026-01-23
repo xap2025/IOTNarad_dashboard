@@ -364,10 +364,14 @@ class DeviceInfoService:
                     
                     # Also try getting field value using get_field() and get_value() if it's a field
                     if not device_name and hasattr(record, 'get_field'):
-                        field_name = record.get_field()
-                        if field_name == 'Device_Name':
-                            device_name = record.get_value()
-                            logger.debug(f"   Device_Name from get_value(): {repr(device_name)}")
+                        try:
+                            field_name = record.get_field()
+                            if field_name == 'Device_Name':
+                                device_name = record.get_value()
+                                logger.debug(f"   Device_Name from get_value(): {repr(device_name)}")
+                        except (KeyError, AttributeError):
+                            # Record doesn't have _field attribute (it's a tag, not a field)
+                            pass
                     
                     # Default to 'Unnamed' if still not found
                     if not device_name:
