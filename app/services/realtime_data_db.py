@@ -178,8 +178,8 @@ class RealtimeDataDBService:
             end_time_str = end_time.strftime('%Y-%m-%dT%H:%M:%SZ')
             
             # Flux query with absolute time range
-            # CRITICAL: Avoid pivot() for Digital values to prevent type conversion errors
-            # Directly access _value field instead of pivoting
+            # CRITICAL: Simple query without type filtering to avoid TSM panic
+            # If type conflict occurs, error will be caught and empty results returned
             query = f'''
                 from(bucket: "{self.bucket}")
                 |> range(start: {start_time_str}, stop: {end_time_str})
@@ -211,9 +211,18 @@ class RealtimeDataDBService:
             return data_points
             
         except Exception as e:
-            logger.error(f"❌ Error querying real-time data: {e}")
-            logger.exception("Full error traceback:")
-            return []
+            error_msg = str(e)
+            # Check if this is the type conversion panic error
+            if "IntegerValue" in error_msg and "BooleanValue" in error_msg:
+                logger.warning(f"⚠️ Type conflict detected for {device_id}/{parameter_name}. "
+                             f"This parameter has mixed Boolean/Integer values in database. "
+                             f"Returning empty results. Consider cleaning up database records.")
+                # Return empty list instead of crashing
+                return []
+            else:
+                logger.error(f"❌ Error querying real-time data: {e}")
+                logger.exception("Full error traceback:")
+                return []
     
     def get_latest_value(self, device_id: str, parameter_name: str) -> Optional[Any]:
         """
@@ -235,8 +244,8 @@ class RealtimeDataDBService:
             escaped_param_name = parameter_name.replace('\\', '\\\\').replace('"', '\\"')
             
             # Query latest value (last 7 days, get most recent)
-            # CRITICAL: Avoid pivot() for Digital values to prevent type conversion errors
-            # Directly access _value field instead of pivoting
+            # CRITICAL: Simple query without type filtering to avoid TSM panic
+            # If type conflict occurs, error will be caught and None returned
             query = f'''
                 from(bucket: "{self.bucket}")
                 |> range(start: -7d)
@@ -268,7 +277,16 @@ class RealtimeDataDBService:
             return None
             
         except Exception as e:
-            logger.error(f"❌ Error getting latest value: {e}")
-            logger.exception("Full error traceback:")
-            return None
+            error_msg = str(e)
+            # Check if this is the type conversion panic error
+            if "IntegerValue" in error_msg and "BooleanValue" in error_msg:
+                logger.warning(f"⚠️ Type conflict detected for {device_id}/{parameter_name}. "
+                             f"This parameter has mixed Boolean/Integer values in database. "
+                             f"Returning None. Consider cleaning up database records.")
+                # Return None instead of crashing
+                return None
+            else:
+                logger.error(f"❌ Error getting latest value: {e}")
+                logger.exception("Full error traceback:")
+                return None
 

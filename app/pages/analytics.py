@@ -71,6 +71,8 @@ def create_analytics_layout():
         # Client-side script to listen to SocketIO RTD events and trigger Store update
         html.Script("""
             (function() {
+                let socketInitialized = false;
+                
                 // Wait for SocketIO to load
                 function initRTDListener() {
                     if (typeof io === 'undefined') {
@@ -79,29 +81,43 @@ def create_analytics_layout():
                         return;
                     }
                     
-                    const socket = io();
+                    if (socketInitialized) {
+                        return; // Already initialized
+                    }
                     
-                    socket.on('rtd_data_update', function(data) {
-                        console.log('📊 RTD data update received:', data);
+                    try {
+                        const socket = io();
                         
-                        // Trigger Store update by dispatching custom event
-                        // The Store will be updated via a callback that listens to this
-                        const event = new CustomEvent('rtd-data-received', {
-                            detail: {
-                                device_id: data.device_id,
-                                timestamp: data.timestamp || new Date().toISOString()
+                        socket.on('connect', function() {
+                            console.log('✅ Analytics: SocketIO connected');
+                        });
+                        
+                        socket.on('rtd_data_update', function(data) {
+                            console.log('📊 RTD data update received:', data);
+                            
+                            // Trigger button click to update Store
+                            const triggerBtn = document.getElementById('analytics-rtd-trigger-btn');
+                            if (triggerBtn) {
+                                console.log('🔄 Clicking RTD trigger button...');
+                                triggerBtn.click();
+                            } else {
+                                console.error('❌ RTD trigger button not found!');
                             }
                         });
-                        window.dispatchEvent(event);
                         
-                        // Also trigger a click on hidden button to trigger callback
-                        const triggerBtn = document.getElementById('analytics-rtd-trigger-btn');
-                        if (triggerBtn) {
-                            triggerBtn.click();
-                        }
-                    });
-                    
-                    console.log('✅ Analytics: SocketIO RTD listener initialized');
+                        socket.on('disconnect', function() {
+                            console.warn('⚠️ Analytics: SocketIO disconnected');
+                        });
+                        
+                        socket.on('connect_error', function(error) {
+                            console.error('❌ Analytics: SocketIO connection error:', error);
+                        });
+                        
+                        socketInitialized = true;
+                        console.log('✅ Analytics: SocketIO RTD listener initialized');
+                    } catch (error) {
+                        console.error('❌ Analytics: Error initializing SocketIO:', error);
+                    }
                 }
                 
                 // Start initialization
@@ -412,6 +428,7 @@ def update_device_status(n_intervals, rtd_trigger, device_id):
             |> range(start: -1h)
             |> filter(fn: (r) => r._measurement == "Realtime_Data")
             |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
+            |> filter(fn: (r) => r._field == "value")
             |> limit(n: 1)
         '''
         
@@ -462,10 +479,11 @@ def update_device_status(n_intervals, rtd_trigger, device_id):
 def update_rtd_trigger(n_clicks, device_id):
     """Update RTD trigger Store when SocketIO event is received"""
     if n_clicks and n_clicks > 0:
-        logger.info(f"🔄 RTD update trigger activated (clicks: {n_clicks})")
+        logger.info(f"🔄 RTD update trigger activated (clicks: {n_clicks}, device_id: {device_id})")
         return {
             'timestamp': datetime.utcnow().isoformat(),
-            'device_id': device_id
+            'device_id': device_id,
+            'trigger_count': n_clicks
         }
     return no_update
 
