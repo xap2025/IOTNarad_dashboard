@@ -132,9 +132,19 @@ class RealtimeDataDBService:
                 logger.info(f"✅ Successfully wrote to InfluxDB: {device_id}/{data_type}/{parameter_name}")
                 return True
             except Exception as write_error:
-                logger.error(f"❌ InfluxDB write error: {write_error}")
-                logger.error(f"   Device: {device_id}, Type: {data_type}, Param: {parameter_name}, Value: {field_value}")
-                logger.exception("Full write error traceback:")
+                error_msg = str(write_error)
+                
+                # Check for type conflict error (422 Unprocessable Entity)
+                if "422" in error_msg or "type conflict" in error_msg.lower() or "field type conflict" in error_msg.lower():
+                    logger.error(f"❌ TYPE CONFLICT: Cannot save {device_id}/{data_type}/{parameter_name} = {field_value}")
+                    logger.error(f"   Reason: Database has existing records with different type (boolean vs integer)")
+                    logger.error(f"   Solution: Delete old records from InfluxDB for this parameter, or use different measurement")
+                    logger.error(f"   Query to fix: DELETE FROM Realtime_Data WHERE device_id='{device_id}' AND parameter_name='{parameter_name}'")
+                    # Don't log full traceback for type conflicts - it's expected
+                else:
+                    logger.error(f"❌ InfluxDB write error: {write_error}")
+                    logger.error(f"   Device: {device_id}, Type: {data_type}, Param: {parameter_name}, Value: {field_value}")
+                    logger.exception("Full write error traceback:")
                 return False
             
         except Exception as e:

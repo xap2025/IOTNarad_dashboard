@@ -1333,6 +1333,7 @@ def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
         
         # CRITICAL: Emit SocketIO event ALWAYS, even if some saves failed
         # This ensures UI updates even if there are partial failures
+        # Flask-SocketIO automatically broadcasts to all clients when 'to' parameter is not specified
         try:
             socketio.emit('rtd_data_update', {
                 'device_id': device_id,
@@ -1341,8 +1342,8 @@ def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
                 'parameters_count': len(values),
                 'saved_count': saved_count,
                 'failed_count': failed_count
-            }, broadcast=True)  # Use broadcast=True to ensure all clients receive it
-            logger.info(f"📡 Emitted SocketIO RTD update event for device {device_id} (broadcast=True)")
+            })  # No 'to' parameter = broadcast to all connected clients
+            logger.info(f"📡 Emitted SocketIO RTD update event for device {device_id} (broadcast to all clients)")
         except Exception as socket_error:
             logger.error(f"❌ Failed to emit SocketIO event: {socket_error}")
             logger.exception("SocketIO error traceback:")
