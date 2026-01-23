@@ -87,7 +87,14 @@ class MQTTClientService:
             logger.info(f"📡 Subscribed to: {self.topic_device_config_ack} (legacy)")
             logger.info(f"📡 Subscribed to: {self.topic_config_ack} (new format)")
             logger.info(f"📡 Subscribed to: {self.topic_device_config_request}")
-            logger.info(f"📡 Subscribed to: {self.topic_realtime_data}")
+            logger.info(f"📡 Subscribed to: {self.topic_realtime_data} (RTD/#)")
+            logger.info(f"✅ MQTT subscriptions complete. Waiting for RTD messages...")
+            
+            # Log callback registration status
+            if self.realtime_data_callback:
+                logger.info(f"✅ RTD callback is registered and ready")
+            else:
+                logger.error(f"❌ RTD callback NOT registered! RTD messages will be lost!")
         else:
             self.connected = False
             logger.error(f"❌ Failed to connect to MQTT Broker. Return code: {rc}")
@@ -128,6 +135,10 @@ class MQTTClientService:
                         self._processed_messages = set(list(self._processed_messages)[-500:])
             
             logger.info(f"📨 Message received on {topic}: {payload[:200]}...")
+            
+            # CRITICAL: Log ALL RTD messages for debugging
+            if topic.startswith('RTD/'):
+                logger.info(f"🔵 RTD MESSAGE DETECTED: Topic={topic}, Payload length={len(payload)}")
             
             # Parse JSON payload
             try:
@@ -266,6 +277,8 @@ class MQTTClientService:
                     data_type = data.get('type', 'Unknown')
                     values_count = len(data.get('value', {})) if isinstance(data.get('value'), dict) else 0
                     logger.info(f"   Data Type: '{data_type}', Values count: {values_count}")
+                else:
+                    logger.warning(f"   ⚠️ Data is not a dict: {type(data)}")
                 
                 # Call real-time data callback if set
                 if self.realtime_data_callback:
@@ -278,6 +291,7 @@ class MQTTClientService:
                         logger.exception("Full traceback:")
                 else:
                     logger.error(f"❌ Real-time data callback not registered! Data will be lost!")
+                    logger.error(f"   Please check if mqtt_service.set_realtime_data_callback() was called")
             elif '/data' in topic and self.data_callback:
                 self.data_callback(device_id, data)
             elif '/status' in topic and self.status_callback:
