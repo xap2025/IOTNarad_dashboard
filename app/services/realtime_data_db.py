@@ -178,14 +178,15 @@ class RealtimeDataDBService:
             end_time_str = end_time.strftime('%Y-%m-%dT%H:%M:%SZ')
             
             # Flux query with absolute time range
-            # This ensures historical data is fetched even when device is currently off
+            # CRITICAL: Avoid pivot() for Digital values to prevent type conversion errors
+            # Directly access _value field instead of pivoting
             query = f'''
                 from(bucket: "{self.bucket}")
                 |> range(start: {start_time_str}, stop: {end_time_str})
                 |> filter(fn: (r) => r._measurement == "Realtime_Data")
                 |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
                 |> filter(fn: (r) => r.parameter_name == "{escaped_param_name}")
-                |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+                |> filter(fn: (r) => r._field == "value")
                 |> sort(columns: ["_time"], desc: false)
             '''
             
@@ -197,9 +198,11 @@ class RealtimeDataDBService:
             data_points = []
             for table in result:
                 for record in table.records:
+                    # Get value directly from _value field (no pivot needed)
+                    value = record.get_value()
                     data_points.append({
                         "timestamp": record.get_time(),
-                        "value": record.values.get("value")
+                        "value": value
                     })
             
             logger.info(f"✅ Retrieved {len(data_points)} data points for {device_id}/{parameter_name}")
@@ -232,13 +235,15 @@ class RealtimeDataDBService:
             escaped_param_name = parameter_name.replace('\\', '\\\\').replace('"', '\\"')
             
             # Query latest value (last 7 days, get most recent)
+            # CRITICAL: Avoid pivot() for Digital values to prevent type conversion errors
+            # Directly access _value field instead of pivoting
             query = f'''
                 from(bucket: "{self.bucket}")
                 |> range(start: -7d)
                 |> filter(fn: (r) => r._measurement == "Realtime_Data")
                 |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
                 |> filter(fn: (r) => r.parameter_name == "{escaped_param_name}")
-                |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+                |> filter(fn: (r) => r._field == "value")
                 |> sort(columns: ["_time"], desc: true)
                 |> limit(n: 1)
             '''
@@ -252,7 +257,8 @@ class RealtimeDataDBService:
             for table in result:
                 for record in table.records:
                     record_count += 1
-                    value = record.values.get("value")
+                    # Get value directly from _value field (no pivot needed)
+                    value = record.get_value()
                     # Note: Values are stored as integers (boolean true=1, false=0)
                     # Return as-is, let the UI layer handle display conversion
                     logger.info(f"✅ Found latest value for {device_id}/{parameter_name}: {value} (type: {type(value)})")
