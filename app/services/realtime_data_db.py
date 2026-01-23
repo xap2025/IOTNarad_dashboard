@@ -132,19 +132,9 @@ class RealtimeDataDBService:
                 logger.info(f"✅ Successfully wrote to InfluxDB: {device_id}/{data_type}/{parameter_name}")
                 return True
             except Exception as write_error:
-                error_msg = str(write_error)
-                
-                # Check for type conflict error (422 Unprocessable Entity)
-                if "422" in error_msg or "type conflict" in error_msg.lower() or "field type conflict" in error_msg.lower():
-                    logger.error(f"❌ TYPE CONFLICT: Cannot save {device_id}/{data_type}/{parameter_name} = {field_value}")
-                    logger.error(f"   Reason: Database has existing records with different type (boolean vs integer)")
-                    logger.error(f"   Solution: Delete old records from InfluxDB for this parameter, or use different measurement")
-                    logger.error(f"   Query to fix: DELETE FROM Realtime_Data WHERE device_id='{device_id}' AND parameter_name='{parameter_name}'")
-                    # Don't log full traceback for type conflicts - it's expected
-                else:
-                    logger.error(f"❌ InfluxDB write error: {write_error}")
-                    logger.error(f"   Device: {device_id}, Type: {data_type}, Param: {parameter_name}, Value: {field_value}")
-                    logger.exception("Full write error traceback:")
+                logger.error(f"❌ InfluxDB write error: {write_error}")
+                logger.error(f"   Device: {device_id}, Type: {data_type}, Param: {parameter_name}, Value: {field_value}")
+                logger.exception("Full write error traceback:")
                 return False
             
         except Exception as e:
@@ -181,26 +171,27 @@ class RealtimeDataDBService:
             escaped_device_id = device_id.replace('\\', '\\\\').replace('"', '\\"')
             escaped_param_name = parameter_name.replace('\\', '\\\\').replace('"', '\\"')
             
-            # Convert datetime to RFC3339 format for Flux query (absolute time)
-            # Flux requires RFC3339 format: "2006-01-02T15:04:05Z"
-            # Using absolute time ensures we get data from the exact time range, even if device is off
-            start_time_str = start_time.strftime('%Y-%m-%dT%H:%M:%SZ')
-            end_time_str = end_time.strftime('%Y-%m-%dT%H:%M:%SZ')
+            # Calculate time range
+            time_diff = end_time - start_time
+            if time_diff.days > 0:
+                range_start = f"-{time_diff.days + 1}d"
+            elif time_diff.seconds >= 3600:
+                range_start = f"-{int(time_diff.seconds / 3600) + 1}h"
+            else:
+                range_start = f"-{int(time_diff.seconds / 60) + 1}m"
             
-            # Flux query with absolute time range
-            # CRITICAL: Simple query without type filtering to avoid TSM panic
-            # If type conflict occurs, error will be caught and empty results returned
+            # Flux query to get data points
             query = f'''
                 from(bucket: "{self.bucket}")
-                |> range(start: {start_time_str}, stop: {end_time_str})
+                |> range(start: {range_start})
                 |> filter(fn: (r) => r._measurement == "Realtime_Data")
                 |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
                 |> filter(fn: (r) => r.parameter_name == "{escaped_param_name}")
-                |> filter(fn: (r) => r._field == "value")
+                |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
                 |> sort(columns: ["_time"], desc: false)
             '''
             
-            logger.info(f"🔍 Querying real-time data: device={device_id}, param='{parameter_name}', start={start_time_str}, end={end_time_str}")
+            logger.info(f"🔍 Querying real-time data: device={device_id}, param='{parameter_name}', range={range_start}")
             logger.debug(f"   Query: {query}")
             
             result = self.query_api.query(org=self.org, query=query)
@@ -208,11 +199,9 @@ class RealtimeDataDBService:
             data_points = []
             for table in result:
                 for record in table.records:
-                    # Get value directly from _value field (no pivot needed)
-                    value = record.get_value()
                     data_points.append({
                         "timestamp": record.get_time(),
-                        "value": value
+                        "value": record.values.get("value")
                     })
             
             logger.info(f"✅ Retrieved {len(data_points)} data points for {device_id}/{parameter_name}")
@@ -221,18 +210,9 @@ class RealtimeDataDBService:
             return data_points
             
         except Exception as e:
-            error_msg = str(e)
-            # Check if this is the type conversion panic error
-            if "IntegerValue" in error_msg and "BooleanValue" in error_msg:
-                logger.warning(f"⚠️ Type conflict detected for {device_id}/{parameter_name}. "
-                             f"This parameter has mixed Boolean/Integer values in database. "
-                             f"Returning empty results. Consider cleaning up database records.")
-                # Return empty list instead of crashing
-                return []
-            else:
-                logger.error(f"❌ Error querying real-time data: {e}")
-                logger.exception("Full error traceback:")
-                return []
+            logger.error(f"❌ Error querying real-time data: {e}")
+            logger.exception("Full error traceback:")
+            return []
     
     def get_latest_value(self, device_id: str, parameter_name: str) -> Optional[Any]:
         """
@@ -254,15 +234,13 @@ class RealtimeDataDBService:
             escaped_param_name = parameter_name.replace('\\', '\\\\').replace('"', '\\"')
             
             # Query latest value (last 7 days, get most recent)
-            # CRITICAL: Simple query without type filtering to avoid TSM panic
-            # If type conflict occurs, error will be caught and None returned
             query = f'''
                 from(bucket: "{self.bucket}")
                 |> range(start: -7d)
                 |> filter(fn: (r) => r._measurement == "Realtime_Data")
                 |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
                 |> filter(fn: (r) => r.parameter_name == "{escaped_param_name}")
-                |> filter(fn: (r) => r._field == "value")
+                |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
                 |> sort(columns: ["_time"], desc: true)
                 |> limit(n: 1)
             '''
@@ -276,8 +254,7 @@ class RealtimeDataDBService:
             for table in result:
                 for record in table.records:
                     record_count += 1
-                    # Get value directly from _value field (no pivot needed)
-                    value = record.get_value()
+                    value = record.values.get("value")
                     # Note: Values are stored as integers (boolean true=1, false=0)
                     # Return as-is, let the UI layer handle display conversion
                     logger.info(f"✅ Found latest value for {device_id}/{parameter_name}: {value} (type: {type(value)})")
@@ -287,16 +264,7 @@ class RealtimeDataDBService:
             return None
             
         except Exception as e:
-            error_msg = str(e)
-            # Check if this is the type conversion panic error
-            if "IntegerValue" in error_msg and "BooleanValue" in error_msg:
-                logger.warning(f"⚠️ Type conflict detected for {device_id}/{parameter_name}. "
-                             f"This parameter has mixed Boolean/Integer values in database. "
-                             f"Returning None. Consider cleaning up database records.")
-                # Return None instead of crashing
-                return None
-            else:
-                logger.error(f"❌ Error getting latest value: {e}")
-                logger.exception("Full error traceback:")
-                return None
+            logger.error(f"❌ Error getting latest value: {e}")
+            logger.exception("Full error traceback:")
+            return None
 

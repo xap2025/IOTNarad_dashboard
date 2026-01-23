@@ -2,7 +2,7 @@
 Analytics Page Layout
 Real-time data visualization and insights
 """
-from dash import html, dcc, Input, Output, State, callback, ALL, no_update, ctx
+from dash import html, dcc, Input, Output, State, callback, ALL, no_update
 import dash_bootstrap_components as dbc
 import plotly.graph_objs as go
 from datetime import datetime, timedelta
@@ -19,8 +19,6 @@ def create_analytics_layout():
         dcc.Store(id='analytics-device-store', data=None),
         dcc.Store(id='analytics-params-store', data={}),
         dcc.Store(id='analytics-latest-values-store', data={}),
-        # RTD update trigger - gets updated when MQTT data arrives
-        dcc.Store(id='analytics-rtd-update-trigger', data={'timestamp': None, 'device_id': None}),
         
         # Device Selection and Time Range
         dbc.Row([
@@ -65,71 +63,8 @@ def create_analytics_layout():
         # Dynamic Charts Container
         html.Div(id='analytics-charts-container', children=[]),
         
-        # Fallback refresh interval (30 seconds) - only used if no MQTT data arrives
-        dcc.Interval(id='analytics-refresh-interval', interval=30000, n_intervals=0),
-        
-        # Client-side script to listen to SocketIO RTD events and trigger Store update
-        html.Script("""
-            (function() {
-                let socketInitialized = false;
-                
-                // Wait for SocketIO to load
-                function initRTDListener() {
-                    if (typeof io === 'undefined') {
-                        console.warn('⚠️ Analytics: SocketIO not loaded, retrying...');
-                        setTimeout(initRTDListener, 500);
-                        return;
-                    }
-                    
-                    if (socketInitialized) {
-                        return; // Already initialized
-                    }
-                    
-                    try {
-                        const socket = io();
-                        
-                        socket.on('connect', function() {
-                            console.log('✅ Analytics: SocketIO connected');
-                        });
-                        
-                        socket.on('rtd_data_update', function(data) {
-                            console.log('📊 RTD data update received:', data);
-                            
-                            // Trigger button click to update Store
-                            const triggerBtn = document.getElementById('analytics-rtd-trigger-btn');
-                            if (triggerBtn) {
-                                console.log('🔄 Clicking RTD trigger button...');
-                                triggerBtn.click();
-                            } else {
-                                console.error('❌ RTD trigger button not found!');
-                            }
-                        });
-                        
-                        socket.on('disconnect', function() {
-                            console.warn('⚠️ Analytics: SocketIO disconnected');
-                        });
-                        
-                        socket.on('connect_error', function(error) {
-                            console.error('❌ Analytics: SocketIO connection error:', error);
-                        });
-                        
-                        socketInitialized = true;
-                        console.log('✅ Analytics: SocketIO RTD listener initialized');
-                    } catch (error) {
-                        console.error('❌ Analytics: Error initializing SocketIO:', error);
-                    }
-                }
-                
-                // Start initialization
-                if (document.readyState === 'loading') {
-                    document.addEventListener('DOMContentLoaded', initRTDListener);
-                } else {
-                    initRTDListener();
-                }
-            })();
-        """),
-        # Hidden button to trigger callback when RTD data arrives
-        html.Button(id='analytics-rtd-trigger-btn', style={'display': 'none'}, n_clicks=0),
+        # Auto-refresh interval (5 seconds)
+        dcc.Interval(id='analytics-refresh-interval', interval=5000, n_intervals=0),
     ])
 
 
@@ -398,12 +333,11 @@ def load_enabled_parameters(device_id):
     Output('device-status-container', 'children'),
     [
         Input('analytics-refresh-interval', 'n_intervals'),
-        Input('analytics-rtd-update-trigger', 'data'),  # Also update on RTD data
         Input('analytics-device-store', 'data'),
     ],
     prevent_initial_call=False  # Allow initial call
 )
-def update_device_status(n_intervals, rtd_trigger, device_id):
+def update_device_status(n_intervals, device_id):
     """Check if device is running (has data in last 1 hour)"""
     if not device_id:
         return []
@@ -428,7 +362,6 @@ def update_device_status(n_intervals, rtd_trigger, device_id):
             |> range(start: -1h)
             |> filter(fn: (r) => r._measurement == "Realtime_Data")
             |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
-            |> filter(fn: (r) => r._field == "value")
             |> limit(n: 1)
         '''
         
@@ -469,25 +402,6 @@ def update_device_status(n_intervals, rtd_trigger, device_id):
         return []
 
 
-# Callback to update RTD trigger Store when button is clicked (triggered by SocketIO)
-@callback(
-    Output('analytics-rtd-update-trigger', 'data'),
-    Input('analytics-rtd-trigger-btn', 'n_clicks'),
-    State('analytics-device-store', 'data'),
-    prevent_initial_call=True
-)
-def update_rtd_trigger(n_clicks, device_id):
-    """Update RTD trigger Store when SocketIO event is received"""
-    if n_clicks and n_clicks > 0:
-        logger.info(f"🔄 RTD update trigger activated (clicks: {n_clicks}, device_id: {device_id})")
-        return {
-            'timestamp': datetime.utcnow().isoformat(),
-            'device_id': device_id,
-            'trigger_count': n_clicks
-        }
-    return no_update
-
-
 # Callback to update charts with real-time data
 @callback(
     [
@@ -495,26 +409,17 @@ def update_rtd_trigger(n_clicks, device_id):
         Output({'type': 'live-value-container', 'parameter': ALL}, 'children'),
     ],
     [
-        Input('analytics-refresh-interval', 'n_intervals'),  # Fallback interval (30s)
-        Input('analytics-rtd-update-trigger', 'data'),  # Event-based trigger from MQTT
+        Input('analytics-refresh-interval', 'n_intervals'),
         Input('analytics-time-range-selector', 'value'),
         Input('analytics-device-store', 'data'),
         Input('analytics-params-store', 'data'),
     ],
     prevent_initial_call=False  # Allow initial call to load data immediately
 )
-def update_analytics_charts(n_intervals, rtd_trigger, time_range, device_id, enabled_params):
+def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
     """Update all charts with real-time data"""
     
-    # Check what triggered this callback
-    triggered_id = ctx.triggered[0]['prop_id'] if ctx.triggered else 'initial'
-    
-    if 'analytics-rtd-update-trigger' in triggered_id:
-        logger.info(f"⚡ Analytics callback triggered by RTD MQTT data: device_id={device_id}")
-    elif 'analytics-refresh-interval' in triggered_id:
-        logger.info(f"⏱️ Analytics callback triggered by fallback interval: n_intervals={n_intervals}")
-    else:
-        logger.info(f"🔄 Analytics callback triggered: {triggered_id}, device_id={device_id}, enabled_params_count={len(enabled_params) if enabled_params else 0}")
+    logger.info(f"🔄 Analytics callback triggered: n_intervals={n_intervals}, device_id={device_id}, enabled_params_count={len(enabled_params) if enabled_params else 0}")
     
     if not device_id or not enabled_params:
         logger.warning(f"⚠️ Missing device_id or enabled_params: device_id={device_id}, enabled_params={enabled_params}")
@@ -580,12 +485,6 @@ def update_analytics_charts(n_intervals, rtd_trigger, time_range, device_id, ena
                 device_id=device_id,
                 parameter_name=clean_param_name
             )
-            
-            # If latest_value is None but we have historical data, use the last value from historical data
-            # This ensures we show a value even when device is off but historical data exists
-            if latest_value is None and data_points:
-                latest_value = data_points[-1].get('value')
-                logger.info(f"   ⚠️ No latest value found, using last value from historical data: {latest_value}")
             
             logger.info(f"   Latest value: {latest_value} (type: {type(latest_value)})")
             

@@ -1297,29 +1297,21 @@ def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
                 logger.info(f"💾 Attempting to save RTD: device={device_id}, type={normalized_type}, param='{clean_param_name}', value={parameter_value} (type: {type(parameter_value)})")
                 
                 try:
-                    # CRITICAL: For Digital data, convert boolean to int BEFORE saving
-                    # MQTT sends: true/false (boolean)
-                    # Database stores: 1/0 (integer)
-                    value_to_save = parameter_value
-                    if normalized_type == 'Digital' and isinstance(parameter_value, bool):
-                        value_to_save = 1 if parameter_value else 0
-                        logger.info(f"   🔵 Digital boolean converted: {parameter_value} → {value_to_save}")
-                    
                     # Save to database
                     success = realtime_data_db_service.save_realtime_data(
                         device_id=device_id,
                         data_type=normalized_type,
                         parameter_name=clean_param_name,
-                        parameter_value=value_to_save,  # Use converted value
+                        parameter_value=parameter_value,
                         timestamp=timestamp
                     )
                     
                     if success:
                         saved_count += 1
-                        logger.info(f"✅ Successfully saved RTD: {device_id}/{normalized_type}/{clean_param_name} = {value_to_save}")
+                        logger.info(f"✅ Successfully saved RTD: {device_id}/{normalized_type}/{clean_param_name} = {parameter_value}")
                     else:
                         failed_count += 1
-                        logger.error(f"❌ FAILED to save RTD: {device_id}/{normalized_type}/{clean_param_name} = {value_to_save}")
+                        logger.error(f"❌ FAILED to save RTD: {device_id}/{normalized_type}/{clean_param_name} = {parameter_value}")
                 except Exception as save_error:
                     failed_count += 1
                     logger.error(f"❌ Exception while saving RTD: {device_id}/{normalized_type}/{clean_param_name}")
@@ -1330,23 +1322,6 @@ def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
         
         logger.info(f"✅ Processed {len(values)} real-time data parameters from device {device_id}")
         logger.info(f"   Saved: {saved_count}, Failed: {failed_count}")
-        
-        # CRITICAL: Emit SocketIO event ALWAYS, even if some saves failed
-        # This ensures UI updates even if there are partial failures
-        # Flask-SocketIO automatically broadcasts to all clients when 'to' parameter is not specified
-        try:
-            socketio.emit('rtd_data_update', {
-                'device_id': device_id,
-                'timestamp': timestamp.isoformat(),
-                'data_type': normalized_type,
-                'parameters_count': len(values),
-                'saved_count': saved_count,
-                'failed_count': failed_count
-            })  # No 'to' parameter = broadcast to all connected clients
-            logger.info(f"📡 Emitted SocketIO RTD update event for device {device_id} (broadcast to all clients)")
-        except Exception as socket_error:
-            logger.error(f"❌ Failed to emit SocketIO event: {socket_error}")
-            logger.exception("SocketIO error traceback:")
         
     except Exception as e:
         logger.error(f"❌ Error processing real-time data: {e}")
