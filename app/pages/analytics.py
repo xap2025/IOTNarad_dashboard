@@ -170,6 +170,39 @@ def load_analytics_device_list(pathname):
         )
 
 
+def convert_timestamp_to_datetime(timestamp):
+    """Convert timestamp (datetime or ISO string) to datetime object"""
+    if isinstance(timestamp, datetime):
+        return timestamp
+    elif isinstance(timestamp, str):
+        try:
+            # Try ISO format first
+            if 'T' in timestamp or '+' in timestamp or timestamp.endswith('Z'):
+                return datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            else:
+                # Try other formats
+                return datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S.%f')
+        except (ValueError, AttributeError):
+            logger.warning(f"⚠️ Could not parse timestamp: {timestamp}")
+            return None
+    return None
+
+
+def convert_active_periods_to_datetime(active_periods):
+    """Convert active_periods list (which may contain string timestamps) to datetime objects"""
+    if not active_periods:
+        return []
+    
+    converted_periods = []
+    for period_start, period_end in active_periods:
+        start_dt = convert_timestamp_to_datetime(period_start)
+        end_dt = convert_timestamp_to_datetime(period_end)
+        if start_dt and end_dt:
+            converted_periods.append((start_dt, end_dt))
+    
+    return converted_periods
+
+
 # Callback to load enabled parameters from device config (with historical support)
 @callback(
     [
@@ -380,7 +413,7 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
     
     if not device_id or not enabled_params:
         logger.warning(f"⚠️ Missing device_id or enabled_params: device_id={device_id}, enabled_params={enabled_params}")
-        return no_update, no_update
+        return [], []  # Return empty lists for ALL outputs
     
     try:
         from app.services.realtime_data_db import RealtimeDataDBService
@@ -389,7 +422,7 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
         
         if not db_service.is_connected():
             logger.warning("⚠️ Real-time data DB not connected")
-            return no_update, no_update
+            return [], []  # Return empty lists for ALL outputs
         
         # Calculate time range
         end_time = datetime.utcnow()
@@ -419,7 +452,10 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
         valid_param_names = []
         for param_name in param_names:
             if param_name in param_metadata:
-                active_periods = param_metadata[param_name].get('active_periods', [])
+                active_periods_raw = param_metadata[param_name].get('active_periods', [])
+                # Convert string timestamps to datetime objects
+                active_periods = convert_active_periods_to_datetime(active_periods_raw)
+                
                 # Check if any active period overlaps with current time range
                 has_overlap = False
                 for period_start, period_end in active_periods:
@@ -438,6 +474,11 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
         
         param_names = valid_param_names
         param_types = [enabled_params[name] for name in param_names]
+        
+        # If no valid parameters, return empty lists
+        if not param_names:
+            logger.info("   ⚠️ No valid parameters found in time range")
+            return [], []
         
         # Get data for all parameters at once (more efficient)
         all_data = db_service.get_realtime_data_multiple_params(
@@ -462,12 +503,21 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
             
             # Filter data based on active periods (if metadata available)
             if clean_param_name in param_metadata:
-                active_periods = param_metadata[clean_param_name].get('active_periods', [])
+                active_periods_raw = param_metadata[clean_param_name].get('active_periods', [])
+                # Convert string timestamps to datetime objects
+                active_periods = convert_active_periods_to_datetime(active_periods_raw)
+                
                 if active_periods:
                     # Filter data points to only include those within active periods
                     filtered_data_points = []
                     for dp in data_points:
                         dp_time = dp['timestamp']
+                        # Ensure dp_time is datetime
+                        if isinstance(dp_time, str):
+                            dp_time = convert_timestamp_to_datetime(dp_time)
+                            if not dp_time:
+                                continue
+                        
                         # Check if data point is within any active period
                         for period_start, period_end in active_periods:
                             if period_start <= dp_time <= period_end:
@@ -485,7 +535,10 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
             # Only show latest value if parameter is currently active
             latest_value = None
             if clean_param_name in param_metadata:
-                active_periods = param_metadata[clean_param_name].get('active_periods', [])
+                active_periods_raw = param_metadata[clean_param_name].get('active_periods', [])
+                # Convert string timestamps to datetime objects
+                active_periods = convert_active_periods_to_datetime(active_periods_raw)
+                
                 # Check if parameter is currently active (has period that includes end_time)
                 is_currently_active = any(period_start <= end_time <= period_end for period_start, period_end in active_periods)
                 if is_currently_active:
@@ -642,4 +695,5 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
     except Exception as e:
         logger.error(f"❌ Error updating charts: {e}")
         logger.exception("Full error traceback:")
-        return no_update, no_update
+        # Return empty lists for ALL outputs (not no_update for multi-output with ALL)
+        return [], []
