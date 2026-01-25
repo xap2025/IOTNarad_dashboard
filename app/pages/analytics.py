@@ -170,7 +170,7 @@ def load_analytics_device_list(pathname):
         )
 
 
-# Callback to load enabled parameters from device config
+# Callback to load enabled parameters from device config (with historical support)
 @callback(
     [
         Output('analytics-device-store', 'data'),
@@ -179,11 +179,12 @@ def load_analytics_device_list(pathname):
     ],
     [
         Input('analytics-device-selector', 'value'),
+        Input('analytics-time-range-selector', 'value'),
     ],
     prevent_initial_call=True
 )
-def load_enabled_parameters(device_id):
-    """Load enabled parameters from device configuration"""
+def load_enabled_parameters(device_id, time_range):
+    """Load enabled parameters from device configuration (including historical parameters in time range)"""
     if not device_id:
         return None, {}, []
     
@@ -192,109 +193,65 @@ def load_enabled_parameters(device_id):
         
         db_service = DeviceConfigDBService()
         
-        # Get all config types
-        analog_config = db_service.get_analog_config(device_id)
-        digital_config = db_service.get_digital_config(device_id)
-        modbus_config = db_service.get_modbus_config(device_id)
-        can_bus_config = db_service.get_can_bus_config(device_id)
+        # Calculate time range
+        end_time = datetime.utcnow()
+        if time_range == '1h':
+            start_time = end_time - timedelta(hours=1)
+        elif time_range == '6h':
+            start_time = end_time - timedelta(hours=6)
+        elif time_range == '24h':
+            start_time = end_time - timedelta(hours=24)
+        elif time_range == '7d':
+            start_time = end_time - timedelta(days=7)
+        elif time_range == '30d':
+            start_time = end_time - timedelta(days=30)
+        elif time_range == '6m':
+            start_time = end_time - timedelta(days=180)
+        elif time_range == '1y':
+            start_time = end_time - timedelta(days=365)
+        else:
+            start_time = end_time - timedelta(hours=1)
         
-        # Collect enabled parameters
+        # Get historical parameter names in time range
+        logger.info(f"📊 Loading historical parameters for device {device_id} in time range {time_range} ({start_time} to {end_time})")
+        parameter_map = db_service.get_parameter_names_in_time_range(device_id, start_time, end_time)
+        
+        # Build enabled_params dict with data_type
         enabled_params = {}
+        param_metadata = {}  # Store metadata for each parameter
         
-        # Analog parameters
-        # IMPORTANT: Only check Input channels (4-20mA Input and 0-10V Input)
-        # Output channels are ignored for Analytics
-        if analog_config:
-            logger.info(f"📊 ANALOG: Loading analog config for device {device_id}")
-            
-            # 4-20mA inputs (ONLY INPUTS)
-            input_4_20ma_list = analog_config.get('input_4_20ma', [])
-            logger.info(f"📊 ANALOG: Found {len(input_4_20ma_list)} input_4_20ma channel(s)")
-            for channel in input_4_20ma_list:
-                if channel.get('enabled', False):
-                    name = channel.get('name', f"Channel {channel.get('channel', '?')}")
-                    enabled_params[name] = 'Analog'
-                    logger.debug(f"   Added Analog parameter (4-20mA Input): '{name}'")
-            
-            # 0-10V inputs (ONLY INPUTS) - Note: Database uses 'input_1_10v' but it's 0-10V range
-            input_1_10v_list = analog_config.get('input_1_10v', [])
-            logger.info(f"📊 ANALOG: Found {len(input_1_10v_list)} input_1_10v channel(s)")
-            for channel in input_1_10v_list:
-                if channel.get('enabled', False):
-                    name = channel.get('name', f"Channel {channel.get('channel', '?')}")
-                    enabled_params[name] = 'Analog'
-                    logger.debug(f"   Added Analog parameter (0-10V Input): '{name}'")
-            
-            # NOTE: Output channels (output_0_10v) are IGNORED for Analytics
-            logger.debug(f"   Skipping Analog output channels (not shown in Analytics)")
+        for param_name, param_info in parameter_map.items():
+            enabled_params[param_name] = param_info['data_type']
+            param_metadata[param_name] = {
+                'data_type': param_info['data_type'],
+                'active_periods': param_info['active_periods'],
+                'channel_info': param_info.get('channel_info', {})
+            }
         
-        # Digital parameters
-        # IMPORTANT: Only check Input channels (NPN Input and PNP Input)
-        # Output channels and Relays are ignored for Analytics
-        if digital_config:
-            logger.info(f"📊 DIGITAL: Loading digital config for device {device_id}")
-            
-            # NPN inputs (ONLY INPUTS)
-            npn_input_list = digital_config.get('npn_input', [])
-            logger.info(f"📊 DIGITAL: Found {len(npn_input_list)} NPN input channel(s)")
-            for channel in npn_input_list:
-                if channel.get('enabled', False):
-                    name = channel.get('name', f"NPN_IN_{channel.get('channel', '?')}")
-                    enabled_params[name] = 'Digital'
-                    logger.debug(f"   Added Digital parameter (NPN Input): '{name}'")
-            
-            # PNP inputs (ONLY INPUTS)
-            pnp_input_list = digital_config.get('pnp_input', [])
-            logger.info(f"📊 DIGITAL: Found {len(pnp_input_list)} PNP input channel(s)")
-            for channel in pnp_input_list:
-                if channel.get('enabled', False):
-                    name = channel.get('name', f"PNP_IN_{channel.get('channel', '?')}")
-                    enabled_params[name] = 'Digital'
-                    logger.debug(f"   Added Digital parameter (PNP Input): '{name}'")
-            
-            # NOTE: NPN outputs, PNP outputs, and Relays are IGNORED for Analytics
-            logger.debug(f"   Skipping Digital outputs and Relays (not shown in Analytics)")
-        
-        # Modbus parameters
-        if modbus_config:
-            slave_devices = modbus_config.get('slave_devices', [])
-            logger.info(f"📊 MODBUS: Found {len(slave_devices)} slave device(s) in config")
-            for slave in slave_devices:
-                var_name = slave.get('variable_name', '')
-                if var_name:
-                    # Clean variable name (remove extra spaces)
-                    clean_var_name = var_name.strip()
-                    enabled_params[clean_var_name] = 'Modbus'
-                    logger.debug(f"   Added Modbus parameter: '{clean_var_name}'")
-                else:
-                    logger.warning(f"   ⚠️ Modbus slave device has empty variable_name: {slave}")
-        
-        # CAN Bus parameters
-        if can_bus_config:
-            can_messages = can_bus_config.get('can_messages', [])
-            for msg in can_messages:
-                var_name = msg.get('variable_name', '')
-                if var_name:
-                    enabled_params[var_name] = 'Canbus'
-        
-        logger.info(f"✅ Loaded {len(enabled_params)} enabled parameters for device {device_id}")
+        logger.info(f"✅ Loaded {len(enabled_params)} parameter(s) (including historical) for device {device_id}")
         logger.info(f"   Parameter list: {list(enabled_params.keys())}")
-        logger.info(f"   Parameter details: {enabled_params}")
+        
+        # Store metadata in params store (we'll encode it in the dict)
+        # Add metadata as a special key that won't conflict with parameter names
+        enabled_params['_metadata'] = param_metadata
         
         # Create chart components
         charts = []
-        if enabled_params:
+        if enabled_params and len([k for k in enabled_params.keys() if k != '_metadata']) > 0:
             # Group parameters by type for better layout
             rows = []
             current_row = []
             
-            for idx, (param_name, param_type) in enumerate(enabled_params.items()):
+            # Filter out metadata key
+            param_items = [(k, v) for k, v in enabled_params.items() if k != '_metadata']
+            
+            for idx, (param_name, param_type) in enumerate(param_items):
                 chart_id = f"chart-{param_name}"
                 chart_col = create_parameter_chart(param_name, param_type, chart_id)
                 current_row.append(chart_col)
                 
                 # Create row every 3 charts
-                if len(current_row) == 3 or idx == len(enabled_params) - 1:
+                if len(current_row) == 3 or idx == len(param_items) - 1:
                     rows.append(dbc.Row(current_row, className='mb-4'))
                     current_row = []
             
@@ -304,7 +261,7 @@ def load_enabled_parameters(device_id):
                 dbc.Alert(
                     [
                         html.I(className="fas fa-info-circle me-2"),
-                        "No enabled parameters found for this device. Please configure the device in the Devices tab."
+                        "No enabled parameters found for this device in the selected time range. Please configure the device in the Devices tab."
                     ],
                     color="info",
                     className="mt-4"
@@ -453,9 +410,42 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
         else:
             start_time = end_time - timedelta(hours=1)
         
-        # Get parameter names in order
-        param_names = list(enabled_params.keys())
+        # Extract metadata and filter out metadata key
+        param_metadata = enabled_params.get('_metadata', {})
+        param_names = [k for k in enabled_params.keys() if k != '_metadata']
+        
+        # Auto-removal: Filter parameters that have no data in the current time range
+        # Check if parameter has any active period that overlaps with current time range
+        valid_param_names = []
+        for param_name in param_names:
+            if param_name in param_metadata:
+                active_periods = param_metadata[param_name].get('active_periods', [])
+                # Check if any active period overlaps with current time range
+                has_overlap = False
+                for period_start, period_end in active_periods:
+                    # Check if period overlaps with current range
+                    if period_start <= end_time and period_end >= start_time:
+                        has_overlap = True
+                        break
+                
+                if has_overlap:
+                    valid_param_names.append(param_name)
+                else:
+                    logger.info(f"   ⏭️ Skipping parameter '{param_name}' - no active period in current time range")
+            else:
+                # No metadata - include it (backward compatibility)
+                valid_param_names.append(param_name)
+        
+        param_names = valid_param_names
         param_types = [enabled_params[name] for name in param_names]
+        
+        # Get data for all parameters at once (more efficient)
+        all_data = db_service.get_realtime_data_multiple_params(
+            device_id=device_id,
+            parameter_names=param_names,
+            start_time=start_time,
+            end_time=end_time
+        )
         
         # Create figures and live values for each parameter
         figures = []
@@ -465,15 +455,26 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
             # Clean parameter name (remove extra spaces)
             clean_param_name = param_name.strip()
             
-            logger.info(f"🔍 Fetching data for parameter: '{clean_param_name}' (device: {device_id}, type: {param_type})")
+            logger.info(f"🔍 Processing parameter: '{clean_param_name}' (device: {device_id}, type: {param_type})")
             
-            # Get historical data
-            data_points = db_service.get_realtime_data(
-                device_id=device_id,
-                parameter_name=clean_param_name,
-                start_time=start_time,
-                end_time=end_time
-            )
+            # Get data from batch query result
+            data_points = all_data.get(clean_param_name, [])
+            
+            # Filter data based on active periods (if metadata available)
+            if clean_param_name in param_metadata:
+                active_periods = param_metadata[clean_param_name].get('active_periods', [])
+                if active_periods:
+                    # Filter data points to only include those within active periods
+                    filtered_data_points = []
+                    for dp in data_points:
+                        dp_time = dp['timestamp']
+                        # Check if data point is within any active period
+                        for period_start, period_end in active_periods:
+                            if period_start <= dp_time <= period_end:
+                                filtered_data_points.append(dp)
+                                break
+                    data_points = filtered_data_points
+                    logger.info(f"   Filtered to {len(data_points)} data points within active periods")
             
             logger.info(f"   Historical data points: {len(data_points)}")
             if len(data_points) > 0:
@@ -481,10 +482,23 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
                 logger.info(f"   Last data point: timestamp={data_points[-1].get('timestamp')}, value={data_points[-1].get('value')}")
             
             # Get latest value (check last 24 hours for latest value)
-            latest_value = db_service.get_latest_value(
-                device_id=device_id,
-                parameter_name=clean_param_name
-            )
+            # Only show latest value if parameter is currently active
+            latest_value = None
+            if clean_param_name in param_metadata:
+                active_periods = param_metadata[clean_param_name].get('active_periods', [])
+                # Check if parameter is currently active (has period that includes end_time)
+                is_currently_active = any(period_start <= end_time <= period_end for period_start, period_end in active_periods)
+                if is_currently_active:
+                    latest_value = db_service.get_latest_value(
+                        device_id=device_id,
+                        parameter_name=clean_param_name
+                    )
+            else:
+                # No metadata - get latest value (backward compatibility)
+                latest_value = db_service.get_latest_value(
+                    device_id=device_id,
+                    parameter_name=clean_param_name
+                )
             
             logger.info(f"   Latest value: {latest_value} (type: {type(latest_value)})")
             
@@ -497,7 +511,7 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
             }
             color, fill_color = color_map.get(param_type, ('#667eea', 'rgba(102, 126, 234, 0.1)'))
             
-            # Format latest value for display (without "Current:" prefix)
+            # Format latest value for display
             if latest_value is not None:
                 # Handle Digital data: values are stored as integers (1/0) but should display as ON/OFF
                 if param_type == 'Digital':
@@ -528,8 +542,8 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
                     html.Span(value_text, className='fw-bold fs-5', style={'color': color})
                 ]
             else:
-                # Show only "No value" when no value is available
-                logger.warning(f"   ⚠️ No latest value found for parameter '{clean_param_name}'")
+                # Show "No value" when parameter name changed or no current data
+                logger.warning(f"   ⚠️ No latest value found for parameter '{clean_param_name}' (may be old name)")
                 live_value_display = [
                     html.Span("No value", className='fw-bold fs-5', style={'color': color})
                 ]

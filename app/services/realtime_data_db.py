@@ -195,6 +195,93 @@ class RealtimeDataDBService:
             logger.exception("Full error traceback:")
             return False
     
+    def get_realtime_data_multiple_params(self, device_id: str, parameter_names: List[str], start_time: datetime, end_time: Optional[datetime] = None) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Get real-time data for multiple parameters within a time range
+        
+        Args:
+            device_id: Device Serial Number
+            parameter_names: List of parameter names to query
+            start_time: Start time for query
+            end_time: End time for query (defaults to current time)
+            
+        Returns:
+            Dictionary mapping parameter_name -> List of data points
+        """
+        if not self.connected:
+            logger.warning("InfluxDB not connected. Cannot query real-time data.")
+            return {}
+        
+        if not device_id or not device_id.strip() or not parameter_names:
+            return {}
+        
+        if end_time is None:
+            end_time = datetime.utcnow()
+        
+        result_dict = {}
+        
+        try:
+            escaped_device_id = device_id.replace('\\', '\\\\').replace('"', '\\"')
+            
+            # Calculate time range
+            time_diff = end_time - start_time
+            if time_diff.days > 0:
+                range_start = f"-{time_diff.days + 1}d"
+            elif time_diff.seconds >= 3600:
+                range_start = f"-{int(time_diff.seconds / 3600) + 1}h"
+            else:
+                range_start = f"-{int(time_diff.seconds / 60) + 1}m"
+            
+            # Build filter for multiple parameter names
+            param_filters = []
+            for param_name in parameter_names:
+                escaped_param = param_name.replace('\\', '\\\\').replace('"', '\\"')
+                param_filters.append(f'r.parameter_name == "{escaped_param}"')
+            
+            param_filter_str = " or ".join(param_filters)
+            
+            # Flux query to get data points for all parameters
+            query = f'''
+                from(bucket: "{self.bucket}")
+                |> range(start: {range_start})
+                |> filter(fn: (r) => r._measurement == "Realtime_Data")
+                |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
+                |> filter(fn: (r) => {param_filter_str})
+                |> pivot(rowKey: ["_time", "parameter_name"], columnKey: ["_field"], valueColumn: "_value")
+                |> sort(columns: ["_time"], desc: false)
+            '''
+            
+            logger.info(f"🔍 Querying real-time data for {len(parameter_names)} parameter(s): {parameter_names[:3]}...")
+            logger.debug(f"   Query: {query[:200]}...")
+            
+            result = self.query_api.query(org=self.org, query=query)
+            
+            # Initialize result dict
+            for param_name in parameter_names:
+                result_dict[param_name] = []
+            
+            # Group data points by parameter name
+            for table in result:
+                for record in table.records:
+                    param_name = record.values.get("parameter_name", "")
+                    if param_name in parameter_names:
+                        result_dict[param_name].append({
+                            "timestamp": record.get_time(),
+                            "value": record.values.get("value")
+                        })
+            
+            # Sort each parameter's data points by timestamp
+            for param_name in result_dict:
+                result_dict[param_name].sort(key=lambda x: x["timestamp"])
+                logger.info(f"✅ Retrieved {len(result_dict[param_name])} data points for {device_id}/{param_name}")
+            
+            return result_dict
+            
+        except Exception as e:
+            logger.error(f"❌ Error querying real-time data for multiple parameters: {e}")
+            logger.exception("Full error traceback:")
+            return {}
+    
     def get_realtime_data(self, device_id: str, parameter_name: str, start_time: datetime, end_time: Optional[datetime] = None) -> List[Dict[str, Any]]:
         """
         Get real-time data for a specific device and parameter within a time range

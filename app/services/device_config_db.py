@@ -1175,6 +1175,366 @@ class DeviceConfigDBService:
         
         return complete_config
     
+    def get_historical_analog_configs(self, device_id: str, start_time: datetime, end_time: datetime) -> List[Dict[str, Any]]:
+        """
+        Get all analog configurations within a time range (for historical tracking)
+        
+        Args:
+            device_id: Device Serial Number
+            start_time: Start time for query
+            end_time: End time for query
+            
+        Returns:
+            List of configuration snapshots with timestamps
+        """
+        if not self.connected or not device_id or not device_id.strip():
+            return []
+        
+        try:
+            escaped_device_id = device_id.replace('\\', '\\\\').replace('"', '\\"')
+            
+            # Calculate time range for Flux query
+            time_diff = end_time - start_time
+            if time_diff.days > 0:
+                range_start = f"-{time_diff.days + 1}d"
+            elif time_diff.seconds >= 3600:
+                range_start = f"-{int(time_diff.seconds / 3600) + 1}h"
+            else:
+                range_start = f"-{int(time_diff.seconds / 60) + 1}m"
+            
+            query = f'''
+                from(bucket: "{self.bucket}")
+                |> range(start: {range_start})
+                |> filter(fn: (r) => r._measurement == "Device_Config_Analog")
+                |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
+                |> pivot(rowKey: ["_time", "channel_type", "channel", "io_pin", "name"], columnKey: ["_field"], valueColumn: "_value")
+                |> sort(columns: ["_time"], desc: false)
+            '''
+            
+            logger.debug(f"🔍 Querying historical analog configs: device_id={device_id}, range={range_start}")
+            result = self.query_api.query(org=self.org, query=query)
+            
+            # Group configurations by timestamp
+            configs_by_time = {}
+            
+            for table in result:
+                for record in table.records:
+                    timestamp = record.get_time()
+                    if timestamp < start_time or timestamp > end_time:
+                        continue
+                    
+                    if timestamp not in configs_by_time:
+                        configs_by_time[timestamp] = {
+                            "timestamp": timestamp,
+                            "input_4_20ma": [],
+                            "input_1_10v": [],
+                            "output_0_10v": []
+                        }
+                    
+                    channel_type = record.values.get("channel_type", "")
+                    channel = int(record.values.get("channel", 0)) if record.values.get("channel") else 0
+                    io_pin = record.values.get("io_pin", "")
+                    name = record.values.get("name", "")
+                    enabled = record.values.get("enabled", False)
+                    divider = record.values.get("divider", 1.0)
+                    multiplier = record.values.get("multiplier", 1.0)
+                    
+                    channel_data = {
+                        "channel": channel,
+                        "enabled": enabled,
+                        "io_pin": io_pin,
+                        "name": name
+                    }
+                    
+                    if channel_type == "input_4_20ma":
+                        channel_data["divider"] = divider
+                        channel_data["multiplier"] = multiplier
+                        configs_by_time[timestamp]["input_4_20ma"].append(channel_data)
+                    elif channel_type == "input_1_10v":
+                        channel_data["divider"] = divider
+                        channel_data["multiplier"] = multiplier
+                        configs_by_time[timestamp]["input_1_10v"].append(channel_data)
+                    elif channel_type == "output_0_10v":
+                        value = record.values.get("value", 0.0)
+                        if isinstance(value, int):
+                            channel_data["value"] = float(value) / 1000.0
+                        else:
+                            channel_data["value"] = float(value) if value else 0.0
+                        configs_by_time[timestamp]["output_0_10v"].append(channel_data)
+            
+            # Convert to list and sort by timestamp
+            configs = sorted(configs_by_time.values(), key=lambda x: x["timestamp"])
+            logger.info(f"✅ Found {len(configs)} analog config snapshot(s) in time range")
+            return configs
+            
+        except Exception as e:
+            logger.error(f"❌ Error getting historical analog configs: {e}")
+            logger.exception("Full traceback:")
+            return []
+    
+    def get_historical_digital_configs(self, device_id: str, start_time: datetime, end_time: datetime) -> List[Dict[str, Any]]:
+        """
+        Get all digital configurations within a time range (for historical tracking)
+        
+        Args:
+            device_id: Device Serial Number
+            start_time: Start time for query
+            end_time: End time for query
+            
+        Returns:
+            List of configuration snapshots with timestamps
+        """
+        if not self.connected or not device_id or not device_id.strip():
+            return []
+        
+        try:
+            escaped_device_id = device_id.replace('\\', '\\\\').replace('"', '\\"')
+            
+            # Calculate time range for Flux query
+            time_diff = end_time - start_time
+            if time_diff.days > 0:
+                range_start = f"-{time_diff.days + 1}d"
+            elif time_diff.seconds >= 3600:
+                range_start = f"-{int(time_diff.seconds / 3600) + 1}h"
+            else:
+                range_start = f"-{int(time_diff.seconds / 60) + 1}m"
+            
+            query = f'''
+                from(bucket: "{self.bucket}")
+                |> range(start: {range_start})
+                |> filter(fn: (r) => r._measurement == "Device_Config_Digital")
+                |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
+                |> pivot(rowKey: ["_time", "channel_type", "channel", "io_pin", "name"], columnKey: ["_field"], valueColumn: "_value")
+                |> sort(columns: ["_time"], desc: false)
+            '''
+            
+            logger.debug(f"🔍 Querying historical digital configs: device_id={device_id}, range={range_start}")
+            result = self.query_api.query(org=self.org, query=query)
+            
+            # Group configurations by timestamp
+            configs_by_time = {}
+            
+            for table in result:
+                for record in table.records:
+                    timestamp = record.get_time()
+                    if timestamp < start_time or timestamp > end_time:
+                        continue
+                    
+                    if timestamp not in configs_by_time:
+                        configs_by_time[timestamp] = {
+                            "timestamp": timestamp,
+                            "npn_input": [],
+                            "npn_output": [],
+                            "pnp_input": [],
+                            "pnp_output": [],
+                            "relay": []
+                        }
+                    
+                    channel_type = record.values.get("channel_type", "")
+                    channel = int(record.values.get("channel", 0)) if record.values.get("channel") else 0
+                    io_pin = record.values.get("io_pin", "")
+                    name = record.values.get("name", "")
+                    enabled = record.values.get("enabled", False)
+                    
+                    channel_data = {
+                        "channel": channel,
+                        "enabled": enabled,
+                        "io_pin": io_pin,
+                        "name": name
+                    }
+                    
+                    if channel_type == "npn_input":
+                        configs_by_time[timestamp]["npn_input"].append(channel_data)
+                    elif channel_type == "npn_output":
+                        configs_by_time[timestamp]["npn_output"].append(channel_data)
+                    elif channel_type == "pnp_input":
+                        configs_by_time[timestamp]["pnp_input"].append(channel_data)
+                    elif channel_type == "pnp_output":
+                        configs_by_time[timestamp]["pnp_output"].append(channel_data)
+                    elif channel_type == "relay":
+                        configs_by_time[timestamp]["relay"].append(channel_data)
+            
+            # Convert to list and sort by timestamp
+            configs = sorted(configs_by_time.values(), key=lambda x: x["timestamp"])
+            logger.info(f"✅ Found {len(configs)} digital config snapshot(s) in time range")
+            return configs
+            
+        except Exception as e:
+            logger.error(f"❌ Error getting historical digital configs: {e}")
+            logger.exception("Full traceback:")
+            return []
+    
+    def get_parameter_names_in_time_range(self, device_id: str, start_time: datetime, end_time: datetime) -> Dict[str, Dict[str, Any]]:
+        """
+        Get all parameter names that were active during a time range, with their active periods
+        
+        Args:
+            device_id: Device Serial Number
+            start_time: Start time for query
+            end_time: End time for query
+            
+        Returns:
+            Dictionary mapping parameter_name -> {
+                'data_type': 'Analog'|'Digital'|'Modbus'|'Canbus',
+                'active_periods': [(start, end), ...],
+                'channel_info': {...}
+            }
+        """
+        if not self.connected or not device_id or not device_id.strip():
+            return {}
+        
+        try:
+            # Get historical configs
+            analog_configs = self.get_historical_analog_configs(device_id, start_time, end_time)
+            digital_configs = self.get_historical_digital_configs(device_id, start_time, end_time)
+            
+            # If no historical configs found, get current config as fallback
+            # This handles the case where config was saved before the time range
+            if not analog_configs:
+                current_analog = self.get_analog_config(device_id)
+                if current_analog:
+                    # Create a config snapshot with start_time as timestamp
+                    analog_configs = [{
+                        "timestamp": start_time,
+                        "input_4_20ma": current_analog.get("input_4_20ma", []),
+                        "input_1_10v": current_analog.get("input_1_10v", []),
+                        "output_0_10v": current_analog.get("output_0_10v", [])
+                    }]
+            
+            if not digital_configs:
+                current_digital = self.get_digital_config(device_id)
+                if current_digital:
+                    # Create a config snapshot with start_time as timestamp
+                    digital_configs = [{
+                        "timestamp": start_time,
+                        "npn_input": current_digital.get("npn_input", []),
+                        "npn_output": current_digital.get("npn_output", []),
+                        "pnp_input": current_digital.get("pnp_input", []),
+                        "pnp_output": current_digital.get("pnp_output", []),
+                        "relay": current_digital.get("relay", [])
+                    }]
+            
+            # Also get current configs for Modbus and CAN Bus (they don't change frequently)
+            modbus_config = self.get_modbus_config(device_id)
+            can_bus_config = self.get_can_bus_config(device_id)
+            
+            parameter_map = {}
+            
+            # Process analog configs
+            for i, config in enumerate(analog_configs):
+                timestamp = config["timestamp"]
+                next_timestamp = analog_configs[i + 1]["timestamp"] if i + 1 < len(analog_configs) else end_time
+                
+                # Process input_4_20ma
+                for channel in config.get("input_4_20ma", []):
+                    if channel.get("enabled", False):
+                        name = channel.get("name", "").strip()
+                        if name:
+                            if name not in parameter_map:
+                                parameter_map[name] = {
+                                    "data_type": "Analog",
+                                    "active_periods": [],
+                                    "channel_info": channel
+                                }
+                            parameter_map[name]["active_periods"].append((timestamp, next_timestamp))
+                
+                # Process input_1_10v
+                for channel in config.get("input_1_10v", []):
+                    if channel.get("enabled", False):
+                        name = channel.get("name", "").strip()
+                        if name:
+                            if name not in parameter_map:
+                                parameter_map[name] = {
+                                    "data_type": "Analog",
+                                    "active_periods": [],
+                                    "channel_info": channel
+                                }
+                            parameter_map[name]["active_periods"].append((timestamp, next_timestamp))
+            
+            # Process digital configs
+            for i, config in enumerate(digital_configs):
+                timestamp = config["timestamp"]
+                next_timestamp = digital_configs[i + 1]["timestamp"] if i + 1 < len(digital_configs) else end_time
+                
+                # Process npn_input
+                for channel in config.get("npn_input", []):
+                    if channel.get("enabled", False):
+                        name = channel.get("name", "").strip()
+                        if name:
+                            if name not in parameter_map:
+                                parameter_map[name] = {
+                                    "data_type": "Digital",
+                                    "active_periods": [],
+                                    "channel_info": channel
+                                }
+                            parameter_map[name]["active_periods"].append((timestamp, next_timestamp))
+                
+                # Process pnp_input
+                for channel in config.get("pnp_input", []):
+                    if channel.get("enabled", False):
+                        name = channel.get("name", "").strip()
+                        if name:
+                            if name not in parameter_map:
+                                parameter_map[name] = {
+                                    "data_type": "Digital",
+                                    "active_periods": [],
+                                    "channel_info": channel
+                                }
+                            parameter_map[name]["active_periods"].append((timestamp, next_timestamp))
+            
+            # Process Modbus (current config only - assume active for entire range)
+            if modbus_config:
+                slave_devices = modbus_config.get("slave_devices", [])
+                for slave in slave_devices:
+                    var_name = slave.get("variable_name", "").strip()
+                    if var_name:
+                        if var_name not in parameter_map:
+                            parameter_map[var_name] = {
+                                "data_type": "Modbus",
+                                "active_periods": [(start_time, end_time)],
+                                "channel_info": slave
+                            }
+            
+            # Process CAN Bus (current config only - assume active for entire range)
+            if can_bus_config:
+                can_messages = can_bus_config.get("can_messages", [])
+                for msg in can_messages:
+                    var_name = msg.get("variable_name", "").strip()
+                    if var_name:
+                        if var_name not in parameter_map:
+                            parameter_map[var_name] = {
+                                "data_type": "Canbus",
+                                "active_periods": [(start_time, end_time)],
+                                "channel_info": msg
+                            }
+            
+            # Merge overlapping periods and sort
+            for param_name in parameter_map:
+                periods = parameter_map[param_name]["active_periods"]
+                if len(periods) > 1:
+                    # Sort by start time
+                    periods.sort(key=lambda x: x[0])
+                    # Merge overlapping periods
+                    merged = []
+                    current_start, current_end = periods[0]
+                    for start, end in periods[1:]:
+                        if start <= current_end:
+                            current_end = max(current_end, end)
+                        else:
+                            merged.append((current_start, current_end))
+                            current_start, current_end = start, end
+                    merged.append((current_start, current_end))
+                    parameter_map[param_name]["active_periods"] = merged
+            
+            logger.info(f"✅ Found {len(parameter_map)} unique parameter name(s) in time range")
+            logger.debug(f"   Parameters: {list(parameter_map.keys())}")
+            return parameter_map
+            
+        except Exception as e:
+            logger.error(f"❌ Error getting parameter names in time range: {e}")
+            logger.exception("Full traceback:")
+            return {}
+    
     def is_connected(self) -> bool:
         """Check if InfluxDB client is connected"""
         return self.connected
