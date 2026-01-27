@@ -21,6 +21,8 @@ def create_analytics_layout():
         dcc.Store(id='analytics-latest-values-store', data={}),
         # Socket.IO RTD update trigger store (updated by JavaScript)
         dcc.Store(id='analytics-rtd-trigger-store', data={'timestamp': None, 'device_id': None, 'trigger_count': 0}),
+        # Hidden button to trigger callback via Socket.IO events
+        html.Button(id='analytics-rtd-trigger-btn', n_clicks=0, style={'display': 'none'}),
         
         # Device Selection and Time Range
         dbc.Row([
