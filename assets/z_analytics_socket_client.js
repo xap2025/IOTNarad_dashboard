@@ -2,6 +2,8 @@
 // This file automatically loads when Analytics page is accessed
 // Updates Dash store when RTD data arrives via Socket.IO
 
+console.log('📦 z_analytics_socket_client.js loaded!');
+
 (function() {
     // Prevent multiple initializations
     if (window.analyticsSocketIOInitialized) {
@@ -10,6 +12,8 @@
     }
     
     console.log('🚀 Initializing Analytics Socket.IO client...');
+    console.log('   Current URL:', window.location.href);
+    console.log('   Socket.IO library available:', typeof io !== 'undefined');
     
     // Wait for Socket.IO library to load
     function initializeSocket() {
@@ -45,10 +49,13 @@
                 console.log('🟢 Analytics Socket.IO connected. ID:', socket.id);
             });
             
-            socket.on('rtd_data_update', (data) => {
-                console.log('📡 Analytics: Received rtd_data_update:', JSON.stringify(data, null, 2));
-                safeSetProps(data);
-            });
+        socket.on('rtd_data_update', (data) => {
+            console.log('📡 Analytics: Received rtd_data_update event!');
+            console.log('   Event data:', JSON.stringify(data, null, 2));
+            console.log('   Device ID:', data.device_id);
+            console.log('   Timestamp:', data.timestamp);
+            safeSetProps(data);
+        });
             
             socket.on('disconnect', (reason) => {
                 console.warn('🔴 Analytics Socket.IO disconnected:', reason);
@@ -74,6 +81,10 @@
         function trySetProps() {
             attempt++;
             
+            console.log(`🔄 Analytics: Attempting set_props (attempt ${attempt}/${MAX_ATTEMPTS})`);
+            console.log('   window.dash_clientside:', typeof window.dash_clientside);
+            console.log('   window.dash_clientside.set_props:', typeof (window.dash_clientside && window.dash_clientside.set_props));
+            
             if (window.dash_clientside && window.dash_clientside.set_props) {
                 const storeData = {
                     timestamp: data.timestamp || new Date().toISOString(),
@@ -84,18 +95,26 @@
                 console.log('📦 Analytics: Sending to Dash store:', storeData);
                 console.log('   Store ID: analytics-rtd-trigger-store');
                 
-                // Use exact format from old project
-                window.dash_clientside.set_props('analytics-rtd-trigger-store', {
-                    data: storeData,
-                    timestamp: Date.now()
-                });
-                
-                console.log('✅ Analytics: set_props called successfully');
+                try {
+                    // Use exact format from old project
+                    window.dash_clientside.set_props('analytics-rtd-trigger-store', {
+                        data: storeData,
+                        timestamp: Date.now()
+                    });
+                    
+                    console.log('✅ Analytics: set_props called successfully');
+                    console.log('   Store should now trigger analytics callback');
+                } catch (error) {
+                    console.error('❌ Analytics: Error calling set_props:', error);
+                    console.error('   Error details:', error.message, error.stack);
+                }
             } else if (attempt < MAX_ATTEMPTS) {
-                console.warn(`⚠️ Analytics: Dash not ready (attempt ${attempt}), retrying...`);
+                console.warn(`⚠️ Analytics: Dash not ready (attempt ${attempt}), retrying in ${300 * attempt}ms...`);
                 setTimeout(trySetProps, 300 * attempt);
             } else {
                 console.error('❌ Analytics: Failed to send data after multiple attempts');
+                console.error('   window.dash_clientside:', window.dash_clientside);
+                console.error('   Make sure Dash has fully loaded before Socket.IO events arrive');
             }
         }
         
