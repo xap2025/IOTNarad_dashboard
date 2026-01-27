@@ -51,7 +51,36 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Initialize Flask server
-server = Flask(__name__, static_folder='../assets', static_url_path='/assets')
+# Use absolute path for assets folder (works in both local and Docker)
+import os
+# In Docker, assets folder is mounted at /app/assets
+# In local development, it's at ../assets relative to app/main.py
+if os.path.exists('/app/assets'):
+    # Docker environment
+    assets_path = '/app/assets'
+    logger.info(f"📁 Using Docker assets path: {assets_path}")
+else:
+    # Local development
+    assets_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets')
+    logger.info(f"📁 Using local assets path: {assets_path}")
+
+# Verify assets folder exists
+if not os.path.exists(assets_path):
+    logger.warning(f"⚠️ Assets folder not found at: {assets_path}")
+else:
+    logger.info(f"✅ Assets folder found at: {assets_path}")
+    # List files in assets folder
+    try:
+        files = os.listdir(assets_path)
+        logger.info(f"   Files in assets folder: {', '.join(files[:10])}")
+        if 'z_analytics_socket_client.js' in files:
+            logger.info(f"   ✅ z_analytics_socket_client.js found!")
+        else:
+            logger.warning(f"   ⚠️ z_analytics_socket_client.js NOT found!")
+    except Exception as e:
+        logger.error(f"   ❌ Error listing assets folder: {e}")
+
+server = Flask(__name__, static_folder=assets_path, static_url_path='/assets')
 server.config['SECRET_KEY'] = os.getenv('APP_SECRET_KEY', 'dev-secret-key-change-me')
 # Configure session to work reliably across different domains/IPs
 server.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -76,7 +105,7 @@ app = dash.Dash(
         dbc.icons.FONT_AWESOME,
         "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
     ],
-    assets_folder='../assets',  # Point to assets folder for CSS files
+    assets_folder=assets_path,  # Point to assets folder for CSS files (same as Flask static_folder)
     suppress_callback_exceptions=True,
     title="IOTNarad Dashboard",
     update_title=None
