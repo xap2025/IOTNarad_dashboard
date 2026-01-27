@@ -171,19 +171,32 @@ def load_analytics_device_list(pathname):
 
 
 def convert_timestamp_to_datetime(timestamp):
-    """Convert timestamp (datetime or ISO string) to datetime object"""
+    """Convert timestamp (datetime or ISO string) to timezone-aware datetime object (UTC)"""
+    from datetime import timezone
+    
     if isinstance(timestamp, datetime):
-        return timestamp
+        # If already datetime, ensure it's timezone-aware (UTC)
+        if timestamp.tzinfo is None:
+            # Timezone-naive, assume UTC
+            return timestamp.replace(tzinfo=timezone.utc)
+        else:
+            # Already timezone-aware, convert to UTC if needed
+            return timestamp.astimezone(timezone.utc)
     elif isinstance(timestamp, str):
         try:
             # Try ISO format first
             if 'T' in timestamp or '+' in timestamp or timestamp.endswith('Z'):
-                return datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                # Ensure timezone-aware
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt
             else:
-                # Try other formats
-                return datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S.%f')
-        except (ValueError, AttributeError):
-            logger.warning(f"⚠️ Could not parse timestamp: {timestamp}")
+                # Try other formats - assume UTC
+                dt = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S.%f')
+                return dt.replace(tzinfo=timezone.utc)
+        except (ValueError, AttributeError) as e:
+            logger.warning(f"⚠️ Could not parse timestamp: {timestamp}, error: {e}")
             return None
     return None
 
@@ -263,6 +276,14 @@ def load_enabled_parameters(device_id, time_range):
         
         logger.info(f"✅ Loaded {len(enabled_params)} parameter(s) (including historical) for device {device_id}")
         logger.info(f"   Parameter list: {list(enabled_params.keys())}")
+        logger.info(f"   Parameter details: {[(name, info['data_type'], len(info['active_periods'])) for name, info in param_metadata.items()]}")
+        
+        # DEBUG: Log active periods for each parameter
+        for param_name, info in param_metadata.items():
+            periods = info['active_periods']
+            logger.debug(f"   '{param_name}' ({info['data_type']}): {len(periods)} active period(s)")
+            for i, (p_start, p_end) in enumerate(periods):
+                logger.debug(f"      Period {i+1}: {p_start} to {p_end}")
         
         # Store metadata in params store (we'll encode it in the dict)
         # Add metadata as a special key that won't conflict with parameter names
@@ -425,7 +446,8 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
             return [], []  # Return empty lists for ALL outputs
         
         # Calculate time range
-        end_time = datetime.utcnow()
+        from datetime import timezone
+        end_time = datetime.utcnow().replace(tzinfo=timezone.utc)  # Ensure timezone-aware (UTC)
         if time_range == '1h':
             start_time = end_time - timedelta(hours=1)
         elif time_range == '6h':
@@ -443,6 +465,12 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
         else:
             start_time = end_time - timedelta(hours=1)
         
+        # Ensure both are timezone-aware (UTC) - critical for datetime comparisons
+        if start_time.tzinfo is None:
+            start_time = start_time.replace(tzinfo=timezone.utc)
+        if end_time.tzinfo is None:
+            end_time = end_time.replace(tzinfo=timezone.utc)
+        
         # Extract metadata and filter out metadata key
         param_metadata = enabled_params.get('_metadata', {})
         param_names = [k for k in enabled_params.keys() if k != '_metadata']
@@ -450,27 +478,45 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
         # Auto-removal: Filter parameters that have no data in the current time range
         # Check if parameter has any active period that overlaps with current time range
         valid_param_names = []
+        logger.info(f"🔍 Checking {len(param_names)} parameter(s) for active periods in time range ({start_time} to {end_time})")
+        
         for param_name in param_names:
             if param_name in param_metadata:
                 active_periods_raw = param_metadata[param_name].get('active_periods', [])
                 # Convert string timestamps to datetime objects
                 active_periods = convert_active_periods_to_datetime(active_periods_raw)
                 
+                logger.debug(f"   Parameter '{param_name}': {len(active_periods)} active period(s)")
+                
                 # Check if any active period overlaps with current time range
+                # Note: start_time and end_time are already timezone-aware (set at function start)
                 has_overlap = False
                 for period_start, period_end in active_periods:
-                    # Check if period overlaps with current range
-                    if period_start <= end_time and period_end >= start_time:
-                        has_overlap = True
-                        break
+                    # Ensure period timestamps are timezone-aware (UTC)
+                    period_start = convert_timestamp_to_datetime(period_start) if period_start else None
+                    period_end = convert_timestamp_to_datetime(period_end) if period_end else None
+                    
+                    if period_start and period_end:
+                        # Check if period overlaps with current range
+                        overlap_check = period_start <= end_time and period_end >= start_time
+                        logger.debug(f"      Period ({period_start} to {period_end}): overlap={overlap_check}")
+                        if overlap_check:
+                            has_overlap = True
+                            break
                 
                 if has_overlap:
                     valid_param_names.append(param_name)
+                    logger.debug(f"   ✅ Parameter '{param_name}' is valid (has overlapping active period)")
                 else:
-                    logger.info(f"   ⏭️ Skipping parameter '{param_name}' - no active period in current time range")
+                    logger.warning(f"   ⏭️ Skipping parameter '{param_name}' - no active period overlaps with current time range")
+                    logger.warning(f"      Time range: {start_time} to {end_time}")
+                    logger.warning(f"      Active periods: {active_periods}")
             else:
                 # No metadata - include it (backward compatibility)
+                logger.debug(f"   ✅ Parameter '{param_name}' included (no metadata - backward compatibility)")
                 valid_param_names.append(param_name)
+        
+        logger.info(f"✅ Filtered to {len(valid_param_names)} valid parameter(s) out of {len(param_names)} total")
         
         param_names = valid_param_names
         param_types = [enabled_params[name] for name in param_names]
@@ -481,12 +527,17 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
             return [], []
         
         # Get data for all parameters at once (more efficient)
+        logger.info(f"🔍 Querying data for {len(param_names)} parameter(s): {param_names[:5]}...")
         all_data = db_service.get_realtime_data_multiple_params(
             device_id=device_id,
             parameter_names=param_names,
             start_time=start_time,
             end_time=end_time
         )
+        
+        logger.info(f"📊 Data query result: {len(all_data)} parameter(s) have data")
+        for param_name, data_points in all_data.items():
+            logger.info(f"   '{param_name}': {len(data_points)} data point(s)")
         
         # Create figures and live values for each parameter
         figures = []
@@ -512,15 +563,24 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
                     filtered_data_points = []
                     for dp in data_points:
                         dp_time = dp['timestamp']
-                        # Ensure dp_time is datetime
+                        # Ensure dp_time is timezone-aware datetime (UTC)
                         if isinstance(dp_time, str):
+                            dp_time = convert_timestamp_to_datetime(dp_time)
+                            if not dp_time:
+                                continue
+                        elif isinstance(dp_time, datetime):
+                            # Ensure timezone-aware
                             dp_time = convert_timestamp_to_datetime(dp_time)
                             if not dp_time:
                                 continue
                         
                         # Check if data point is within any active period
                         for period_start, period_end in active_periods:
-                            if period_start <= dp_time <= period_end:
+                            # Ensure both period timestamps are timezone-aware
+                            period_start = convert_timestamp_to_datetime(period_start) if period_start else None
+                            period_end = convert_timestamp_to_datetime(period_end) if period_end else None
+                            
+                            if period_start and period_end and period_start <= dp_time <= period_end:
                                 filtered_data_points.append(dp)
                                 break
                     data_points = filtered_data_points
@@ -540,7 +600,14 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
                 active_periods = convert_active_periods_to_datetime(active_periods_raw)
                 
                 # Check if parameter is currently active (has period that includes end_time)
-                is_currently_active = any(period_start <= end_time <= period_end for period_start, period_end in active_periods)
+                # Note: end_time is already timezone-aware (set at function start)
+                is_currently_active = False
+                for period_start, period_end in active_periods:
+                    period_start = convert_timestamp_to_datetime(period_start) if period_start else None
+                    period_end = convert_timestamp_to_datetime(period_end) if period_end else None
+                    if period_start and period_end and period_start <= end_time <= period_end:
+                        is_currently_active = True
+                        break
                 if is_currently_active:
                     latest_value = db_service.get_latest_value(
                         device_id=device_id,
