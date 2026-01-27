@@ -86,26 +86,37 @@ def create_analytics_layout():
                         socket.on('rtd_data_update', function(data) {
                             console.log('📊 RTD data update received:', data);
                             
-                            // Trigger callback by clicking hidden button (most reliable method)
-                            function clickButton() {
+                            // Trigger callback by clicking hidden button
+                            // Use multiple attempts to ensure it works
+                            function triggerUpdate() {
                                 const triggerBtn = document.getElementById('analytics-rtd-trigger-btn');
                                 if (triggerBtn) {
-                                    // Use native click() method
+                                    // Force click using multiple methods
                                     triggerBtn.click();
-                                    console.log('✅ Analytics callback triggered via Socket.IO (button clicked)');
+                                    
+                                    // Also dispatch a synthetic click event
+                                    const clickEvent = new MouseEvent('click', {
+                                        bubbles: true,
+                                        cancelable: true,
+                                        view: window
+                                    });
+                                    triggerBtn.dispatchEvent(clickEvent);
+                                    
+                                    console.log('✅ Analytics callback triggered via Socket.IO (button clicked, n_clicks should increment)');
                                     return true;
                                 }
                                 return false;
                             }
                             
-                            // Try immediate click
-                            if (!clickButton()) {
+                            // Try immediate trigger
+                            if (!triggerUpdate()) {
                                 // Retry after short delay (button might not be in DOM yet)
                                 setTimeout(function() {
-                                    if (!clickButton()) {
+                                    if (!triggerUpdate()) {
                                         console.error('❌ RTD trigger button not found after retry!');
+                                        console.error('   Available elements:', document.querySelectorAll('button').length);
                                     }
-                                }, 100);
+                                }, 200);
                             }
                         });
                         
@@ -121,12 +132,16 @@ def create_analytics_layout():
                     }
                 }
                 
-                // Start initialization
-                if (document.readyState === 'loading') {
-                    document.addEventListener('DOMContentLoaded', initSocketIO);
-                } else {
-                    initSocketIO();
+                // Start initialization after a delay to ensure DOM is ready
+                function startInit() {
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', initSocketIO);
+                    } else {
+                        // Wait a bit more to ensure Dash has rendered components
+                        setTimeout(initSocketIO, 1000);
+                    }
                 }
+                startInit();
             })();
         ''', type='text/javascript'),
     ])
