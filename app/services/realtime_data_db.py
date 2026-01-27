@@ -223,14 +223,17 @@ class RealtimeDataDBService:
         try:
             escaped_device_id = device_id.replace('\\', '\\\\').replace('"', '\\"')
             
-            # Calculate time range
-            time_diff = end_time - start_time
-            if time_diff.days > 0:
-                range_start = f"-{time_diff.days + 1}d"
-            elif time_diff.seconds >= 3600:
-                range_start = f"-{int(time_diff.seconds / 3600) + 1}h"
-            else:
-                range_start = f"-{int(time_diff.seconds / 60) + 1}m"
+            # Use absolute timestamps for precise time range queries
+            # Convert datetime to RFC3339 format for InfluxDB
+            from datetime import timezone
+            if start_time.tzinfo is None:
+                start_time = start_time.replace(tzinfo=timezone.utc)
+            if end_time is None or (end_time.tzinfo is None):
+                end_time = datetime.utcnow().replace(tzinfo=timezone.utc) if end_time is None else end_time.replace(tzinfo=timezone.utc)
+            
+            # Format timestamps in RFC3339 format (required by InfluxDB Flux)
+            start_time_str = start_time.strftime('%Y-%m-%dT%H:%M:%SZ')
+            end_time_str = end_time.strftime('%Y-%m-%dT%H:%M:%SZ')
             
             # Build filter for multiple parameter names
             param_filters = []
@@ -240,10 +243,10 @@ class RealtimeDataDBService:
             
             param_filter_str = " or ".join(param_filters)
             
-            # Flux query to get data points for all parameters
+            # Flux query to get data points for all parameters using absolute time range
             query = f'''
                 from(bucket: "{self.bucket}")
-                |> range(start: {range_start})
+                |> range(start: {start_time_str}, stop: {end_time_str})
                 |> filter(fn: (r) => r._measurement == "Realtime_Data")
                 |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
                 |> filter(fn: (r) => {param_filter_str})

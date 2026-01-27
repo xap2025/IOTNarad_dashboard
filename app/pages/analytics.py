@@ -589,7 +589,12 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
         
         logger.info(f"📊 Data query result: {len(all_data)} parameter(s) have data")
         for param_name, data_points in all_data.items():
-            logger.info(f"   '{param_name}': {len(data_points)} data point(s)")
+            if data_points:
+                first_dp = data_points[0]
+                last_dp = data_points[-1]
+                logger.info(f"   '{param_name}': {len(data_points)} data point(s) | First: {first_dp.get('timestamp')} | Last: {last_dp.get('timestamp')}")
+            else:
+                logger.info(f"   '{param_name}': 0 data point(s)")
         
         # Create figures and live values for each parameter
         figures = []
@@ -603,6 +608,7 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
             
             # Get data from batch query result
             data_points = all_data.get(clean_param_name, [])
+            logger.info(f"   📥 Retrieved {len(data_points)} data point(s) for '{clean_param_name}'")
             
             # Filter data based on active periods (if metadata available)
             if clean_param_name in param_metadata:
@@ -875,8 +881,14 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
             
             figures.append(fig)
         
-        logger.debug(f"✅ Updated {len(figures)} charts for device {device_id}")
-        logger.debug(f"   Live values: {live_values}")
+        logger.info(f"✅ Updated {len(figures)} charts for device {device_id}")
+        logger.info(f"   Total live values: {len(live_values)}")
+        logger.info(f"   Callback completed successfully - returning figures and live values")
+        
+        # Ensure we return the correct number of outputs
+        if len(figures) != len(live_values):
+            logger.warning(f"⚠️ Mismatch: {len(figures)} figures but {len(live_values)} live values")
+        
         return figures, live_values
         
     except Exception as e:
