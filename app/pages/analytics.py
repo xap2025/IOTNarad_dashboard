@@ -721,8 +721,19 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
             
             # Create figure
             if data_points:
-                timestamps = [dp['timestamp'] for dp in data_points]
-                values = [dp['value'] for dp in data_points]
+                # Ensure timestamps are datetime objects (Plotly can handle timezone-aware datetimes)
+                timestamps = []
+                values = []
+                for dp in data_points:
+                    ts = dp['timestamp']
+                    # Convert to datetime if it's a string
+                    if isinstance(ts, str):
+                        ts = convert_timestamp_to_datetime(ts)
+                    elif isinstance(ts, datetime) and ts.tzinfo is None:
+                        # Make timezone-aware if naive
+                        ts = ts.replace(tzinfo=timezone.utc)
+                    timestamps.append(ts)
+                    values.append(dp['value'])
             else:
                 timestamps = []
                 values = []
@@ -781,6 +792,22 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
             # Get tick interval and format based on time range
             dtick_string, tick_format = get_xaxis_tick_interval(time_range)
             
+            # Ensure start_time and end_time are datetime objects (not strings)
+            # They should already be datetime objects, but double-check
+            if isinstance(start_time, str):
+                start_time = convert_timestamp_to_datetime(start_time)
+            if isinstance(end_time, str):
+                end_time = convert_timestamp_to_datetime(end_time)
+            
+            # Log time range for debugging
+            logger.info(f"   📊 X-axis range for '{clean_param_name}': {start_time.strftime('%Y-%m-%d %H:%M:%S')} to {end_time.strftime('%Y-%m-%d %H:%M:%S')} (time_range: {time_range})")
+            if timestamps:
+                logger.info(f"   📊 Data points range: {timestamps[0]} to {timestamps[-1]} ({len(timestamps)} points)")
+            
+            # Convert datetime objects to ISO format strings for Plotly (more reliable)
+            start_time_str = start_time.isoformat() if isinstance(start_time, datetime) else str(start_time)
+            end_time_str = end_time.isoformat() if isinstance(end_time, datetime) else str(end_time)
+            
             # Update layout with proper axis labels and X-axis range
             fig.update_layout(
                 margin=dict(l=60, r=20, t=20, b=50),
@@ -792,14 +819,16 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
                     title="Time",
                     titlefont=dict(size=12),
                     tickfont=dict(size=10),
-                    # Set explicit range from start_time to end_time
-                    range=[start_time, end_time],
-                    # Set tick interval using Plotly date format (M10 = 10 minutes, H2 = 2 hours, etc.)
+                    # Set explicit range from start_time to end_time (use ISO format strings)
+                    range=[start_time_str, end_time_str],
+                    # Set tick interval using Plotly date format
                     dtick=dtick_string,
                     # Format time display
                     tickformat=tick_format,
                     # Ensure timezone is handled correctly
-                    type='date'
+                    type='date',
+                    # Force autorange to False to enforce our range
+                    autorange=False
                 ),
                 yaxis=dict(
                     showgrid=True, 
