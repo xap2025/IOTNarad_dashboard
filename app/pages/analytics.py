@@ -591,36 +591,47 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
                 logger.info(f"   First data point: timestamp={data_points[0].get('timestamp')}, value={data_points[0].get('value')}")
                 logger.info(f"   Last data point: timestamp={data_points[-1].get('timestamp')}, value={data_points[-1].get('value')}")
             
-            # Get latest value (check last 24 hours for latest value)
-            # Only show latest value if parameter is currently active
+            # Get latest value - prefer using data_points we already fetched
             latest_value = None
-            if clean_param_name in param_metadata:
-                active_periods_raw = param_metadata[clean_param_name].get('active_periods', [])
-                # Convert string timestamps to datetime objects
-                active_periods = convert_active_periods_to_datetime(active_periods_raw)
-                
-                # Check if parameter is currently active (has period that includes end_time)
-                # Note: end_time is already timezone-aware (set at function start)
+            
+            # First, try to get latest value from data_points we already fetched
+            if len(data_points) > 0:
+                # Get the last data point (most recent)
+                latest_value = data_points[-1].get('value')
+                logger.info(f"   ✅ Latest value from data_points: {latest_value} (type: {type(latest_value)})")
+            else:
+                # If no data points in time range, check if parameter is currently active and fetch latest value
                 is_currently_active = False
-                for period_start, period_end in active_periods:
-                    period_start = convert_timestamp_to_datetime(period_start) if period_start else None
-                    period_end = convert_timestamp_to_datetime(period_end) if period_end else None
-                    if period_start and period_end and period_start <= end_time <= period_end:
-                        is_currently_active = True
-                        break
+                if clean_param_name in param_metadata:
+                    active_periods_raw = param_metadata[clean_param_name].get('active_periods', [])
+                    active_periods = convert_active_periods_to_datetime(active_periods_raw)
+                    
+                    # Check if parameter is currently active (has period that includes end_time)
+                    # Note: end_time is already timezone-aware (set at function start)
+                    for period_start, period_end in active_periods:
+                        period_start = convert_timestamp_to_datetime(period_start) if period_start else None
+                        period_end = convert_timestamp_to_datetime(period_end) if period_end else None
+                        if period_start and period_end and period_start <= end_time <= period_end:
+                            is_currently_active = True
+                            break
+                else:
+                    # No metadata - assume currently active (backward compatibility)
+                    is_currently_active = True
+                
                 if is_currently_active:
+                    # Fetch latest value from database (last 7 days)
                     latest_value = db_service.get_latest_value(
                         device_id=device_id,
                         parameter_name=clean_param_name
                     )
-            else:
-                # No metadata - get latest value (backward compatibility)
-                latest_value = db_service.get_latest_value(
-                    device_id=device_id,
-                    parameter_name=clean_param_name
-                )
+                    if latest_value is not None:
+                        logger.info(f"   ✅ Latest value from database: {latest_value} (type: {type(latest_value)})")
+                    else:
+                        logger.info(f"   ⚠️ No latest value found in database for {clean_param_name}")
+                else:
+                    logger.info(f"   ⚠️ Parameter '{clean_param_name}' is not currently active, skipping latest value fetch")
             
-            logger.info(f"   Latest value: {latest_value} (type: {type(latest_value)})")
+            logger.info(f"   Final latest value: {latest_value} (type: {type(latest_value)})")
             
             # Determine color based on type (MUST be before using color variable)
             color_map = {
