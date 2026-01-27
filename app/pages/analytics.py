@@ -800,46 +800,58 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
                 end_time = convert_timestamp_to_datetime(end_time)
             
             # Log time range for debugging
-            logger.info(f"   📊 X-axis range for '{clean_param_name}': {start_time.strftime('%Y-%m-%d %H:%M:%S')} to {end_time.strftime('%Y-%m-%d %H:%M:%S')} (time_range: {time_range})")
+            logger.info(f"   📊 X-axis range for '{clean_param_name}': {start_time.strftime('%Y-%m-%d %H:%M:%S')} UTC to {end_time.strftime('%Y-%m-%d %H:%M:%S')} UTC (time_range: {time_range})")
             if timestamps:
-                logger.info(f"   📊 Data points range: {timestamps[0]} to {timestamps[-1]} ({len(timestamps)} points)")
+                first_ts = timestamps[0] if timestamps else None
+                last_ts = timestamps[-1] if timestamps else None
+                if isinstance(first_ts, datetime):
+                    logger.info(f"   📊 Data points range: {first_ts.strftime('%Y-%m-%d %H:%M:%S')} to {last_ts.strftime('%Y-%m-%d %H:%M:%S')} ({len(timestamps)} points)")
+                else:
+                    logger.info(f"   📊 Data points range: {first_ts} to {last_ts} ({len(timestamps)} points)")
             
-            # Convert datetime objects to ISO format strings for Plotly (more reliable)
-            start_time_str = start_time.isoformat() if isinstance(start_time, datetime) else str(start_time)
-            end_time_str = end_time.isoformat() if isinstance(end_time, datetime) else str(end_time)
-            
-            # Update layout with proper axis labels and X-axis range
+            # Update layout with basic settings first
             fig.update_layout(
                 margin=dict(l=60, r=20, t=20, b=50),
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)',
-                xaxis=dict(
-                    showgrid=True, 
-                    gridcolor='#e9ecef',
-                    title="Time",
-                    titlefont=dict(size=12),
-                    tickfont=dict(size=10),
-                    # Set explicit range from start_time to end_time (use ISO format strings)
-                    range=[start_time_str, end_time_str],
-                    # Set tick interval using Plotly date format
-                    dtick=dtick_string,
-                    # Format time display
-                    tickformat=tick_format,
-                    # Ensure timezone is handled correctly
-                    type='date',
-                    # Force autorange to False to enforce our range
-                    autorange=False
-                ),
-                yaxis=dict(
-                    showgrid=True, 
-                    gridcolor='#e9ecef',
-                    title="Value",
-                    titlefont=dict(size=12),
-                    tickfont=dict(size=10),
-                    range=[y_min, y_max] if y_min is not None and y_max is not None else None
-                ),
                 hovermode='x unified',
                 showlegend=False
+            )
+            
+            # CRITICAL: Set X-axis range BEFORE updating axes (Plotly needs this order)
+            # Use datetime objects directly - Plotly date axes accept datetime objects
+            fig.update_layout(
+                xaxis=dict(
+                    range=[start_time, end_time],
+                    autorange=False
+                )
+            )
+            
+            # Then update X-axis with all other settings
+            fig.update_xaxes(
+                showgrid=True,
+                gridcolor='#e9ecef',
+                title="Time",
+                titlefont=dict(size=12),
+                tickfont=dict(size=10),
+                # Set tick interval
+                dtick=dtick_string,
+                # Format time display
+                tickformat=tick_format,
+                # Ensure timezone is handled correctly
+                type='date',
+                # Force autorange to False to enforce our range (redundant but ensures it's set)
+                autorange=False
+            )
+            
+            # Update Y-axis
+            fig.update_yaxes(
+                showgrid=True,
+                gridcolor='#e9ecef',
+                title="Value",
+                titlefont=dict(size=12),
+                tickfont=dict(size=10),
+                range=[y_min, y_max] if y_min is not None and y_max is not None else None
             )
             
             figures.append(fig)
