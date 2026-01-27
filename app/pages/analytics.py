@@ -2,7 +2,7 @@
 Analytics Page Layout
 Real-time data visualization and insights
 """
-from dash import html, dcc, Input, Output, State, callback, ALL, no_update
+from dash import html, dcc, Input, Output, State, callback, ALL, no_update, clientside_callback, ClientsideFunction
 import dash_bootstrap_components as dbc
 import plotly.graph_objs as go
 from datetime import datetime, timedelta, timezone
@@ -19,8 +19,8 @@ def create_analytics_layout():
         dcc.Store(id='analytics-device-store', data=None),
         dcc.Store(id='analytics-params-store', data={}),
         dcc.Store(id='analytics-latest-values-store', data={}),
-        # Hidden button to trigger callback via Socket.IO events
-        html.Button(id='analytics-rtd-trigger-btn', n_clicks=0, style={'display': 'none'}),
+        # Socket.IO RTD update trigger store (updated by JavaScript)
+        dcc.Store(id='analytics-rtd-trigger-store', data={'timestamp': None, 'device_id': None, 'trigger_count': 0}),
         
         # Device Selection and Time Range
         dbc.Row([
@@ -84,30 +84,24 @@ def create_analytics_layout():
                         socket.on('rtd_data_update', function(data) {
                             console.log('📊 RTD data update received:', data);
                             
-                            // Trigger callback by clicking hidden button
-                            // Use multiple methods to ensure it works
-                            const triggerBtn = document.getElementById('analytics-rtd-trigger-btn');
-                            if (triggerBtn) {
-                                // Method 1: Direct click
-                                triggerBtn.click();
-                                
-                                // Method 2: Create and dispatch click event (more reliable)
-                                const clickEvent = new MouseEvent('click', {
-                                    view: window,
-                                    bubbles: true,
-                                    cancelable: true
-                                });
-                                triggerBtn.dispatchEvent(clickEvent);
-                                
-                                console.log('✅ Analytics callback triggered via Socket.IO (button clicked)');
-                            } else {
-                                console.error('❌ RTD trigger button not found!');
-                                // Retry after a short delay
+                            // Trigger callback by clicking hidden button (most reliable method)
+                            function clickButton() {
+                                const triggerBtn = document.getElementById('analytics-rtd-trigger-btn');
+                                if (triggerBtn) {
+                                    // Use native click() method
+                                    triggerBtn.click();
+                                    console.log('✅ Analytics callback triggered via Socket.IO (button clicked)');
+                                    return true;
+                                }
+                                return false;
+                            }
+                            
+                            // Try immediate click
+                            if (!clickButton()) {
+                                // Retry after short delay (button might not be in DOM yet)
                                 setTimeout(function() {
-                                    const retryBtn = document.getElementById('analytics-rtd-trigger-btn');
-                                    if (retryBtn) {
-                                        retryBtn.click();
-                                        console.log('✅ Analytics callback triggered (retry)');
+                                    if (!clickButton()) {
+                                        console.error('❌ RTD trigger button not found after retry!');
                                     }
                                 }, 100);
                             }
@@ -527,7 +521,7 @@ def update_device_status(n_intervals, device_id):
     ],
     [
         Input('analytics-refresh-interval', 'n_intervals'),
-        Input('analytics-rtd-trigger-btn', 'n_clicks'),  # Socket.IO event trigger
+        Input('analytics-rtd-trigger-btn', 'n_clicks'),  # Socket.IO event trigger (button click)
         Input('analytics-time-range-selector', 'value'),
         Input('analytics-device-store', 'data'),
         Input('analytics-params-store', 'data'),
