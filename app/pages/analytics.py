@@ -70,37 +70,85 @@ def create_analytics_layout():
         
         # Socket.IO client script - ensure Socket.IO library loads first, then our custom script
         # Load order is critical: Socket.IO library must load before our custom script
-        html.Script(src="https://cdn.socket.io/4.5.4/socket.io.min.js", type='text/javascript'),
+        # Try multiple CDN sources in case one is blocked
+        html.Script('''
+            // Load Socket.IO library with fallback CDNs
+            (function() {
+                const cdnUrls = [
+                    "https://cdn.socket.io/4.5.4/socket.io.min.js",
+                    "https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.4/socket.io.min.js",
+                    "https://unpkg.com/socket.io-client@4.5.4/dist/socket.io.min.js"
+                ];
+                let currentIndex = 0;
+                
+                function loadSocketIO() {
+                    if (typeof io !== 'undefined') {
+                        console.log('✅ Socket.IO library already loaded');
+                        return;
+                    }
+                    
+                    if (currentIndex >= cdnUrls.length) {
+                        console.error('❌ All Socket.IO CDN sources failed to load');
+                        return;
+                    }
+                    
+                    const script = document.createElement('script');
+                    script.src = cdnUrls[currentIndex];
+                    script.type = 'text/javascript';
+                    script.async = false;
+                    script.onload = function() {
+                        console.log('✅ Socket.IO library loaded from:', cdnUrls[currentIndex]);
+                    };
+                    script.onerror = function() {
+                        console.warn('⚠️ Failed to load Socket.IO from:', cdnUrls[currentIndex]);
+                        currentIndex++;
+                        loadSocketIO(); // Try next CDN
+                    };
+                    document.head.appendChild(script);
+                }
+                
+                loadSocketIO();
+            })();
+        ''', type='text/javascript'),
         html.Script('''
             // Wait for Socket.IO library to load, then load our custom script
             (function() {
+                let attempts = 0;
+                const MAX_ATTEMPTS = 50; // 10 seconds max wait time
+                
                 function loadAnalyticsSocketClient() {
+                    attempts++;
+                    
                     if (typeof io !== 'undefined') {
                         console.log('✅ Socket.IO library loaded, now loading analytics client...');
                         // Create script element dynamically
                         const script = document.createElement('script');
                         script.src = '/assets/z_analytics_socket_client.js';
                         script.type = 'text/javascript';
+                        script.async = false; // Load synchronously after Socket.IO
                         script.onload = function() {
                             console.log('✅ Analytics Socket.IO client script loaded');
                         };
                         script.onerror = function() {
-                            console.error('❌ Failed to load analytics Socket.IO client script');
+                            console.error('❌ Failed to load analytics Socket.IO client script from /assets/z_analytics_socket_client.js');
                         };
                         document.head.appendChild(script);
-                    } else {
-                        console.warn('⚠️ Socket.IO library not loaded yet, retrying...');
+                    } else if (attempts < MAX_ATTEMPTS) {
+                        console.warn('⚠️ Socket.IO library not loaded yet, retrying... (attempt ' + attempts + '/' + MAX_ATTEMPTS + ')');
                         setTimeout(loadAnalyticsSocketClient, 200);
+                    } else {
+                        console.error('❌ Socket.IO library failed to load after ' + MAX_ATTEMPTS + ' attempts');
+                        console.error('   Check network tab to see if CDN request is blocked or failing');
                     }
                 }
                 
                 // Start loading after a short delay to ensure Socket.IO CDN script has started loading
                 if (document.readyState === 'loading') {
                     document.addEventListener('DOMContentLoaded', function() {
-                        setTimeout(loadAnalyticsSocketClient, 500);
+                        setTimeout(loadAnalyticsSocketClient, 300);
                     });
                 } else {
-                    setTimeout(loadAnalyticsSocketClient, 500);
+                    setTimeout(loadAnalyticsSocketClient, 300);
                 }
             })();
         ''', type='text/javascript'),
@@ -508,33 +556,35 @@ def update_device_status(n_intervals, device_id):
 def update_analytics_charts(n_intervals, rtd_trigger_data, time_range, device_id, enabled_params):
     """Update all charts with real-time data"""
     
-    # Determine trigger source
-    from dash import ctx
-    
-    # Prevent infinite loops - check if this is a valid trigger
-    if not ctx.triggered:
-        logger.warning("⚠️ Callback triggered but ctx.triggered is empty - ignoring")
-        return [], []
-    
-    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
-    
-    # Only process if triggered by valid sources
-    if trigger_id not in ['analytics-refresh-interval', 'analytics-rtd-trigger-store', 'analytics-time-range-selector', 'analytics-device-store', 'analytics-params-store']:
-        logger.warning(f"⚠️ Unknown trigger: {trigger_id} - ignoring")
-        return [], []
-    
-    if trigger_id == 'analytics-rtd-trigger-store' and rtd_trigger_data and rtd_trigger_data.get('timestamp'):
-        trigger_source = f"Socket.IO RTD event (device: {rtd_trigger_data.get('device_id', 'unknown')}, timestamp: {rtd_trigger_data.get('timestamp')})"
-    else:
-        trigger_source = f"Interval (n_intervals={n_intervals})"
-    
-    logger.info(f"🔄 Analytics callback triggered: {trigger_source}, device_id={device_id}, enabled_params_count={len(enabled_params) if enabled_params else 0}")
-    
-    if not device_id or not enabled_params:
-        logger.warning(f"⚠️ Missing device_id or enabled_params: device_id={device_id}, enabled_params={enabled_params}")
-        return [], []  # Return empty lists for ALL outputs
-    
     try:
+        # Determine trigger source
+        from dash import ctx
+        
+        # Handle initial load case (when ctx.triggered might be empty)
+        if not ctx.triggered or len(ctx.triggered) == 0:
+            # On initial load, use default values
+            trigger_id = 'analytics-refresh-interval'  # Default to interval trigger
+            logger.info("🔄 Analytics callback triggered: Initial load")
+        else:
+            trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+        
+        # Only process if triggered by valid sources
+        valid_triggers = ['analytics-refresh-interval', 'analytics-rtd-trigger-store', 'analytics-time-range-selector', 'analytics-device-store', 'analytics-params-store']
+        if trigger_id not in valid_triggers:
+            logger.warning(f"⚠️ Unknown trigger: {trigger_id} - ignoring (valid: {valid_triggers})")
+            return [], []
+        
+        # Determine trigger source for logging
+        if trigger_id == 'analytics-rtd-trigger-store' and rtd_trigger_data and rtd_trigger_data.get('timestamp'):
+            trigger_source = f"Socket.IO RTD event (device: {rtd_trigger_data.get('device_id', 'unknown')}, timestamp: {rtd_trigger_data.get('timestamp')})"
+        else:
+            trigger_source = f"Interval (n_intervals={n_intervals})"
+        
+        logger.info(f"🔄 Analytics callback triggered: {trigger_source}, device_id={device_id}, enabled_params_count={len(enabled_params) if enabled_params else 0}")
+        
+        if not device_id or not enabled_params:
+            logger.warning(f"⚠️ Missing device_id or enabled_params: device_id={device_id}, enabled_params={enabled_params}")
+            return [], []  # Return empty lists for ALL outputs
         from app.services.realtime_data_db import RealtimeDataDBService
         
         db_service = RealtimeDataDBService()
