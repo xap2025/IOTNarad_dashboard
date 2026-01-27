@@ -485,29 +485,41 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
         
         # Calculate time range
         from datetime import timezone
-        end_time = datetime.utcnow().replace(tzinfo=timezone.utc)  # Ensure timezone-aware (UTC)
+        import pytz
+        
+        # Get current time in UTC (for database queries)
+        end_time_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
         if time_range == '1h':
-            start_time = end_time - timedelta(hours=1)
+            start_time_utc = end_time_utc - timedelta(hours=1)
         elif time_range == '6h':
-            start_time = end_time - timedelta(hours=6)
+            start_time_utc = end_time_utc - timedelta(hours=6)
         elif time_range == '24h':
-            start_time = end_time - timedelta(hours=24)
+            start_time_utc = end_time_utc - timedelta(hours=24)
         elif time_range == '7d':
-            start_time = end_time - timedelta(days=7)
+            start_time_utc = end_time_utc - timedelta(days=7)
         elif time_range == '30d':
-            start_time = end_time - timedelta(days=30)
+            start_time_utc = end_time_utc - timedelta(days=30)
         elif time_range == '6m':
-            start_time = end_time - timedelta(days=180)
+            start_time_utc = end_time_utc - timedelta(days=180)
         elif time_range == '1y':
-            start_time = end_time - timedelta(days=365)
+            start_time_utc = end_time_utc - timedelta(days=365)
         else:
-            start_time = end_time - timedelta(hours=1)
+            start_time_utc = end_time_utc - timedelta(hours=1)
         
         # Ensure both are timezone-aware (UTC) - critical for datetime comparisons
-        if start_time.tzinfo is None:
-            start_time = start_time.replace(tzinfo=timezone.utc)
-        if end_time.tzinfo is None:
-            end_time = end_time.replace(tzinfo=timezone.utc)
+        if start_time_utc.tzinfo is None:
+            start_time_utc = start_time_utc.replace(tzinfo=timezone.utc)
+        if end_time_utc.tzinfo is None:
+            end_time_utc = end_time_utc.replace(tzinfo=timezone.utc)
+        
+        # Convert to IST (Asia/Kolkata) for X-axis display
+        ist = pytz.timezone('Asia/Kolkata')
+        start_time = start_time_utc.astimezone(ist)  # Convert to IST for display
+        end_time = end_time_utc.astimezone(ist)  # Convert to IST for display
+        
+        # Keep UTC versions for database queries
+        # Use start_time_utc and end_time_utc for database queries
+        # Use start_time and end_time (IST) for X-axis display
         
         # Extract metadata and filter out metadata key
         param_metadata = enabled_params.get('_metadata', {})
@@ -565,12 +577,14 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
             return [], []
         
         # Get data for all parameters at once (more efficient)
+        # Use UTC times for database queries
         logger.info(f"🔍 Querying data for {len(param_names)} parameter(s): {param_names[:5]}...")
+        logger.info(f"   Database query range (UTC): {start_time_utc.strftime('%Y-%m-%d %H:%M:%S')} to {end_time_utc.strftime('%Y-%m-%d %H:%M:%S')}")
         all_data = db_service.get_realtime_data_multiple_params(
             device_id=device_id,
             parameter_names=param_names,
-            start_time=start_time,
-            end_time=end_time
+            start_time=start_time_utc,  # Use UTC for database queries
+            end_time=end_time_utc  # Use UTC for database queries
         )
         
         logger.info(f"📊 Data query result: {len(all_data)} parameter(s) have data")
@@ -721,7 +735,7 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
             
             # Create figure
             if data_points:
-                # Ensure timestamps are datetime objects (Plotly can handle timezone-aware datetimes)
+                # Ensure timestamps are datetime objects and convert to IST for display
                 timestamps = []
                 values = []
                 for dp in data_points:
@@ -730,8 +744,13 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
                     if isinstance(ts, str):
                         ts = convert_timestamp_to_datetime(ts)
                     elif isinstance(ts, datetime) and ts.tzinfo is None:
-                        # Make timezone-aware if naive
+                        # Make timezone-aware if naive (assume UTC)
                         ts = ts.replace(tzinfo=timezone.utc)
+                    
+                    # Convert UTC timestamp to IST for display
+                    if isinstance(ts, datetime) and ts.tzinfo:
+                        ts = ts.astimezone(ist)
+                    
                     timestamps.append(ts)
                     values.append(dp['value'])
             else:
@@ -800,7 +819,7 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
                 end_time = convert_timestamp_to_datetime(end_time)
             
             # Log time range for debugging
-            logger.info(f"   📊 X-axis range for '{clean_param_name}': {start_time.strftime('%Y-%m-%d %H:%M:%S')} UTC to {end_time.strftime('%Y-%m-%d %H:%M:%S')} UTC (time_range: {time_range})")
+            logger.info(f"   📊 X-axis range for '{clean_param_name}': {start_time.strftime('%Y-%m-%d %H:%M:%S')} IST to {end_time.strftime('%Y-%m-%d %H:%M:%S')} IST (time_range: {time_range})")
             if timestamps:
                 first_ts = timestamps[0] if timestamps else None
                 last_ts = timestamps[-1] if timestamps else None
