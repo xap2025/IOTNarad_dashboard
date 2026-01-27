@@ -1364,6 +1364,189 @@ class DeviceConfigDBService:
             logger.exception("Full traceback:")
             return []
     
+    def get_historical_modbus_configs(self, device_id: str, start_time: datetime, end_time: datetime) -> List[Dict[str, Any]]:
+        """
+        Get all MODBUS configurations within a time range (for historical tracking)
+        
+        Args:
+            device_id: Device Serial Number
+            start_time: Start time for query
+            end_time: End time for query
+            
+        Returns:
+            List of configuration snapshots with timestamps
+        """
+        if not self.connected or not device_id or not device_id.strip():
+            return []
+        
+        try:
+            escaped_device_id = device_id.replace('\\', '\\\\').replace('"', '\\"')
+            
+            # Calculate time range for Flux query
+            time_diff = end_time - start_time
+            if time_diff.days > 0:
+                range_start = f"-{time_diff.days + 1}d"
+            elif time_diff.seconds >= 3600:
+                range_start = f"-{int(time_diff.seconds / 3600) + 1}h"
+            else:
+                range_start = f"-{int(time_diff.seconds / 60) + 1}m"
+            
+            # Query slave devices (we track variable_name changes)
+            query = f'''
+                from(bucket: "{self.bucket}")
+                |> range(start: {range_start})
+                |> filter(fn: (r) => r._measurement == "Device_Config_MODBUS")
+                |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
+                |> filter(fn: (r) => r.config_type == "slave_device")
+                |> keep(columns: ["_time", "_field", "_value", "slave_id", "register_address", "function_code", "data_type", "endianness", "variable_name"])
+                |> pivot(rowKey: ["_time", "slave_id", "register_address", "function_code", "data_type", "endianness", "variable_name"], columnKey: ["_field"], valueColumn: "_value")
+                |> sort(columns: ["_time"], desc: false)
+            '''
+            
+            logger.debug(f"🔍 Querying historical MODBUS configs: device_id={device_id}, range={range_start}")
+            result = self.query_api.query(org=self.org, query=query)
+            
+            # Group configurations by timestamp
+            configs_by_time = {}
+            
+            for table in result:
+                for record in table.records:
+                    timestamp = record.get_time()
+                    if timestamp < start_time or timestamp > end_time:
+                        continue
+                    
+                    if timestamp not in configs_by_time:
+                        configs_by_time[timestamp] = {
+                            "timestamp": timestamp,
+                            "slave_devices": []
+                        }
+                    
+                    var_name = record.values.get("variable_name", "").strip()
+                    if var_name:
+                        slave_device = {
+                            "index": record.values.get("index", 0),
+                            "slave_id": record.values.get("slave_id", "1"),
+                            "function_code": record.values.get("function_code", "0x03"),
+                            "register_address": record.values.get("register_address", "0"),
+                            "data_type": record.values.get("data_type", "int8"),
+                            "endianness": record.values.get("endianness", "Big Endian"),
+                            "variable_name": var_name,
+                            "register_count": record.values.get("register_count", 1)
+                        }
+                        configs_by_time[timestamp]["slave_devices"].append(slave_device)
+            
+            # Convert to list and sort by timestamp
+            configs = sorted(configs_by_time.values(), key=lambda x: x["timestamp"])
+            logger.info(f"✅ Found {len(configs)} MODBUS config snapshot(s) in time range")
+            return configs
+            
+        except Exception as e:
+            logger.error(f"❌ Error getting historical MODBUS configs: {e}")
+            logger.exception("Full traceback:")
+            return []
+    
+    def get_historical_can_bus_configs(self, device_id: str, start_time: datetime, end_time: datetime) -> List[Dict[str, Any]]:
+        """
+        Get all CAN Bus configurations within a time range (for historical tracking)
+        
+        Args:
+            device_id: Device Serial Number
+            start_time: Start time for query
+            end_time: End time for query
+            
+        Returns:
+            List of configuration snapshots with timestamps
+        """
+        if not self.connected or not device_id or not device_id.strip():
+            return []
+        
+        try:
+            escaped_device_id = device_id.replace('\\', '\\\\').replace('"', '\\"')
+            
+            # Calculate time range for Flux query
+            time_diff = end_time - start_time
+            if time_diff.days > 0:
+                range_start = f"-{time_diff.days + 1}d"
+            elif time_diff.seconds >= 3600:
+                range_start = f"-{int(time_diff.seconds / 3600) + 1}h"
+            else:
+                range_start = f"-{int(time_diff.seconds / 60) + 1}m"
+            
+            # Query CAN messages and data mappings (we track variable_name changes)
+            query = f'''
+                from(bucket: "{self.bucket}")
+                |> range(start: {range_start})
+                |> filter(fn: (r) => r._measurement == "Device_Config_CANBus")
+                |> filter(fn: (r) => r.device_id == "{escaped_device_id}")
+                |> filter(fn: (r) => r.config_type == "can_message" or r.config_type == "data_mapping")
+                |> keep(columns: ["_time", "_field", "_value", "config_type", "can_id", "direction", "variable_name", "byte_position", "data_type", "endianness", "data_length_str", "data_length", "scale_factor", "offset"])
+                |> pivot(rowKey: ["_time", "config_type", "can_id", "direction", "variable_name", "byte_position", "data_type", "endianness"], columnKey: ["_field"], valueColumn: "_value")
+                |> sort(columns: ["_time"], desc: false)
+            '''
+            
+            logger.debug(f"🔍 Querying historical CAN Bus configs: device_id={device_id}, range={range_start}")
+            result = self.query_api.query(org=self.org, query=query)
+            
+            # Group configurations by timestamp
+            configs_by_time = {}
+            
+            for table in result:
+                for record in table.records:
+                    timestamp = record.get_time()
+                    if timestamp < start_time or timestamp > end_time:
+                        continue
+                    
+                    if timestamp not in configs_by_time:
+                        configs_by_time[timestamp] = {
+                            "timestamp": timestamp,
+                            "can_messages": [],
+                            "data_mapping": []
+                        }
+                    
+                    config_type = record.values.get("config_type", "")
+                    var_name = record.values.get("variable_name", "").strip()
+                    
+                    if config_type == "can_message" and var_name:
+                        can_message = {
+                            "index": record.values.get("index", 0),
+                            "can_id": record.values.get("can_id", "0x123"),
+                            "direction": record.values.get("direction", "TX"),
+                            "period_ms": record.values.get("period_ms", 100),
+                            "variable_name": var_name,
+                            "data_length": record.values.get("data_length", 8)
+                        }
+                        configs_by_time[timestamp]["can_messages"].append(can_message)
+                    elif config_type == "data_mapping" and var_name:
+                        # Use data_length_str if available (new format), otherwise fallback
+                        data_length_value = record.values.get("data_length_str")
+                        if data_length_value is None:
+                            data_length_value = record.values.get("data_length", "1 Byte")
+                            if isinstance(data_length_value, (int, float)):
+                                data_length_value = f"{int(data_length_value)} Byte" if int(data_length_value) == 1 else f"{int(data_length_value)} Bytes"
+                        
+                        data_mapping = {
+                            "index": record.values.get("index", 0),
+                            "can_id": record.values.get("can_id", "0x123"),
+                            "byte_position": record.values.get("byte_position", "Byte 0"),
+                            "data_length": str(data_length_value) if data_length_value else "1 Byte",
+                            "data_type": record.values.get("data_type", "int8"),
+                            "endianness": record.values.get("endianness", "Big Endian"),
+                            "variable_name": var_name,
+                            "scale_factor": record.values.get("scale_factor", 1.0),
+                            "offset": record.values.get("offset", 0.0)
+                        }
+                        configs_by_time[timestamp]["data_mapping"].append(data_mapping)
+            
+            # Convert to list and sort by timestamp
+            configs = sorted(configs_by_time.values(), key=lambda x: x["timestamp"])
+            logger.info(f"✅ Found {len(configs)} CAN Bus config snapshot(s) in time range")
+            return configs
+            
+        except Exception as e:
+            logger.error(f"❌ Error getting historical CAN Bus configs: {e}")
+            logger.exception("Full traceback:")
+            return []
+    
     def get_parameter_names_in_time_range(self, device_id: str, start_time: datetime, end_time: datetime) -> Dict[str, Dict[str, Any]]:
         """
         Get all parameter names that were active during a time range, with their active periods
@@ -1387,6 +1570,8 @@ class DeviceConfigDBService:
             # Get historical configs
             analog_configs = self.get_historical_analog_configs(device_id, start_time, end_time)
             digital_configs = self.get_historical_digital_configs(device_id, start_time, end_time)
+            modbus_configs = self.get_historical_modbus_configs(device_id, start_time, end_time)
+            can_bus_configs = self.get_historical_can_bus_configs(device_id, start_time, end_time)
             
             # If no historical configs found, get current config as fallback
             # This handles the case where config was saved before the time range
@@ -1414,9 +1599,29 @@ class DeviceConfigDBService:
                         "relay": current_digital.get("relay", [])
                     }]
             
-            # Also get current configs for Modbus and CAN Bus (they don't change frequently)
-            modbus_config = self.get_modbus_config(device_id)
-            can_bus_config = self.get_can_bus_config(device_id)
+            # If no historical MODBUS configs found, get current config as fallback
+            if not modbus_configs:
+                current_modbus = self.get_modbus_config(device_id)
+                if current_modbus:
+                    slave_devices = current_modbus.get("slave_devices", [])
+                    if slave_devices:
+                        modbus_configs = [{
+                            "timestamp": start_time,
+                            "slave_devices": slave_devices
+                        }]
+            
+            # If no historical CAN Bus configs found, get current config as fallback
+            if not can_bus_configs:
+                current_can_bus = self.get_can_bus_config(device_id)
+                if current_can_bus:
+                    can_messages = current_can_bus.get("can_messages", [])
+                    data_mapping = current_can_bus.get("data_mapping", [])
+                    if can_messages or data_mapping:
+                        can_bus_configs = [{
+                            "timestamp": start_time,
+                            "can_messages": can_messages,
+                            "data_mapping": data_mapping
+                        }]
             
             parameter_map = {}
             
@@ -1482,31 +1687,51 @@ class DeviceConfigDBService:
                                 }
                             parameter_map[name]["active_periods"].append((timestamp, next_timestamp))
             
-            # Process Modbus (current config only - assume active for entire range)
-            if modbus_config:
-                slave_devices = modbus_config.get("slave_devices", [])
-                for slave in slave_devices:
+            # Process MODBUS configs (historical tracking)
+            for i, config in enumerate(modbus_configs):
+                timestamp = config["timestamp"]
+                next_timestamp = modbus_configs[i + 1]["timestamp"] if i + 1 < len(modbus_configs) else end_time
+                
+                # Process slave devices
+                for slave in config.get("slave_devices", []):
                     var_name = slave.get("variable_name", "").strip()
                     if var_name:
                         if var_name not in parameter_map:
                             parameter_map[var_name] = {
                                 "data_type": "Modbus",
-                                "active_periods": [(start_time, end_time)],
+                                "active_periods": [],
                                 "channel_info": slave
                             }
+                        parameter_map[var_name]["active_periods"].append((timestamp, next_timestamp))
             
-            # Process CAN Bus (current config only - assume active for entire range)
-            if can_bus_config:
-                can_messages = can_bus_config.get("can_messages", [])
-                for msg in can_messages:
+            # Process CAN Bus configs (historical tracking)
+            for i, config in enumerate(can_bus_configs):
+                timestamp = config["timestamp"]
+                next_timestamp = can_bus_configs[i + 1]["timestamp"] if i + 1 < len(can_bus_configs) else end_time
+                
+                # Process CAN messages
+                for msg in config.get("can_messages", []):
                     var_name = msg.get("variable_name", "").strip()
                     if var_name:
                         if var_name not in parameter_map:
                             parameter_map[var_name] = {
                                 "data_type": "Canbus",
-                                "active_periods": [(start_time, end_time)],
+                                "active_periods": [],
                                 "channel_info": msg
                             }
+                        parameter_map[var_name]["active_periods"].append((timestamp, next_timestamp))
+                
+                # Process data mappings (8-byte payload)
+                for mapping in config.get("data_mapping", []):
+                    var_name = mapping.get("variable_name", "").strip()
+                    if var_name:
+                        if var_name not in parameter_map:
+                            parameter_map[var_name] = {
+                                "data_type": "Canbus",
+                                "active_periods": [],
+                                "channel_info": mapping
+                            }
+                        parameter_map[var_name]["active_periods"].append((timestamp, next_timestamp))
             
             # Merge overlapping periods and sort
             for param_name in parameter_map:
