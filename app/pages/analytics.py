@@ -783,6 +783,8 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
                         except (ValueError, TypeError):
                             plot_values.append(0)
                 
+                # Add trace with explicit metadata to ensure updates
+                # Add trace with explicit metadata to ensure updates
                 fig.add_trace(go.Scatter(
                     x=timestamps,
                     y=plot_values,
@@ -791,8 +793,12 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
                     line=dict(color=color, width=3),
                     marker=dict(size=4),
                     fill='tozeroy',
-                    fillcolor=fill_color
+                    fillcolor=fill_color,
+                    # Add metadata to help Dash detect changes
+                    meta={'update_time': end_time.isoformat(), 'data_points': len(plot_values)}
                 ))
+                
+                logger.info(f"   ✅ Added trace for '{clean_param_name}': {len(plot_values)} points, range: {min(plot_values) if plot_values else 'N/A'} to {max(plot_values) if plot_values else 'N/A'}")
                 
                 # Auto-scale Y-axis based on data range
                 if plot_values:
@@ -879,15 +885,26 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
                 range=[y_min, y_max] if y_min is not None and y_max is not None else None
             )
             
+            # Add a unique identifier to force Dash to recognize this as a new figure
+            # This ensures Dash updates the graph even if data structure is similar
+            fig.update_layout(
+                uirevision=False  # Disable UI revision to force updates
+            )
+            
             figures.append(fig)
         
         logger.info(f"✅ Updated {len(figures)} charts for device {device_id}")
         logger.info(f"   Total live values: {len(live_values)}")
         logger.info(f"   Callback completed successfully - returning figures and live values")
+        logger.info(f"   Current time (IST): {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
         
         # Ensure we return the correct number of outputs
         if len(figures) != len(live_values):
             logger.warning(f"⚠️ Mismatch: {len(figures)} figures but {len(live_values)} live values")
+        
+        # Log summary of data points for debugging
+        total_data_points = sum(len(all_data.get(name, [])) for name in param_names)
+        logger.info(f"   📊 Total data points across all parameters: {total_data_points}")
         
         return figures, live_values
         
