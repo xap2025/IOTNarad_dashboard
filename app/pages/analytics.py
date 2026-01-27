@@ -68,10 +68,42 @@ def create_analytics_layout():
         # Auto-refresh interval (30 seconds - fallback only, Socket.IO is primary)
         dcc.Interval(id='analytics-refresh-interval', interval=30000, n_intervals=0),
         
-        # Socket.IO client script - loaded from assets folder (like old project)
-        # Explicitly load the JavaScript file after Socket.IO library
-        # Dash automatically loads .js files from assets folder, but we ensure proper load order
-        html.Script(src='/assets/z_analytics_socket_client.js', type='text/javascript'),
+        # Socket.IO client script - ensure Socket.IO library loads first, then our custom script
+        # Load order is critical: Socket.IO library must load before our custom script
+        html.Script(src="https://cdn.socket.io/4.5.4/socket.io.min.js", type='text/javascript'),
+        html.Script('''
+            // Wait for Socket.IO library to load, then load our custom script
+            (function() {
+                function loadAnalyticsSocketClient() {
+                    if (typeof io !== 'undefined') {
+                        console.log('✅ Socket.IO library loaded, now loading analytics client...');
+                        // Create script element dynamically
+                        const script = document.createElement('script');
+                        script.src = '/assets/z_analytics_socket_client.js';
+                        script.type = 'text/javascript';
+                        script.onload = function() {
+                            console.log('✅ Analytics Socket.IO client script loaded');
+                        };
+                        script.onerror = function() {
+                            console.error('❌ Failed to load analytics Socket.IO client script');
+                        };
+                        document.head.appendChild(script);
+                    } else {
+                        console.warn('⚠️ Socket.IO library not loaded yet, retrying...');
+                        setTimeout(loadAnalyticsSocketClient, 200);
+                    }
+                }
+                
+                // Start loading after a short delay to ensure Socket.IO CDN script has started loading
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', function() {
+                        setTimeout(loadAnalyticsSocketClient, 500);
+                    });
+                } else {
+                    setTimeout(loadAnalyticsSocketClient, 500);
+                }
+            })();
+        ''', type='text/javascript'),
     ])
 
 

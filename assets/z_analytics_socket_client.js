@@ -122,13 +122,28 @@ console.log('📦 z_analytics_socket_client.js loaded!');
     }
     
     // Start initialization
-    // Wait for DOM to be ready and Dash to be initialized
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function() {
+    // Wait for DOM to be ready, Socket.IO library to load, and Dash to be initialized
+    function startInitialization() {
+        // Check if Socket.IO library is loaded
+        if (typeof io === 'undefined') {
+            console.warn('⚠️ Socket.IO library not loaded yet, waiting...');
+            setTimeout(startInitialization, 200);
+            return;
+        }
+        
+        console.log('✅ Socket.IO library confirmed loaded, initializing...');
+        
+        // Wait a bit more for Dash to initialize
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function() {
+                setTimeout(initializeSocket, 1000); // Give Dash time to initialize
+            });
+        } else {
             setTimeout(initializeSocket, 1000); // Give Dash time to initialize
-        });
-    } else {
-        setTimeout(initializeSocket, 1000); // Give Dash time to initialize
+        }
     }
+    
+    // Start the initialization process
+    startInitialization();
 })();
 
