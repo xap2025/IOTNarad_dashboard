@@ -1323,22 +1323,36 @@ def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
         logger.info(f"✅ Processed {len(values)} real-time data parameters from device {device_id}")
         logger.info(f"   Saved: {saved_count}, Failed: {failed_count}")
         
-        # Emit Socket.IO event to trigger real-time UI updates
+        # Emit Socket.IO event to trigger real-time UI updates (like old project)
+        # Use background task to prevent blocking MQTT callback thread
         # This enables instant updates without waiting for polling interval
-        # Flask-SocketIO automatically broadcasts to all clients when 'to' parameter is not specified
-        try:
-            socketio.emit('rtd_data_update', {
-                'device_id': device_id,
-                'timestamp': timestamp.isoformat(),
-                'data_type': normalized_type,
-                'parameters_count': len(values),
-                'saved_count': saved_count,
-                'failed_count': failed_count
-            })  # No 'to' parameter = broadcast to all connected clients
-            logger.info(f"📡 Socket.IO event 'rtd_data_update' emitted for device {device_id} (broadcast to all clients)")
-        except Exception as socket_error:
-            logger.error(f"❌ Error emitting Socket.IO event: {socket_error}")
-            logger.exception("Socket.IO emit traceback:")
+        def emit_rtd_update(device_id, timestamp, normalized_type, values_count, saved_count, failed_count):
+            """Emit Socket.IO event in background thread (like old project's emit_to_dash)"""
+            try:
+                # Flask-SocketIO automatically broadcasts to all clients when 'to' parameter is not specified
+                socketio.emit('rtd_data_update', {
+                    'device_id': device_id,
+                    'timestamp': timestamp.isoformat(),
+                    'data_type': normalized_type,
+                    'parameters_count': values_count,
+                    'saved_count': saved_count,
+                    'failed_count': failed_count
+                })
+                logger.info(f"📡 Socket.IO event 'rtd_data_update' emitted for device {device_id} (broadcast to all clients)")
+            except Exception as socket_error:
+                logger.error(f"❌ Error emitting Socket.IO event: {socket_error}")
+                logger.exception("Socket.IO emit traceback:")
+        
+        # Use background task like old project (prevents blocking MQTT callback)
+        socketio.start_background_task(
+            emit_rtd_update,
+            device_id,
+            timestamp,
+            normalized_type,
+            len(values),
+            saved_count,
+            failed_count
+        )
         
     except Exception as e:
         logger.error(f"❌ Error processing real-time data: {e}")

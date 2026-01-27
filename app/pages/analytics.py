@@ -68,77 +68,10 @@ def create_analytics_layout():
         # Auto-refresh interval (30 seconds - fallback only, Socket.IO is primary)
         dcc.Interval(id='analytics-refresh-interval', interval=30000, n_intervals=0),
         
-        # Socket.IO client script - directly updates Dash store using set_props (like old project)
-        html.Script('''
-            (function() {
-                // Wait for Socket.IO library to load
-                function initSocketIO() {
-                    if (typeof io !== 'undefined') {
-                        console.log('📡 Initializing Socket.IO for RTD updates...');
-                        const socket = io({
-                            transports: ['websocket'],
-                            reconnection: true,
-                            reconnectionAttempts: 10,
-                            reconnectionDelay: 3000
-                        });
-                        
-                        socket.on('connect', function() {
-                            console.log('✅ Socket.IO connected for RTD updates. ID:', socket.id);
-                        });
-                        
-                        socket.on('rtd_data_update', function(data) {
-                            console.log('📊 RTD data update received:', data);
-                            
-                            // Directly update Dash store using set_props (like old project)
-                            function safeSetProps() {
-                                if (window.dash_clientside && window.dash_clientside.set_props) {
-                                    const storeData = {
-                                        timestamp: data.timestamp || new Date().toISOString(),
-                                        device_id: data.device_id,
-                                        trigger_count: Date.now() // Unique value to trigger update
-                                    };
-                                    console.log('✅ Updating Dash store via set_props:', storeData);
-                                    window.dash_clientside.set_props('analytics-rtd-trigger-store', {
-                                        data: storeData
-                                    });
-                                } else {
-                                    console.warn('⚠️ Dash clientside not ready, retrying...');
-                                    setTimeout(safeSetProps, 300);
-                                }
-                            }
-                            
-                            safeSetProps();
-                        });
-                        
-                        socket.on('disconnect', function(reason) {
-                            console.warn('❌ Socket.IO disconnected:', reason);
-                        });
-                        
-                        socket.on('connect_error', function(error) {
-                            console.error('❌ Socket.IO connection error:', error.message);
-                        });
-                        
-                        // Store socket globally for debugging
-                        window.analyticsSocket = socket;
-                    } else {
-                        console.warn('⚠️ Socket.IO library not loaded yet, retrying...');
-                        setTimeout(initSocketIO, 500);
-                    }
-                }
-                
-                // Start initialization after a delay to ensure Dash is ready
-                function startInit() {
-                    if (document.readyState === 'loading') {
-                        document.addEventListener('DOMContentLoaded', function() {
-                            setTimeout(initSocketIO, 1000);
-                        });
-                    } else {
-                        setTimeout(initSocketIO, 1000);
-                    }
-                }
-                startInit();
-            })();
-        ''', type='text/javascript'),
+        # Socket.IO client script - loaded from assets folder (like old project)
+        # Explicitly load the JavaScript file after Socket.IO library
+        # Dash automatically loads .js files from assets folder, but we ensure proper load order
+        html.Script(src='/assets/z_analytics_socket_client.js', type='text/javascript'),
     ])
 
 
