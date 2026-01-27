@@ -63,8 +63,58 @@ def create_analytics_layout():
         # Dynamic Charts Container
         html.Div(id='analytics-charts-container', children=[]),
         
-        # Auto-refresh interval (5 seconds)
-        dcc.Interval(id='analytics-refresh-interval', interval=5000, n_intervals=0),
+        # Hidden button to trigger callback via Socket.IO events
+        html.Button(id='analytics-rtd-trigger-btn', n_clicks=0, style={'display': 'none'}),
+        
+        # Auto-refresh interval (30 seconds - fallback only, Socket.IO is primary)
+        dcc.Interval(id='analytics-refresh-interval', interval=30000, n_intervals=0),
+        
+        # Socket.IO client script for real-time updates
+        html.Script('''
+            (function() {
+                // Wait for Socket.IO library to load
+                function initSocketIO() {
+                    if (typeof io !== 'undefined') {
+                        console.log('📡 Initializing Socket.IO for RTD updates...');
+                        const socket = io();
+                        
+                        socket.on('connect', function() {
+                            console.log('✅ Socket.IO connected for RTD updates');
+                        });
+                        
+                        socket.on('rtd_data_update', function(data) {
+                            console.log('📊 RTD data update received:', data);
+                            
+                            // Trigger callback by clicking hidden button
+                            const triggerBtn = document.getElementById('analytics-rtd-trigger-btn');
+                            if (triggerBtn) {
+                                triggerBtn.click();
+                                console.log('✅ Analytics callback triggered via Socket.IO');
+                            } else {
+                                console.warn('⚠️ RTD trigger button not found');
+                            }
+                        });
+                        
+                        socket.on('disconnect', function() {
+                            console.log('❌ Socket.IO disconnected');
+                        });
+                        
+                        // Store socket globally for debugging
+                        window.analyticsSocket = socket;
+                    } else {
+                        console.warn('⚠️ Socket.IO library not loaded yet, retrying...');
+                        setTimeout(initSocketIO, 500);
+                    }
+                }
+                
+                // Start initialization
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', initSocketIO);
+                } else {
+                    initSocketIO();
+                }
+            })();
+        ''', type='text/javascript'),
     ])
 
 
@@ -459,16 +509,20 @@ def update_device_status(n_intervals, device_id):
     ],
     [
         Input('analytics-refresh-interval', 'n_intervals'),
+        Input('analytics-rtd-trigger-btn', 'n_clicks'),  # Socket.IO event trigger
         Input('analytics-time-range-selector', 'value'),
         Input('analytics-device-store', 'data'),
         Input('analytics-params-store', 'data'),
     ],
     prevent_initial_call=False  # Allow initial call to load data immediately
 )
-def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
+def update_analytics_charts(n_intervals, rtd_trigger_clicks, time_range, device_id, enabled_params):
     """Update all charts with real-time data"""
     
-    logger.info(f"🔄 Analytics callback triggered: n_intervals={n_intervals}, device_id={device_id}, enabled_params_count={len(enabled_params) if enabled_params else 0}")
+    # Determine trigger source
+    trigger_source = "Socket.IO RTD event" if rtd_trigger_clicks and rtd_trigger_clicks > 0 else f"Interval (n_intervals={n_intervals})"
+    
+    logger.info(f"🔄 Analytics callback triggered: {trigger_source}, device_id={device_id}, enabled_params_count={len(enabled_params) if enabled_params else 0}")
     
     if not device_id or not enabled_params:
         logger.warning(f"⚠️ Missing device_id or enabled_params: device_id={device_id}, enabled_params={enabled_params}")
