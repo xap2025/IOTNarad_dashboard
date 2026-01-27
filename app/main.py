@@ -1325,6 +1325,7 @@ def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
         
         # Emit Socket.IO event to trigger real-time UI updates
         # This enables instant updates without waiting for polling interval
+        # Flask-SocketIO automatically broadcasts to all clients when 'to' parameter is not specified
         try:
             socketio.emit('rtd_data_update', {
                 'device_id': device_id,
@@ -1333,8 +1334,8 @@ def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
                 'parameters_count': len(values),
                 'saved_count': saved_count,
                 'failed_count': failed_count
-            }, broadcast=True)  # broadcast=True sends to all connected clients
-            logger.info(f"📡 Socket.IO event 'rtd_data_update' emitted for device {device_id}")
+            })  # No 'to' parameter = broadcast to all connected clients
+            logger.info(f"📡 Socket.IO event 'rtd_data_update' emitted for device {device_id} (broadcast to all clients)")
         except Exception as socket_error:
             logger.error(f"❌ Error emitting Socket.IO event: {socket_error}")
             logger.exception("Socket.IO emit traceback:")
