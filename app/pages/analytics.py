@@ -19,6 +19,8 @@ def create_analytics_layout():
         dcc.Store(id='analytics-device-store', data=None),
         dcc.Store(id='analytics-params-store', data={}),
         dcc.Store(id='analytics-latest-values-store', data={}),
+        # Hidden button to trigger callback via Socket.IO events
+        html.Button(id='analytics-rtd-trigger-btn', n_clicks=0, style={'display': 'none'}),
         
         # Device Selection and Time Range
         dbc.Row([
@@ -63,9 +65,6 @@ def create_analytics_layout():
         # Dynamic Charts Container
         html.Div(id='analytics-charts-container', children=[]),
         
-        # Hidden button to trigger callback via Socket.IO events
-        html.Button(id='analytics-rtd-trigger-btn', n_clicks=0, style={'display': 'none'}),
-        
         # Auto-refresh interval (30 seconds - fallback only, Socket.IO is primary)
         dcc.Interval(id='analytics-refresh-interval', interval=30000, n_intervals=0),
         
@@ -86,12 +85,31 @@ def create_analytics_layout():
                             console.log('📊 RTD data update received:', data);
                             
                             // Trigger callback by clicking hidden button
+                            // Use multiple methods to ensure it works
                             const triggerBtn = document.getElementById('analytics-rtd-trigger-btn');
                             if (triggerBtn) {
+                                // Method 1: Direct click
                                 triggerBtn.click();
-                                console.log('✅ Analytics callback triggered via Socket.IO');
+                                
+                                // Method 2: Create and dispatch click event (more reliable)
+                                const clickEvent = new MouseEvent('click', {
+                                    view: window,
+                                    bubbles: true,
+                                    cancelable: true
+                                });
+                                triggerBtn.dispatchEvent(clickEvent);
+                                
+                                console.log('✅ Analytics callback triggered via Socket.IO (button clicked)');
                             } else {
-                                console.warn('⚠️ RTD trigger button not found');
+                                console.error('❌ RTD trigger button not found!');
+                                // Retry after a short delay
+                                setTimeout(function() {
+                                    const retryBtn = document.getElementById('analytics-rtd-trigger-btn');
+                                    if (retryBtn) {
+                                        retryBtn.click();
+                                        console.log('✅ Analytics callback triggered (retry)');
+                                    }
+                                }, 100);
                             }
                         });
                         
@@ -520,7 +538,13 @@ def update_analytics_charts(n_intervals, rtd_trigger_clicks, time_range, device_
     """Update all charts with real-time data"""
     
     # Determine trigger source
-    trigger_source = "Socket.IO RTD event" if rtd_trigger_clicks and rtd_trigger_clicks > 0 else f"Interval (n_intervals={n_intervals})"
+    from dash import ctx
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+    
+    if trigger_id == 'analytics-rtd-trigger-btn' and rtd_trigger_clicks and rtd_trigger_clicks > 0:
+        trigger_source = f"Socket.IO RTD event (trigger clicks: {rtd_trigger_clicks})"
+    else:
+        trigger_source = f"Interval (n_intervals={n_intervals})"
     
     logger.info(f"🔄 Analytics callback triggered: {trigger_source}, device_id={device_id}, enabled_params_count={len(enabled_params) if enabled_params else 0}")
     
