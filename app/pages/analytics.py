@@ -543,6 +543,10 @@ def update_analytics_charts(n_intervals, rtd_trigger_clicks, time_range, device_
         
         # Get current time in UTC (for database queries)
         end_time_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
+        # Add small buffer (5 seconds) to ensure we capture the latest data point
+        # This is important because data might be saved just before the query executes
+        end_time_utc_with_buffer = end_time_utc + timedelta(seconds=5)
+        
         if time_range == '1h':
             start_time_utc = end_time_utc - timedelta(hours=1)
         elif time_range == '6h':
@@ -565,6 +569,8 @@ def update_analytics_charts(n_intervals, rtd_trigger_clicks, time_range, device_
             start_time_utc = start_time_utc.replace(tzinfo=timezone.utc)
         if end_time_utc.tzinfo is None:
             end_time_utc = end_time_utc.replace(tzinfo=timezone.utc)
+        if end_time_utc_with_buffer.tzinfo is None:
+            end_time_utc_with_buffer = end_time_utc_with_buffer.replace(tzinfo=timezone.utc)
         
         # Convert to IST (Asia/Kolkata) for X-axis display
         ist = pytz.timezone('Asia/Kolkata')
@@ -633,12 +639,12 @@ def update_analytics_charts(n_intervals, rtd_trigger_clicks, time_range, device_
         # Get data for all parameters at once (more efficient)
         # Use UTC times for database queries
         logger.info(f"🔍 Querying data for {len(param_names)} parameter(s): {param_names[:5]}...")
-        logger.info(f"   Database query range (UTC): {start_time_utc.strftime('%Y-%m-%d %H:%M:%S')} to {end_time_utc.strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"   Database query range (UTC): {start_time_utc.strftime('%Y-%m-%d %H:%M:%S')} to {end_time_utc_with_buffer.strftime('%Y-%m-%d %H:%M:%S')} (with 5s buffer)")
         all_data = db_service.get_realtime_data_multiple_params(
             device_id=device_id,
             parameter_names=param_names,
             start_time=start_time_utc,  # Use UTC for database queries
-            end_time=end_time_utc  # Use UTC for database queries
+            end_time=end_time_utc_with_buffer  # Use UTC with buffer to ensure latest data is captured
         )
         
         logger.info(f"📊 Data query result: {len(all_data)} parameter(s) have data")
@@ -708,9 +714,22 @@ def update_analytics_charts(n_intervals, rtd_trigger_clicks, time_range, device_
             
             # First, try to get latest value from data_points we already fetched
             if len(data_points) > 0:
-                # Get the last data point (most recent)
-                latest_value = data_points[-1].get('value')
-                logger.info(f"   ✅ Latest value from data_points: {latest_value} (type: {type(latest_value)})")
+                # Ensure data points are sorted by timestamp (most recent last)
+                # Convert timestamps to datetime for proper sorting
+                def get_timestamp_for_sort(dp):
+                    ts = dp.get('timestamp')
+                    if isinstance(ts, datetime):
+                        return ts
+                    elif isinstance(ts, str):
+                        return convert_timestamp_to_datetime(ts) or datetime.min.replace(tzinfo=timezone.utc)
+                    else:
+                        return datetime.min.replace(tzinfo=timezone.utc)
+                
+                sorted_data_points = sorted(data_points, key=get_timestamp_for_sort)
+                latest_dp = sorted_data_points[-1]
+                latest_value = latest_dp.get('value')
+                latest_timestamp = latest_dp.get('timestamp')
+                logger.info(f"   ✅ Latest value from data_points: {latest_value} (timestamp: {latest_timestamp}, type: {type(latest_value)})")
             else:
                 # If no data points in time range, check if parameter is currently active and fetch latest value
                 is_currently_active = False
