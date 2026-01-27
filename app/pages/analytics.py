@@ -478,7 +478,18 @@ def update_analytics_charts(n_intervals, rtd_trigger_data, time_range, device_id
     
     # Determine trigger source
     from dash import ctx
+    
+    # Prevent infinite loops - check if this is a valid trigger
+    if not ctx.triggered:
+        logger.warning("⚠️ Callback triggered but ctx.triggered is empty - ignoring")
+        return [], []
+    
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+    
+    # Only process if triggered by valid sources
+    if trigger_id not in ['analytics-refresh-interval', 'analytics-rtd-trigger-store', 'analytics-time-range-selector', 'analytics-device-store', 'analytics-params-store']:
+        logger.warning(f"⚠️ Unknown trigger: {trigger_id} - ignoring")
+        return [], []
     
     if trigger_id == 'analytics-rtd-trigger-store' and rtd_trigger_data and rtd_trigger_data.get('timestamp'):
         trigger_source = f"Socket.IO RTD event (device: {rtd_trigger_data.get('device_id', 'unknown')}, timestamp: {rtd_trigger_data.get('timestamp')})"
