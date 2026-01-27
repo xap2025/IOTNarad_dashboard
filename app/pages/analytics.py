@@ -19,10 +19,8 @@ def create_analytics_layout():
         dcc.Store(id='analytics-device-store', data=None),
         dcc.Store(id='analytics-params-store', data={}),
         dcc.Store(id='analytics-latest-values-store', data={}),
-        # Socket.IO RTD update trigger store (updated by JavaScript)
+        # Socket.IO RTD update trigger store (updated by clientside callback)
         dcc.Store(id='analytics-rtd-trigger-store', data={'timestamp': None, 'device_id': None, 'trigger_count': 0}),
-        # Hidden button to trigger callback via Socket.IO events
-        html.Button(id='analytics-rtd-trigger-btn', n_clicks=0, style={'display': 'none'}),
         
         # Device Selection and Time Range
         dbc.Row([
@@ -70,58 +68,54 @@ def create_analytics_layout():
         # Auto-refresh interval (30 seconds - fallback only, Socket.IO is primary)
         dcc.Interval(id='analytics-refresh-interval', interval=30000, n_intervals=0),
         
-        # Socket.IO client script for real-time updates
+        # Socket.IO client script - directly updates Dash store using set_props (like old project)
         html.Script('''
             (function() {
                 // Wait for Socket.IO library to load
                 function initSocketIO() {
                     if (typeof io !== 'undefined') {
                         console.log('📡 Initializing Socket.IO for RTD updates...');
-                        const socket = io();
+                        const socket = io({
+                            transports: ['websocket'],
+                            reconnection: true,
+                            reconnectionAttempts: 10,
+                            reconnectionDelay: 3000
+                        });
                         
                         socket.on('connect', function() {
-                            console.log('✅ Socket.IO connected for RTD updates');
+                            console.log('✅ Socket.IO connected for RTD updates. ID:', socket.id);
                         });
                         
                         socket.on('rtd_data_update', function(data) {
                             console.log('📊 RTD data update received:', data);
                             
-                            // Trigger callback by clicking hidden button
-                            // Use multiple attempts to ensure it works
-                            function triggerUpdate() {
-                                const triggerBtn = document.getElementById('analytics-rtd-trigger-btn');
-                                if (triggerBtn) {
-                                    // Force click using multiple methods
-                                    triggerBtn.click();
-                                    
-                                    // Also dispatch a synthetic click event
-                                    const clickEvent = new MouseEvent('click', {
-                                        bubbles: true,
-                                        cancelable: true,
-                                        view: window
+                            // Directly update Dash store using set_props (like old project)
+                            function safeSetProps() {
+                                if (window.dash_clientside && window.dash_clientside.set_props) {
+                                    const storeData = {
+                                        timestamp: data.timestamp || new Date().toISOString(),
+                                        device_id: data.device_id,
+                                        trigger_count: Date.now() // Unique value to trigger update
+                                    };
+                                    console.log('✅ Updating Dash store via set_props:', storeData);
+                                    window.dash_clientside.set_props('analytics-rtd-trigger-store', {
+                                        data: storeData
                                     });
-                                    triggerBtn.dispatchEvent(clickEvent);
-                                    
-                                    console.log('✅ Analytics callback triggered via Socket.IO (button clicked, n_clicks should increment)');
-                                    return true;
+                                } else {
+                                    console.warn('⚠️ Dash clientside not ready, retrying...');
+                                    setTimeout(safeSetProps, 300);
                                 }
-                                return false;
                             }
                             
-                            // Try immediate trigger
-                            if (!triggerUpdate()) {
-                                // Retry after short delay (button might not be in DOM yet)
-                                setTimeout(function() {
-                                    if (!triggerUpdate()) {
-                                        console.error('❌ RTD trigger button not found after retry!');
-                                        console.error('   Available elements:', document.querySelectorAll('button').length);
-                                    }
-                                }, 200);
-                            }
+                            safeSetProps();
                         });
                         
-                        socket.on('disconnect', function() {
-                            console.log('❌ Socket.IO disconnected');
+                        socket.on('disconnect', function(reason) {
+                            console.warn('❌ Socket.IO disconnected:', reason);
+                        });
+                        
+                        socket.on('connect_error', function(error) {
+                            console.error('❌ Socket.IO connection error:', error.message);
                         });
                         
                         // Store socket globally for debugging
@@ -132,12 +126,13 @@ def create_analytics_layout():
                     }
                 }
                 
-                // Start initialization after a delay to ensure DOM is ready
+                // Start initialization after a delay to ensure Dash is ready
                 function startInit() {
                     if (document.readyState === 'loading') {
-                        document.addEventListener('DOMContentLoaded', initSocketIO);
+                        document.addEventListener('DOMContentLoaded', function() {
+                            setTimeout(initSocketIO, 1000);
+                        });
                     } else {
-                        // Wait a bit more to ensure Dash has rendered components
                         setTimeout(initSocketIO, 1000);
                     }
                 }
@@ -538,22 +533,22 @@ def update_device_status(n_intervals, device_id):
     ],
     [
         Input('analytics-refresh-interval', 'n_intervals'),
-        Input('analytics-rtd-trigger-btn', 'n_clicks'),  # Socket.IO event trigger (button click)
+        Input('analytics-rtd-trigger-store', 'data'),  # Socket.IO event trigger (store update via clientside callback)
         Input('analytics-time-range-selector', 'value'),
         Input('analytics-device-store', 'data'),
         Input('analytics-params-store', 'data'),
     ],
     prevent_initial_call=False  # Allow initial call to load data immediately
 )
-def update_analytics_charts(n_intervals, rtd_trigger_clicks, time_range, device_id, enabled_params):
+def update_analytics_charts(n_intervals, rtd_trigger_data, time_range, device_id, enabled_params):
     """Update all charts with real-time data"""
     
     # Determine trigger source
     from dash import ctx
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
     
-    if trigger_id == 'analytics-rtd-trigger-btn' and rtd_trigger_clicks and rtd_trigger_clicks > 0:
-        trigger_source = f"Socket.IO RTD event (trigger clicks: {rtd_trigger_clicks})"
+    if trigger_id == 'analytics-rtd-trigger-store' and rtd_trigger_data and rtd_trigger_data.get('timestamp'):
+        trigger_source = f"Socket.IO RTD event (device: {rtd_trigger_data.get('device_id', 'unknown')}, timestamp: {rtd_trigger_data.get('timestamp')})"
     else:
         trigger_source = f"Interval (n_intervals={n_intervals})"
     
