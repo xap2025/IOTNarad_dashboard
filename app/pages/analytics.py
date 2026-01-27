@@ -5,7 +5,7 @@ Real-time data visualization and insights
 from dash import html, dcc, Input, Output, State, callback, ALL, no_update
 import dash_bootstrap_components as dbc
 import plotly.graph_objs as go
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -214,6 +214,44 @@ def convert_active_periods_to_datetime(active_periods):
             converted_periods.append((start_dt, end_dt))
     
     return converted_periods
+
+
+def get_xaxis_tick_interval(time_range: str):
+    """
+    Get appropriate tick interval for X-axis based on selected time range
+    
+    Args:
+        time_range: Time range string ('1h', '6h', '24h', '7d', '30d', '6m', '1y')
+    
+    Returns:
+        Tuple of (dtick_value, tick_format)
+        - dtick_value: Plotly date tick value (milliseconds for minutes, or string like 'H2', 'D1', 'M1')
+        - tick_format: Format string for displaying time
+    """
+    if time_range == '1h':
+        # Last 1 Hour: 10-minute intervals (10 * 60 * 1000 = 600000 ms)
+        return 600000, '%H:%M'
+    elif time_range == '6h':
+        # Last 6 Hours: 30-minute intervals (30 * 60 * 1000 = 1800000 ms)
+        return 1800000, '%H:%M'
+    elif time_range == '24h':
+        # Last 24 Hours: 2-hour intervals
+        return 'H2', '%H:%M'
+    elif time_range == '7d':
+        # Last 7 Days: 12-hour intervals
+        return 'H12', '%m/%d %H:%M'
+    elif time_range == '30d':
+        # Last 30 Days: 2-day intervals
+        return 'D2', '%m/%d'
+    elif time_range == '6m':
+        # Last 6 Months: 1-week intervals
+        return 'W1', '%m/%d'
+    elif time_range == '1y':
+        # Last 1 Year: 1-month intervals
+        return 'M1', '%m/%Y'
+    else:
+        # Default: 10-minute intervals
+        return 600000, '%H:%M'
 
 
 # Callback to load enabled parameters from device config (with historical support)
@@ -740,7 +778,10 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
                 y_min = None
                 y_max = None
             
-            # Update layout with proper axis labels
+            # Get tick interval and format based on time range
+            dtick_string, tick_format = get_xaxis_tick_interval(time_range)
+            
+            # Update layout with proper axis labels and X-axis range
             fig.update_layout(
                 margin=dict(l=60, r=20, t=20, b=50),
                 paper_bgcolor='rgba(0,0,0,0)',
@@ -750,7 +791,15 @@ def update_analytics_charts(n_intervals, time_range, device_id, enabled_params):
                     gridcolor='#e9ecef',
                     title="Time",
                     titlefont=dict(size=12),
-                    tickfont=dict(size=10)
+                    tickfont=dict(size=10),
+                    # Set explicit range from start_time to end_time
+                    range=[start_time, end_time],
+                    # Set tick interval using Plotly date format (M10 = 10 minutes, H2 = 2 hours, etc.)
+                    dtick=dtick_string,
+                    # Format time display
+                    tickformat=tick_format,
+                    # Ensure timezone is handled correctly
+                    type='date'
                 ),
                 yaxis=dict(
                     showgrid=True, 
