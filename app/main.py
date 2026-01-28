@@ -97,9 +97,11 @@ socketio = SocketIO(
     async_mode='eventlet',
     logger=True,
     engineio_logger=True,
-    ping_interval=60,  # Send ping every 60 seconds (increased from default 25s)
-    ping_timeout=20,   # Wait 20 seconds for pong response (increased from default 5s)
-    max_http_buffer_size=10000000  # 10MB buffer for large payloads
+    ping_interval=25,  # Send ping every 25 seconds (default, balanced)
+    ping_timeout=60,   # Wait 60 seconds for pong response (increased to handle slow networks)
+    max_http_buffer_size=10000000,  # 10MB buffer for large payloads
+    allow_upgrades=True,  # Allow transport upgrades (polling -> websocket)
+    transports=['polling', 'websocket']  # Support both transports
 )
 
 # Initialize Dash app with modern theme
@@ -1424,17 +1426,38 @@ def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
             logger.info("=" * 80)
             # ========== END DETAILED LOGGING ==========
             
+            # Check connected clients before emitting
+            try:
+                # Get connected clients count from Socket.IO manager
+                # Flask-SocketIO stores clients in manager.rooms
+                namespace = '/'
+                if hasattr(socketio.server, 'manager'):
+                    rooms = socketio.server.manager.rooms
+                    if namespace in rooms:
+                        connected_clients = len(rooms[namespace].get('', set()))
+                    else:
+                        connected_clients = 0
+                else:
+                    connected_clients = "unknown"
+                logger.info(f"   👥 Connected clients count: {connected_clients}")
+            except Exception as e:
+                logger.warning(f"   ⚠️ Could not get connected clients count: {e}")
+                connected_clients = "unknown"
+            
             # Flask-SocketIO automatically broadcasts to all clients when 'to' parameter is not specified
+            logger.info(f"   📤 Emitting 'rtd_data_update' event NOW...")
             socketio.emit('rtd_data_update', emit_data)
             
             logger.info("=" * 80)
             logger.info("✅ [DATABASE → SOCKET.IO] Socket.IO event EMITTED SUCCESSFULLY!")
             logger.info("=" * 80)
             logger.info(f"   ✅ Event 'rtd_data_update' sent to all clients")
+            logger.info(f"   👥 Connected clients: {connected_clients}")
             logger.info(f"   🎯 Device: {device_id}")
             logger.info(f"   📊 Parameters: {len(values)}")
             logger.info(f"   ⏱️ Emit Time: {datetime.utcnow().isoformat()}")
             logger.info(f"   📡 Clients should receive this event NOW and update UI immediately")
+            logger.info(f"   🔍 Event Name: 'rtd_data_update' (exact match required on frontend)")
             logger.info("=" * 80)
         except Exception as socket_error:
             logger.error("=" * 80)

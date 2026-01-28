@@ -43,7 +43,10 @@ console.log('📦 z_analytics_socket_client.js loaded!');
                 reconnectionDelay: 1000,  // Start reconnecting after 1 second
                 reconnectionDelayMax: 5000,  // Max delay between reconnection attempts
                 timeout: 20000,  // Connection timeout (20 seconds)
-                path: '/socket.io'
+                path: '/socket.io',
+                // Match server-side ping settings to prevent timeout issues
+                pingTimeout: 60000,  // Wait 60 seconds for pong (match server ping_timeout)
+                pingInterval: 25000   // Send ping every 25 seconds (match server ping_interval)
             });
             
             // Define the rtd_data_update handler function
@@ -76,13 +79,20 @@ console.log('📦 z_analytics_socket_client.js loaded!');
             socket.onAny((event, ...args) => {
                 console.log('⚡⚡⚡ [Analytics Socket.IO Event - onAny]', event, 'Data:', args);
                 console.log('   ⚠️ If you see this, Socket.IO is receiving events');
+                console.log('   🔌 Socket Connected:', socket.connected);
+                console.log('   🔌 Socket ID:', socket.id);
+                
                 if (event === 'rtd_data_update') {
                     console.log('   🎯🎯🎯 rtd_data_update event detected in onAny handler!');
                     console.log('   📦 Event data:', JSON.stringify(args[0], null, 2));
                     console.log('   ⚠️ If rtd_data_update handler below doesn\'t trigger, there\'s a listener registration issue');
                     // Manually call handler if specific listener didn't trigger
                     console.log('   🔧 Manually calling rtd_data_update handler from onAny...');
-                    handleRtdDataUpdate(args[0]);
+                    try {
+                        handleRtdDataUpdate(args[0]);
+                    } catch (error) {
+                        console.error('   ❌ Error in handleRtdDataUpdate:', error);
+                    }
                 }
             });
             
@@ -131,6 +141,15 @@ console.log('📦 z_analytics_socket_client.js loaded!');
             
             socket.on('reconnect', (attemptNumber) => {
                 console.log(`🟡 Analytics Socket.IO reconnected after ${attemptNumber} attempt(s)`);
+                console.log('   🔄 Re-registering event listeners after reconnect...');
+                
+                // CRITICAL: Re-register listener after reconnect
+                socket.off('rtd_data_update'); // Remove any existing listener
+                socket.on('rtd_data_update', handleRtdDataUpdate); // Re-register
+                console.log('   ✅ rtd_data_update listener re-registered after reconnect');
+                console.log('   📝 Socket ID:', socket.id);
+                console.log('   🔄 Socket Connected:', socket.connected);
+                console.log('   ⚠️ Waiting for rtd_data_update events from server...');
             });
             
             socket.on('reconnect_attempt', () => {
@@ -143,6 +162,8 @@ console.log('📦 z_analytics_socket_client.js loaded!');
             
             socket.on('reconnect_failed', () => {
                 console.error('❌ Analytics Socket.IO reconnection failed - will keep trying');
+                // Even on failed reconnect, try to re-register listener when connection is restored
+                console.log('   🔄 Will re-register listeners when connection is restored...');
             });
             
             // Store socket globally for debugging
