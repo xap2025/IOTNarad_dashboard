@@ -46,30 +46,9 @@ console.log('📦 z_analytics_socket_client.js loaded!');
                 path: '/socket.io'
             });
             
-            // Debug all incoming events - THIS SHOULD LOG EVERY EVENT
-            socket.onAny((event, ...args) => {
-                console.log('⚡⚡⚡ [Analytics Socket.IO Event - onAny]', event, 'Data:', args);
-                console.log('   ⚠️ If you see this, Socket.IO is receiving events');
-                if (event === 'rtd_data_update') {
-                    console.log('   🎯 rtd_data_update event detected in onAny handler!');
-                    console.log('   📦 Event data:', JSON.stringify(args[0], null, 2));
-                }
-            });
-            
-            socket.on('connect', () => {
-                console.log('🟢 Analytics Socket.IO connected. ID:', socket.id);
-                console.log('   ✅ Event listeners registered:');
-                console.log('      • rtd_data_update listener: REGISTERED');
-                console.log('      • disconnect listener: REGISTERED');
-                console.log('      • connect_error listener: REGISTERED');
-                console.log('   🔍 Testing event listener by checking socket._callbacks:');
-                console.log('      • rtd_data_update callbacks:', socket._callbacks && socket._callbacks['rtd_data_update'] ? socket._callbacks['rtd_data_update'].length : 0);
-            });
-            
-            // Register event listener with explicit logging
-            console.log('📝 Registering rtd_data_update event listener...');
-            socket.on('rtd_data_update', (data) => {
-                console.log('🎯 rtd_data_update EVENT HANDLER TRIGGERED!');
+            // Define the rtd_data_update handler function
+            function handleRtdDataUpdate(data) {
+                console.log('🎯🎯🎯 rtd_data_update EVENT HANDLER TRIGGERED!');
                 console.log('   ⚠️ This should appear in browser console when event is received');
                 // ========== DETAILED CONSOLE LOGGING FOR DEBUGGING ==========
                 console.log('='.repeat(80));
@@ -91,6 +70,50 @@ console.log('📦 z_analytics_socket_client.js loaded!');
                 // ========== END DETAILED LOGGING ==========
                 
                 safeSetProps(data);
+            }
+            
+            // Debug all incoming events - THIS SHOULD LOG EVERY EVENT
+            socket.onAny((event, ...args) => {
+                console.log('⚡⚡⚡ [Analytics Socket.IO Event - onAny]', event, 'Data:', args);
+                console.log('   ⚠️ If you see this, Socket.IO is receiving events');
+                if (event === 'rtd_data_update') {
+                    console.log('   🎯🎯🎯 rtd_data_update event detected in onAny handler!');
+                    console.log('   📦 Event data:', JSON.stringify(args[0], null, 2));
+                    console.log('   ⚠️ If rtd_data_update handler below doesn\'t trigger, there\'s a listener registration issue');
+                    // Manually call handler if specific listener didn't trigger
+                    console.log('   🔧 Manually calling rtd_data_update handler from onAny...');
+                    handleRtdDataUpdate(args[0]);
+                }
+            });
+            
+            // Register rtd_data_update listener BEFORE connect (so it's ready immediately)
+            console.log('📝 Registering rtd_data_update event listener (BEFORE connect)...');
+            socket.on('rtd_data_update', handleRtdDataUpdate);
+            console.log('✅ rtd_data_update listener registered');
+            
+            socket.on('connect', () => {
+                console.log('🟢 Analytics Socket.IO connected. ID:', socket.id);
+                console.log('   ✅ Connection established - event listeners should be active now');
+                console.log('   🔍 Verifying event listener registration...');
+                
+                // Re-register listener after connect to ensure it's active
+                console.log('   📝 Re-registering rtd_data_update listener after connect...');
+                socket.off('rtd_data_update'); // Remove any existing listener
+                socket.on('rtd_data_update', handleRtdDataUpdate); // Re-register
+                console.log('   ✅ rtd_data_update listener re-registered after connect');
+                
+                // Verify listener is registered (Socket.IO 4.x uses different internal structure)
+                // Try multiple ways to check
+                if (socket._callbacks && socket._callbacks['rtd_data_update']) {
+                    console.log('   ✅ rtd_data_update callbacks found:', socket._callbacks['rtd_data_update'].length);
+                } else if (socket.listeners && socket.listeners('rtd_data_update')) {
+                    console.log('   ✅ rtd_data_update listeners found:', socket.listeners('rtd_data_update').length);
+                } else {
+                    console.log('   ⚠️ Cannot verify listener count (Socket.IO internal structure), but listener should be registered');
+                }
+                
+                console.log('   📝 Testing: Waiting for rtd_data_update event from server...');
+                console.log('   ⚠️ If server emits event but this handler doesn\'t trigger, check event name match');
             });
             
             socket.on('disconnect', (reason) => {
