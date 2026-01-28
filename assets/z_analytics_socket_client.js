@@ -46,16 +46,31 @@ console.log('📦 z_analytics_socket_client.js loaded!');
                 path: '/socket.io'
             });
             
-            // Debug all incoming events
+            // Debug all incoming events - THIS SHOULD LOG EVERY EVENT
             socket.onAny((event, ...args) => {
-                console.log('⚡ [Analytics Socket.IO Event]', event, 'Data:', args);
+                console.log('⚡⚡⚡ [Analytics Socket.IO Event - onAny]', event, 'Data:', args);
+                console.log('   ⚠️ If you see this, Socket.IO is receiving events');
+                if (event === 'rtd_data_update') {
+                    console.log('   🎯 rtd_data_update event detected in onAny handler!');
+                    console.log('   📦 Event data:', JSON.stringify(args[0], null, 2));
+                }
             });
             
             socket.on('connect', () => {
                 console.log('🟢 Analytics Socket.IO connected. ID:', socket.id);
+                console.log('   ✅ Event listeners registered:');
+                console.log('      • rtd_data_update listener: REGISTERED');
+                console.log('      • disconnect listener: REGISTERED');
+                console.log('      • connect_error listener: REGISTERED');
+                console.log('   🔍 Testing event listener by checking socket._callbacks:');
+                console.log('      • rtd_data_update callbacks:', socket._callbacks && socket._callbacks['rtd_data_update'] ? socket._callbacks['rtd_data_update'].length : 0);
             });
             
+            // Register event listener with explicit logging
+            console.log('📝 Registering rtd_data_update event listener...');
             socket.on('rtd_data_update', (data) => {
+                console.log('🎯 rtd_data_update EVENT HANDLER TRIGGERED!');
+                console.log('   ⚠️ This should appear in browser console when event is received');
                 // ========== DETAILED CONSOLE LOGGING FOR DEBUGGING ==========
                 console.log('='.repeat(80));
                 console.log('🟡 [SOCKET.IO → CLIENT] Step 4/5: ANALYTICS PAGE RECEIVED SOCKET.IO EVENT!');
