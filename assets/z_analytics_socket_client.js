@@ -56,15 +56,25 @@ console.log('📦 z_analytics_socket_client.js loaded!');
             });
             
             socket.on('rtd_data_update', (data) => {
-                console.log('📡 [RTD FLOW] Step 5/5: Analytics page received Socket.IO event!');
-                console.log('   🎯 Event: rtd_data_update');
+                // ========== DETAILED CONSOLE LOGGING FOR DEBUGGING ==========
+                console.log('='.repeat(80));
+                console.log('🟡 [SOCKET.IO → CLIENT] Step 4/5: ANALYTICS PAGE RECEIVED SOCKET.IO EVENT!');
+                console.log('='.repeat(80));
+                console.log('   📡 Event Name: rtd_data_update');
                 console.log('   🏭 Device ID:', data.device_id);
                 console.log('   📅 Timestamp:', data.timestamp);
                 console.log('   📊 Data Type:', data.data_type);
                 console.log('   📈 Parameters Count:', data.parameters_count);
                 console.log('   ✅ Saved:', data.saved_count, '❌ Failed:', data.failed_count);
                 console.log('   📦 Full Event Data:', JSON.stringify(data, null, 2));
-                console.log('   🔄 [RTD FLOW] Step 6/6: Updating Dash store to trigger UI refresh...');
+                console.log('   ⏱️ Receive Time:', new Date().toISOString());
+                console.log('   🔌 Socket ID:', socket.id);
+                console.log('   🔄 Socket Connected:', socket.connected);
+                console.log('='.repeat(80));
+                console.log('   🔄 [SOCKET.IO → CLIENT] Step 5/5: Updating Dash store to trigger UI refresh...');
+                console.log('='.repeat(80));
+                // ========== END DETAILED LOGGING ==========
+                
                 safeSetProps(data);
             });
             
@@ -126,19 +136,41 @@ console.log('📦 z_analytics_socket_client.js loaded!');
                 console.log('   Store ID: analytics-rtd-trigger-store');
                 
                 try {
+                    // ========== DETAILED CONSOLE LOGGING FOR DEBUGGING ==========
+                    console.log('='.repeat(80));
+                    console.log('🟢 [CLIENT → DASH STORE] Step 5/5: UPDATING DASH STORE');
+                    console.log('='.repeat(80));
+                    console.log('   📦 Store ID: analytics-rtd-trigger-store');
+                    console.log('   📊 Store Data:', JSON.stringify(storeData, null, 2));
+                    console.log('   ⏱️ Update Time:', new Date().toISOString());
+                    console.log('   🔄 Calling window.dash_clientside.set_props...');
+                    console.log('='.repeat(80));
+                    // ========== END DETAILED LOGGING ==========
+                    
                     window.dash_clientside.set_props('analytics-rtd-trigger-store', {
                         data: storeData,
                         timestamp: Date.now()
                     });
                     
-                    console.log('✅ [RTD FLOW] Step 7/7: Dash store updated successfully!');
+                    console.log('='.repeat(80));
+                    console.log('✅ [CLIENT → DASH STORE] Dash store UPDATED SUCCESSFULLY!');
+                    console.log('='.repeat(80));
+                    console.log('   ✅ set_props() called successfully');
                     console.log('   📦 Store ID: analytics-rtd-trigger-store');
                     console.log('   📊 Store Data:', JSON.stringify(storeData, null, 2));
-                    console.log('   🔄 Analytics callback should trigger now...');
-                    console.log('   📈 Graphs and values should update in real-time!');
+                    console.log('   🔄 Analytics callback SHOULD TRIGGER NOW...');
+                    console.log('   📈 Graphs and values SHOULD UPDATE IN REAL-TIME!');
+                    console.log('   ⏱️ Next: Wait for Analytics callback to execute...');
+                    console.log('='.repeat(80));
                 } catch (error) {
-                    console.error('❌ [RTD FLOW] ERROR calling set_props:', error);
-                    console.error('   Error details:', error.message, error.stack);
+                    console.error('='.repeat(80));
+                    console.error('❌ [CLIENT → DASH STORE] ERROR calling set_props!');
+                    console.error('='.repeat(80));
+                    console.error('   ❌ Error:', error.message);
+                    console.error('   📦 Store ID: analytics-rtd-trigger-store');
+                    console.error('   📊 Store Data:', JSON.stringify(storeData, null, 2));
+                    console.error('   🔍 Stack Trace:', error.stack);
+                    console.error('='.repeat(80));
                 }
             } else if (attempt < MAX_ATTEMPTS) {
                 console.warn(`⚠️ Analytics: Dash not ready (attempt ${attempt}/${MAX_ATTEMPTS}), retrying in ${300 * attempt}ms...`);

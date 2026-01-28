@@ -7,6 +7,7 @@ import dash_bootstrap_components as dbc
 import plotly.graph_objs as go
 from datetime import datetime, timedelta, timezone
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -547,10 +548,18 @@ def update_analytics_charts(n_intervals, rtd_trigger_data, time_range, device_id
         # Determine trigger source for logging
         if trigger_id == 'analytics-rtd-trigger-store' and rtd_trigger_data and rtd_trigger_data.get('timestamp'):
             trigger_source = f"Socket.IO RTD event (device: {rtd_trigger_data.get('device_id', 'unknown')}, timestamp: {rtd_trigger_data.get('timestamp')})"
-            logger.info(f"📡 [RTD FLOW] Step 8/8: Analytics callback triggered by Socket.IO event!")
-            logger.info(f"   🎯 Trigger: Real-time data update from hardware")
-            logger.info(f"   🏭 Device: {rtd_trigger_data.get('device_id', 'unknown')}")
+            
+            # ========== DETAILED CONSOLE LOGGING FOR DEBUGGING ==========
+            logger.info("=" * 80)
+            logger.info("🟢 [DASH STORE → ANALYTICS CALLBACK] Step 6/6: ANALYTICS CALLBACK TRIGGERED!")
+            logger.info("=" * 80)
+            logger.info(f"   🎯 Trigger Source: Socket.IO RTD event (Real-time data from hardware)")
+            logger.info(f"   🏭 Device ID: {rtd_trigger_data.get('device_id', 'unknown')}")
             logger.info(f"   📅 Event Timestamp: {rtd_trigger_data.get('timestamp')}")
+            logger.info(f"   📊 Trigger Data: {json.dumps(rtd_trigger_data, indent=2)}")
+            logger.info(f"   ⏱️ Callback Trigger Time: {datetime.utcnow().isoformat()}")
+            logger.info("=" * 80)
+            # ========== END DETAILED LOGGING ==========
         else:
             trigger_source = f"Interval (n_intervals={n_intervals})"
             logger.info(f"🔄 Analytics callback triggered: {trigger_source}")
@@ -997,24 +1006,47 @@ def update_analytics_charts(n_intervals, rtd_trigger_data, time_range, device_id
             
             figures.append(fig)
         
-        logger.info(f"✅ [RTD FLOW] Step 9/9: Charts updated successfully!")
-        logger.info(f"   📊 Updated {len(figures)} charts for device {device_id}")
-        logger.info(f"   📈 Total live values: {len(live_values)}")
-        logger.info(f"   📅 Current time (IST): {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        # ========== DETAILED CONSOLE LOGGING FOR DEBUGGING ==========
+        logger.info("=" * 80)
+        logger.info("✅ [ANALYTICS CALLBACK → UI] Step 7/7: CHARTS UPDATED SUCCESSFULLY!")
+        logger.info("=" * 80)
+        logger.info(f"   📊 Updated Charts Count: {len(figures)}")
+        logger.info(f"   📈 Live Values Count: {len(live_values)}")
+        logger.info(f"   🏭 Device ID: {device_id}")
+        logger.info(f"   📅 Current Time (IST): {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
         
         # Ensure we return the correct number of outputs
         if len(figures) != len(live_values):
-            logger.warning(f"⚠️ Mismatch: {len(figures)} figures but {len(live_values)} live values")
+            logger.warning(f"   ⚠️ Mismatch: {len(figures)} figures but {len(live_values)} live values")
         
         # Log summary of data points for debugging
         total_data_points = sum(len(all_data.get(name, [])) for name in param_names)
-        logger.info(f"   📊 Total data points across all parameters: {total_data_points}")
+        logger.info(f"   📊 Total Data Points: {total_data_points}")
+        
+        # Log live values for debugging
+        if live_values:
+            logger.info(f"   📋 Live Values:")
+            for param_name, param_value in live_values.items():
+                logger.info(f"      • {param_name} = {param_value}")
         
         # Final success log
         if trigger_id == 'analytics-rtd-trigger-store':
-            logger.info(f"🎉 [RTD FLOW COMPLETE] Real-time update successful!")
-            logger.info(f"   ✅ Hardware → MQTT → Database → Socket.IO → Client → UI Update")
-            logger.info(f"   📈 Graphs and values should now be visible with latest data")
+            logger.info("=" * 80)
+            logger.info("🎉 [RTD FLOW COMPLETE] REAL-TIME UPDATE SUCCESSFUL!")
+            logger.info("=" * 80)
+            logger.info("   ✅ Complete Flow:")
+            logger.info("      1️⃣ Hardware → MQTT (RTD/# topic)")
+            logger.info("      2️⃣ MQTT → Database (InfluxDB save)")
+            logger.info("      3️⃣ Database → Socket.IO (emit event)")
+            logger.info("      4️⃣ Socket.IO → Client (receive event)")
+            logger.info("      5️⃣ Client → Dash Store (set_props)")
+            logger.info("      6️⃣ Dash Store → Analytics Callback (trigger)")
+            logger.info("      7️⃣ Analytics Callback → UI (charts updated)")
+            logger.info("   📈 Graphs and values should now be visible with latest data!")
+            logger.info("=" * 80)
+        else:
+            logger.info("=" * 80)
+        # ========== END DETAILED LOGGING ==========
         
         return figures, live_values
         

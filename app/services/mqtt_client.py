@@ -257,15 +257,36 @@ class MQTTClientService:
                 # Real-Time Data: Device publishes to RTD/<Device ID>
                 # Extract device ID from topic: RTD/<Device ID>
                 rtd_device_id = topic.split('/')[-1] if '/' in topic else 'unknown'
-                logger.info(f"📊 Real-time data received from device: {rtd_device_id}")
-                logger.info(f"   Topic: {topic}")
-                logger.info(f"   Payload preview: {payload[:500]}...")
+                
+                # ========== DETAILED CONSOLE LOGGING FOR DEBUGGING ==========
+                logger.info("=" * 80)
+                logger.info("🔵 [HARDWARE → MQTT] Step 0/5: RAW MQTT MESSAGE RECEIVED FROM HARDWARE")
+                logger.info("=" * 80)
+                logger.info(f"   📡 Topic: {topic}")
+                logger.info(f"   🏭 Device ID: {rtd_device_id}")
+                logger.info(f"   📦 Raw Payload (first 500 chars): {payload[:500]}...")
+                logger.info(f"   📏 Payload Length: {len(payload)} bytes")
                 
                 # Log data type for debugging
                 if isinstance(data, dict):
                     data_type = data.get('type', 'Unknown')
-                    values_count = len(data.get('value', {})) if isinstance(data.get('value'), dict) else 0
-                    logger.info(f"   Data Type: '{data_type}', Values count: {values_count}")
+                    values = data.get('value', {})
+                    values_count = len(values) if isinstance(values, dict) else 0
+                    logger.info(f"   📊 Parsed Data Type: '{data_type}'")
+                    logger.info(f"   📈 Parameters Count: {values_count}")
+                    
+                    # Log all parameter names and values
+                    if values_count > 0:
+                        logger.info(f"   📋 Parameter List:")
+                        for param_name, param_value in values.items():
+                            logger.info(f"      • {param_name} = {param_value} (type: {type(param_value).__name__})")
+                    else:
+                        logger.warning(f"   ⚠️ No 'value' field found in payload!")
+                else:
+                    logger.error(f"   ❌ Failed to parse payload as JSON! Data type: {type(data)}")
+                
+                logger.info("=" * 80)
+                # ========== END DETAILED LOGGING ==========
                 
                 # Call real-time data callback if set
                 if self.realtime_data_callback:

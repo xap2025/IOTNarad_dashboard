@@ -1398,37 +1398,52 @@ def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
         # IMPORTANT: Emit directly (not in background task) to ensure it happens immediately
         # Background tasks can be delayed or fail silently in some cases
         try:
-            # Get number of connected clients for logging
-            from flask_socketio import SocketIOTestClient
-            try:
-                # This is a workaround to get client count - Flask-SocketIO doesn't expose this directly
-                # We'll just emit and log
-                client_count_info = "all connected clients"
-            except:
-                client_count_info = "all connected clients"
-            
-            logger.info(f"📡 [RTD FLOW] Step 4/4: Emitting Socket.IO event for device {device_id}...")
-            logger.info(f"   📊 Data summary: {len(values)} parameters, {saved_count} saved, {failed_count} failed")
+            # ========== DETAILED CONSOLE LOGGING FOR DEBUGGING ==========
+            logger.info("=" * 80)
+            logger.info("🟢 [DATABASE → SOCKET.IO] Step 3/5: EMITTING SOCKET.IO EVENT")
+            logger.info("=" * 80)
+            logger.info(f"   🏭 Device ID: {device_id}")
+            logger.info(f"   📊 Data Type: {normalized_type}")
+            logger.info(f"   📈 Parameters Count: {len(values)}")
+            logger.info(f"   ✅ Saved: {saved_count}, ❌ Failed: {failed_count}")
             logger.info(f"   📅 Timestamp: {timestamp.isoformat()}")
-            logger.info(f"   📤 Broadcasting to: {client_count_info}")
             
-            # Flask-SocketIO automatically broadcasts to all clients when 'to' parameter is not specified
-            socketio.emit('rtd_data_update', {
+            # Prepare emit data
+            emit_data = {
                 'device_id': device_id,
                 'timestamp': timestamp.isoformat(),
                 'data_type': normalized_type,
                 'parameters_count': len(values),
                 'saved_count': saved_count,
                 'failed_count': failed_count
-            })
+            }
             
-            logger.info(f"✅ [RTD FLOW] Socket.IO event 'rtd_data_update' emitted successfully!")
-            logger.info(f"   📡 Event: rtd_data_update")
+            logger.info(f"   📦 Emit Data (JSON): {json.dumps(emit_data, indent=2)}")
+            logger.info(f"   📤 Event Name: 'rtd_data_update'")
+            logger.info(f"   🌐 Broadcasting to: ALL connected Socket.IO clients")
+            logger.info("=" * 80)
+            # ========== END DETAILED LOGGING ==========
+            
+            # Flask-SocketIO automatically broadcasts to all clients when 'to' parameter is not specified
+            socketio.emit('rtd_data_update', emit_data)
+            
+            logger.info("=" * 80)
+            logger.info("✅ [DATABASE → SOCKET.IO] Socket.IO event EMITTED SUCCESSFULLY!")
+            logger.info("=" * 80)
+            logger.info(f"   ✅ Event 'rtd_data_update' sent to all clients")
             logger.info(f"   🎯 Device: {device_id}")
             logger.info(f"   📊 Parameters: {len(values)}")
-            logger.info(f"   ✅ Clients should receive this event and update UI immediately")
+            logger.info(f"   ⏱️ Emit Time: {datetime.utcnow().isoformat()}")
+            logger.info(f"   📡 Clients should receive this event NOW and update UI immediately")
+            logger.info("=" * 80)
         except Exception as socket_error:
-            logger.error(f"❌ [RTD FLOW] ERROR emitting Socket.IO event: {socket_error}")
+            logger.error("=" * 80)
+            logger.error("❌ [DATABASE → SOCKET.IO] ERROR EMITTING SOCKET.IO EVENT!")
+            logger.error("=" * 80)
+            logger.error(f"   ❌ Error: {socket_error}")
+            logger.error(f"   🏭 Device ID: {device_id}")
+            logger.error(f"   📊 Data Type: {normalized_type}")
+            logger.error("=" * 80)
             logger.exception("Socket.IO emit traceback:")
         
     except Exception as e:
