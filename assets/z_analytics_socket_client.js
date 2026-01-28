@@ -32,7 +32,7 @@ console.log('📦 z_analytics_socket_client.js loaded!');
         console.log('🔌 Creating Socket.IO connection for Analytics...');
         
         try {
-            const socket = io({
+            const socket = io('/', {  // Explicitly specify root namespace '/'
                 // Auto-detects host:port from current page
                 // Use polling first, then upgrade to websocket for better reliability
                 // Polling works better behind proxies/firewalls, websocket is faster when available
@@ -48,6 +48,8 @@ console.log('📦 z_analytics_socket_client.js loaded!');
                 pingTimeout: 60000,  // Wait 60 seconds for pong (match server ping_timeout)
                 pingInterval: 25000   // Send ping every 25 seconds (match server ping_interval)
             });
+            
+            console.log('🔌 Socket.IO connection created with namespace: "/"');
             
             // Define the rtd_data_update handler function
             function handleRtdDataUpdate(data) {

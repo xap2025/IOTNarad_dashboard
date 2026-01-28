@@ -1426,23 +1426,28 @@ def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
             logger.info("=" * 80)
             # ========== END DETAILED LOGGING ==========
             
-            # Check connected clients before emitting
+            # Note: Connected clients count check is not critical for functionality
+            # Flask-SocketIO will emit to all connected clients automatically
+            # The actual count may vary due to internal structure, but event will still be sent
+            connected_clients = "checking..."
             try:
-                # Get connected clients count from Socket.IO manager
-                # Flask-SocketIO stores clients in manager.rooms
+                # Try to get connected clients count (may not always work due to internal structure)
                 namespace = '/'
-                if hasattr(socketio.server, 'manager'):
-                    rooms = socketio.server.manager.rooms
-                    if namespace in rooms:
-                        connected_clients = len(rooms[namespace].get('', set()))
-                    else:
-                        connected_clients = 0
+                if hasattr(socketio.server, 'manager') and hasattr(socketio.server.manager, 'get_participants'):
+                    try:
+                        participants = socketio.server.manager.get_participants(namespace, None)
+                        connected_clients = len(participants) if participants else 0
+                    except:
+                        connected_clients = "unknown (method not available)"
                 else:
-                    connected_clients = "unknown"
-                logger.info(f"   👥 Connected clients count: {connected_clients}")
+                    # Event is still sent even if we can't get count
+                    connected_clients = "unknown (manager structure)"
+                logger.info(f"   👥 Connected clients (approximate): {connected_clients}")
+                logger.info(f"   ⚠️ Note: Event will be sent to ALL connected clients regardless of count")
             except Exception as e:
                 logger.warning(f"   ⚠️ Could not get connected clients count: {e}")
                 connected_clients = "unknown"
+                logger.info(f"   ⚠️ Event will still be sent to all connected clients")
             
             # Flask-SocketIO automatically broadcasts to all clients when 'to' parameter is not specified
             logger.info(f"   📤 Emitting 'rtd_data_update' event NOW...")
