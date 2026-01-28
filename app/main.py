@@ -183,8 +183,8 @@ app.layout = dbc.Container([
     dcc.Interval(id='data-update-interval', interval=2000, n_intervals=0),
     html.Div(id='page-content'),
     # SocketIO client library - loaded globally for all pages
-    # Use async=False to ensure it loads synchronously before other scripts
-    html.Script(src="https://cdn.socket.io/4.5.4/socket.io.min.js", async=False),
+    # Note: Dash html.Script doesn't support async parameter, it loads synchronously by default
+    html.Script(src="https://cdn.socket.io/4.5.4/socket.io.min.js"),
     # Client-side script to sync Flask session with Dash store on page load
     html.Script("""
         // Sync Flask session with Dash session store on page load
