@@ -78,23 +78,34 @@ console.log('📦 z_analytics_socket_client.js loaded!');
             }
             
             // Debug all incoming events - THIS SHOULD LOG EVERY EVENT
+            // CRITICAL: This handler catches ALL events, including rtd_data_update
             socket.onAny((event, ...args) => {
                 console.log('⚡⚡⚡ [Analytics Socket.IO Event - onAny]', event, 'Data:', args);
                 console.log('   ⚠️ If you see this, Socket.IO is receiving events');
                 console.log('   🔌 Socket Connected:', socket.connected);
                 console.log('   🔌 Socket ID:', socket.id);
+                console.log('   📅 Event Time:', new Date().toISOString());
                 
+                // CRITICAL: Check for rtd_data_update event
                 if (event === 'rtd_data_update') {
-                    console.log('   🎯🎯🎯 rtd_data_update event detected in onAny handler!');
+                    console.log('='.repeat(80));
+                    console.log('🎯🎯🎯 rtd_data_update event detected in onAny handler!');
+                    console.log('='.repeat(80));
                     console.log('   📦 Event data:', JSON.stringify(args[0], null, 2));
                     console.log('   ⚠️ If rtd_data_update handler below doesn\'t trigger, there\'s a listener registration issue');
                     // Manually call handler if specific listener didn't trigger
-                    console.log('   🔧 Manually calling rtd_data_update handler from onAny...');
+                    console.log('   🔧 Manually calling rtdDataUpdate handler from onAny...');
                     try {
                         handleRtdDataUpdate(args[0]);
+                        console.log('   ✅ handleRtdDataUpdate called successfully from onAny');
                     } catch (error) {
                         console.error('   ❌ Error in handleRtdDataUpdate:', error);
+                        console.error('   Error stack:', error.stack);
                     }
+                    console.log('='.repeat(80));
+                } else {
+                    // Log other events for debugging
+                    console.log('   ℹ️ Received event:', event, '(not rtd_data_update)');
                 }
             });
             
@@ -104,9 +115,12 @@ console.log('📦 z_analytics_socket_client.js loaded!');
             console.log('✅ rtd_data_update listener registered');
             
             socket.on('connect', () => {
+                console.log('='.repeat(80));
                 console.log('🟢 Analytics Socket.IO connected. ID:', socket.id);
+                console.log('='.repeat(80));
                 console.log('   ✅ Connection established - event listeners should be active now');
                 console.log('   🔍 Verifying event listener registration...');
+                console.log('   📅 Connection Time:', new Date().toISOString());
                 
                 // Re-register listener after connect to ensure it's active
                 console.log('   📝 Re-registering rtd_data_update listener after connect...');
@@ -124,8 +138,19 @@ console.log('📦 z_analytics_socket_client.js loaded!');
                     console.log('   ⚠️ Cannot verify listener count (Socket.IO internal structure), but listener should be registered');
                 }
                 
-                console.log('   📝 Testing: Waiting for rtd_data_update event from server...');
-                console.log('   ⚠️ If server emits event but this handler doesn\'t trigger, check event name match');
+                // CRITICAL: Test that onAny is working
+                console.log('   🔍 Testing: onAny handler should catch ALL events including rtd_data_update');
+                console.log('   📝 Waiting for rtd_data_update event from server...');
+                console.log('   ⚠️ If server emits event but this handler doesn\'t trigger, check:');
+                console.log('      1. Event name match (should be exactly "rtd_data_update")');
+                console.log('      2. Namespace match (should be "/")');
+                console.log('      3. Socket connection state (should be connected)');
+                console.log('      4. Check onAny handler logs - it should show ALL events');
+                console.log('='.repeat(80));
+                
+                // Store socket reference globally for debugging
+                window.analyticsSocket = socket;
+                console.log('   💾 Socket stored in window.analyticsSocket for debugging');
             });
             
             socket.on('disconnect', (reason) => {
