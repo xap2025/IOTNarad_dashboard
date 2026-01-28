@@ -543,6 +543,14 @@ def update_analytics_charts(n_intervals, rtd_trigger_data, time_range, device_id
         valid_triggers = ['analytics-refresh-interval', 'analytics-rtd-trigger-store', 'analytics-time-range-selector', 'analytics-device-store', 'analytics-params-store']
         if trigger_id not in valid_triggers:
             logger.warning(f"⚠️ Unknown trigger: {trigger_id} - ignoring (valid: {valid_triggers})")
+            # For ALL outputs, we need to return correct count - try to get from enabled_params
+            param_count = 0
+            if enabled_params and isinstance(enabled_params, dict):
+                param_metadata = enabled_params.get('_metadata', {})
+                param_names = [k for k in enabled_params.keys() if k != '_metadata']
+                param_count = len(param_names)
+            if param_count > 0:
+                return [go.Figure() for _ in range(param_count)], [[html.Span("No data", className='fw-bold fs-5')] for _ in range(param_count)]
             return [], []
         
         # Determine trigger source for logging
@@ -568,6 +576,14 @@ def update_analytics_charts(n_intervals, rtd_trigger_data, time_range, device_id
         
         if not device_id or not enabled_params:
             logger.warning(f"⚠️ Missing device_id or enabled_params: device_id={device_id}, enabled_params={enabled_params}")
+            # Try to get parameter count even if enabled_params is partial
+            param_count = 0
+            if enabled_params and isinstance(enabled_params, dict):
+                param_metadata = enabled_params.get('_metadata', {})
+                param_names = [k for k in enabled_params.keys() if k != '_metadata']
+                param_count = len(param_names)
+            if param_count > 0:
+                return [go.Figure() for _ in range(param_count)], [[html.Span("No data", className='fw-bold fs-5')] for _ in range(param_count)]
             return [], []  # Return empty lists for ALL outputs
         from app.services.realtime_data_db import RealtimeDataDBService
         
@@ -575,6 +591,14 @@ def update_analytics_charts(n_intervals, rtd_trigger_data, time_range, device_id
         
         if not db_service.is_connected():
             logger.warning("⚠️ Real-time data DB not connected")
+            # Get parameter count from enabled_params
+            param_count = 0
+            if enabled_params and isinstance(enabled_params, dict):
+                param_metadata = enabled_params.get('_metadata', {})
+                param_names = [k for k in enabled_params.keys() if k != '_metadata']
+                param_count = len(param_names)
+            if param_count > 0:
+                return [go.Figure() for _ in range(param_count)], [[html.Span("DB Error", className='fw-bold fs-5', style={'color': '#ef4444'})] for _ in range(param_count)]
             return [], []  # Return empty lists for ALL outputs
         
         # Calculate time range
@@ -674,6 +698,7 @@ def update_analytics_charts(n_intervals, rtd_trigger_data, time_range, device_id
         # If no valid parameters, return empty lists
         if not param_names:
             logger.info("   ⚠️ No valid parameters found in time range")
+            # Return empty outputs matching expected count (should be 0, but handle edge case)
             return [], []
         
         # Get data for all parameters at once (more efficient)
@@ -1025,9 +1050,14 @@ def update_analytics_charts(n_intervals, rtd_trigger_data, time_range, device_id
         
         # Log live values for debugging
         if live_values:
-            logger.info(f"   📋 Live Values:")
-            for param_name, param_value in live_values.items():
-                logger.info(f"      • {param_name} = {param_value}")
+            logger.info(f"   📋 Live Values Count: {len(live_values)}")
+            # live_values is a list of HTML components, not a dictionary
+            # Log parameter names alongside their values
+            if param_names and len(param_names) == len(live_values):
+                for i, param_name in enumerate(param_names):
+                    logger.info(f"      • {param_name}: Live value component created")
+            else:
+                logger.info(f"      • {len(live_values)} live value component(s) created")
         
         # Final success log
         if trigger_id == 'analytics-rtd-trigger-store':
@@ -1053,5 +1083,39 @@ def update_analytics_charts(n_intervals, rtd_trigger_data, time_range, device_id
     except Exception as e:
         logger.error(f"❌ Error updating charts: {e}")
         logger.exception("Full error traceback:")
-        # Return empty lists for ALL outputs (not no_update for multi-output with ALL)
-        return [], []
+        
+        # For ALL outputs, we need to return the correct number of empty outputs
+        # Get parameter count from enabled_params if available
+        param_count = 0
+        if enabled_params and isinstance(enabled_params, dict):
+            # Extract metadata and filter out metadata key
+            param_metadata = enabled_params.get('_metadata', {})
+            param_names = [k for k in enabled_params.keys() if k != '_metadata']
+            param_count = len(param_names)
+        
+        # If we can't determine count, try to get from device config
+        if param_count == 0 and device_id:
+            try:
+                from app.services.device_config_db import DeviceConfigDBService
+                db_service = DeviceConfigDBService()
+                # Get enabled parameters for this device
+                device_config = db_service.get_device_config(device_id)
+                if device_config and 'enabled_parameters' in device_config:
+                    enabled_params_from_db = device_config.get('enabled_parameters', {})
+                    param_metadata = enabled_params_from_db.get('_metadata', {})
+                    param_names = [k for k in enabled_params_from_db.keys() if k != '_metadata']
+                    param_count = len(param_names)
+            except Exception as db_error:
+                logger.error(f"❌ Error getting parameter count from DB: {db_error}")
+        
+        # Return empty outputs matching the expected count
+        # Each parameter needs: 1 figure + 1 live value = 2 outputs per parameter
+        if param_count > 0:
+            logger.warning(f"⚠️ Returning {param_count} empty figure(s) and {param_count} empty live value(s) due to error")
+            empty_figures = [go.Figure() for _ in range(param_count)]
+            empty_live_values = [[html.Span("Error", className='fw-bold fs-5', style={'color': '#ef4444'})] for _ in range(param_count)]
+            return empty_figures, empty_live_values
+        else:
+            # If we can't determine count, return empty lists (Dash will handle it)
+            logger.warning(f"⚠️ Cannot determine parameter count, returning empty lists")
+            return [], []
