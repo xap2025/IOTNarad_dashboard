@@ -111,6 +111,40 @@ app = dash.Dash(
     update_title=None
 )
 
+# Configure custom HTML template to include Socket.IO client library in <head>
+# This ensures Socket.IO loads before any page scripts execute
+app.index_string = '''
+<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+        <!-- Socket.IO Client Library - Load synchronously in <head> before all other scripts -->
+        <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+        <!-- Fallback Socket.IO CDN if primary fails -->
+        <script>
+            if (typeof io === 'undefined') {
+                console.warn('⚠️ Primary Socket.IO CDN failed, loading fallback...');
+                var script = document.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.4/socket.io.min.js';
+                script.async = false;
+                document.head.appendChild(script);
+            }
+        </script>
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>
+'''
+
 # Initialize services
 mqtt_service = MQTTClientService()
 influx_service = InfluxDBService()
@@ -182,10 +216,8 @@ app.layout = dbc.Container([
     dcc.Store(id='device-data-store', storage_type='memory'),
     dcc.Interval(id='data-update-interval', interval=2000, n_intervals=0),
     html.Div(id='page-content'),
-    # SocketIO client library - loaded globally for all pages
-    # Note: Dash html.Script doesn't support async parameter, it loads synchronously by default
-    html.Script(src="https://cdn.socket.io/4.5.4/socket.io.min.js"),
     # Client-side script to sync Flask session with Dash store on page load
+    # Note: Socket.IO library is loaded via app.index_string in <head> section
     html.Script("""
         // Sync Flask session with Dash session store on page load
         (function() {

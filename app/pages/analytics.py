@@ -68,88 +68,58 @@ def create_analytics_layout():
         # Auto-refresh interval (30 seconds - fallback only, Socket.IO is primary)
         dcc.Interval(id='analytics-refresh-interval', interval=30000, n_intervals=0),
         
-        # Socket.IO client script - load Socket.IO directly here (with fallback) then load our custom script
-        # This ensures Socket.IO is definitely loaded before our custom script runs
+        # Analytics Socket.IO client script loader
+        # Socket.IO library is loaded in <head> via app.index_string in main.py
+        # This script waits for Socket.IO to be available, then loads our custom client
         html.Script('''
-            // Load Socket.IO library directly with fallback CDNs, then load our custom script
             (function() {
-                // Check if Socket.IO is already loaded (from main.py)
-                if (typeof io !== 'undefined') {
-                    console.log('✅ Socket.IO library already loaded (from main.py)');
-                    loadAnalyticsClient();
-                    return;
-                }
+                console.log('📦 Analytics page: Initializing Socket.IO client loader...');
                 
-                // Load Socket.IO with fallback CDNs
-                const cdnUrls = [
-                    "https://cdn.socket.io/4.5.4/socket.io.min.js",
-                    "https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.4/socket.io.min.js",
-                    "https://unpkg.com/socket.io-client@4.5.4/dist/socket.io.min.js"
-                ];
-                let currentIndex = 0;
-                
-                function loadSocketIO() {
+                // Wait for Socket.IO library to load (it's in <head> section)
+                function waitForSocketIOAndLoadClient() {
                     if (typeof io !== 'undefined') {
-                        console.log('✅ Socket.IO library loaded from:', cdnUrls[currentIndex - 1] || 'main.py');
+                        console.log('✅ Socket.IO library confirmed available');
                         loadAnalyticsClient();
-                        return;
+                    } else {
+                        // Socket.IO should be in <head>, but wait a bit if it's still loading
+                        console.log('⏳ Waiting for Socket.IO library to load...');
+                        setTimeout(waitForSocketIOAndLoadClient, 100);
                     }
-                    
-                    if (currentIndex >= cdnUrls.length) {
-                        console.error('❌ All Socket.IO CDN sources failed to load');
-                        console.error('   Analytics real-time updates will not work');
-                        return;
-                    }
-                    
-                    const script = document.createElement('script');
-                    script.src = cdnUrls[currentIndex];
-                    script.type = 'text/javascript';
-                    script.async = false; // Load synchronously
-                    script.onload = function() {
-                        console.log('✅ Socket.IO library loaded from:', cdnUrls[currentIndex]);
-                        loadAnalyticsClient();
-                    };
-                    script.onerror = function() {
-                        console.warn('⚠️ Failed to load Socket.IO from:', cdnUrls[currentIndex]);
-                        currentIndex++;
-                        loadSocketIO(); // Try next CDN
-                    };
-                    document.head.appendChild(script);
                 }
                 
                 function loadAnalyticsClient() {
-                    // Check if script already loaded to prevent duplicates
+                    // Prevent duplicate initialization
                     if (window.analyticsSocketIOInitialized) {
                         console.log('⚠️ Analytics Socket.IO client already initialized');
                         return;
                     }
                     
-                    // Verify Socket.IO is available
+                    // Double-check Socket.IO is available
                     if (typeof io === 'undefined') {
-                        console.error('❌ Socket.IO library not available when trying to load analytics client');
+                        console.error('❌ Socket.IO library still not available after wait');
                         return;
                     }
                     
-                    console.log('✅ Loading analytics Socket.IO client...');
+                    console.log('✅ Loading analytics Socket.IO client script...');
                     
-                    // Create script element dynamically
+                    // Load our custom analytics client script
                     const script = document.createElement('script');
                     script.src = '/assets/z_analytics_socket_client.js';
                     script.type = 'text/javascript';
-                    script.async = false; // Load synchronously after Socket.IO
+                    script.async = false;
                     script.onload = function() {
                         console.log('✅ Analytics Socket.IO client script loaded successfully');
                     };
                     script.onerror = function() {
                         console.error('❌ Failed to load analytics Socket.IO client script');
                         console.error('   URL: /assets/z_analytics_socket_client.js');
-                        console.error('   Check Network tab to see if file request failed');
+                        console.error('   Check Network tab in DevTools');
                     };
                     document.head.appendChild(script);
                 }
                 
-                // Start loading Socket.IO
-                loadSocketIO();
+                // Start waiting for Socket.IO (should be quick since it's in <head>)
+                waitForSocketIOAndLoadClient();
             })();
         ''', type='text/javascript'),
     ])

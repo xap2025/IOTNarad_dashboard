@@ -1,6 +1,7 @@
 // Analytics Page Socket.IO Client
 // This file automatically loads when Analytics page is accessed
 // Updates Dash store when RTD data arrives via Socket.IO
+// Socket.IO library is loaded in <head> section via app.index_string in main.py
 
 console.log('📦 z_analytics_socket_client.js loaded!');
 
@@ -15,14 +16,15 @@ console.log('📦 z_analytics_socket_client.js loaded!');
     console.log('   Current URL:', window.location.href);
     console.log('   Socket.IO library available:', typeof io !== 'undefined');
     
-    // Wait for Socket.IO library to load
-    function initializeSocket() {
+    // Socket.IO should be loaded in <head>, but wait a moment if needed
+    function initializeConnection() {
         if (typeof io === 'undefined') {
-            console.warn('⚠️ Socket.IO library not loaded yet, retrying...');
-            setTimeout(initializeSocket, 500);
+            console.warn('⚠️ Socket.IO library not available yet, retrying in 100ms...');
+            setTimeout(initializeConnection, 100);
             return;
         }
         
+        console.log('✅ Socket.IO library confirmed available, creating connection...');
         createConnection();
     }
     
@@ -49,13 +51,13 @@ console.log('📦 z_analytics_socket_client.js loaded!');
                 console.log('🟢 Analytics Socket.IO connected. ID:', socket.id);
             });
             
-        socket.on('rtd_data_update', (data) => {
-            console.log('📡 Analytics: Received rtd_data_update event!');
-            console.log('   Event data:', JSON.stringify(data, null, 2));
-            console.log('   Device ID:', data.device_id);
-            console.log('   Timestamp:', data.timestamp);
-            safeSetProps(data);
-        });
+            socket.on('rtd_data_update', (data) => {
+                console.log('📡 Analytics: Received rtd_data_update event!');
+                console.log('   Event data:', JSON.stringify(data, null, 2));
+                console.log('   Device ID:', data.device_id);
+                console.log('   Timestamp:', data.timestamp);
+                safeSetProps(data);
+            });
             
             socket.on('disconnect', (reason) => {
                 console.warn('🔴 Analytics Socket.IO disconnected:', reason);
@@ -68,9 +70,11 @@ console.log('📦 z_analytics_socket_client.js loaded!');
             // Store socket globally for debugging
             window.analyticsSocket = socket;
             window.analyticsSocketIOInitialized = true;
+            console.log('✅ Analytics Socket.IO client initialized successfully');
             
         } catch (error) {
             console.error('❌ Failed to create Analytics Socket.IO connection:', error);
+            console.error('   Error details:', error.message, error.stack);
         }
     }
     
@@ -80,10 +84,6 @@ console.log('📦 z_analytics_socket_client.js loaded!');
         
         function trySetProps() {
             attempt++;
-            
-            console.log(`🔄 Analytics: Attempting set_props (attempt ${attempt}/${MAX_ATTEMPTS})`);
-            console.log('   window.dash_clientside:', typeof window.dash_clientside);
-            console.log('   window.dash_clientside.set_props:', typeof (window.dash_clientside && window.dash_clientside.set_props));
             
             if (window.dash_clientside && window.dash_clientside.set_props) {
                 const storeData = {
@@ -96,7 +96,6 @@ console.log('📦 z_analytics_socket_client.js loaded!');
                 console.log('   Store ID: analytics-rtd-trigger-store');
                 
                 try {
-                    // Use exact format from old project
                     window.dash_clientside.set_props('analytics-rtd-trigger-store', {
                         data: storeData,
                         timestamp: Date.now()
@@ -109,41 +108,26 @@ console.log('📦 z_analytics_socket_client.js loaded!');
                     console.error('   Error details:', error.message, error.stack);
                 }
             } else if (attempt < MAX_ATTEMPTS) {
-                console.warn(`⚠️ Analytics: Dash not ready (attempt ${attempt}), retrying in ${300 * attempt}ms...`);
+                console.warn(`⚠️ Analytics: Dash not ready (attempt ${attempt}/${MAX_ATTEMPTS}), retrying in ${300 * attempt}ms...`);
                 setTimeout(trySetProps, 300 * attempt);
             } else {
                 console.error('❌ Analytics: Failed to send data after multiple attempts');
                 console.error('   window.dash_clientside:', window.dash_clientside);
-                console.error('   Make sure Dash has fully loaded before Socket.IO events arrive');
+                console.error('   Make sure Dash has fully loaded');
             }
         }
         
         trySetProps();
     }
     
-    // Start initialization
-    // Wait for DOM to be ready, Socket.IO library to load, and Dash to be initialized
-    function startInitialization() {
-        // Check if Socket.IO library is loaded
-        if (typeof io === 'undefined') {
-            console.warn('⚠️ Socket.IO library not loaded yet, waiting...');
-            setTimeout(startInitialization, 200);
-            return;
-        }
-        
-        console.log('✅ Socket.IO library confirmed loaded, initializing...');
-        
-        // Wait a bit more for Dash to initialize
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', function() {
-                setTimeout(initializeSocket, 1000); // Give Dash time to initialize
-            });
-        } else {
-            setTimeout(initializeSocket, 1000); // Give Dash time to initialize
-        }
+    // Start initialization - Socket.IO should be in <head> so this should be quick
+    // Wait for DOM to be ready and Dash to initialize
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(initializeConnection, 500); // Give Dash time to initialize
+        });
+    } else {
+        setTimeout(initializeConnection, 500); // Give Dash time to initialize
     }
-    
-    // Start the initialization process
-    startInitialization();
 })();
 
