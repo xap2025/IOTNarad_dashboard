@@ -547,10 +547,15 @@ def update_analytics_charts(n_intervals, rtd_trigger_data, time_range, device_id
         # Determine trigger source for logging
         if trigger_id == 'analytics-rtd-trigger-store' and rtd_trigger_data and rtd_trigger_data.get('timestamp'):
             trigger_source = f"Socket.IO RTD event (device: {rtd_trigger_data.get('device_id', 'unknown')}, timestamp: {rtd_trigger_data.get('timestamp')})"
+            logger.info(f"📡 [RTD FLOW] Step 8/8: Analytics callback triggered by Socket.IO event!")
+            logger.info(f"   🎯 Trigger: Real-time data update from hardware")
+            logger.info(f"   🏭 Device: {rtd_trigger_data.get('device_id', 'unknown')}")
+            logger.info(f"   📅 Event Timestamp: {rtd_trigger_data.get('timestamp')}")
         else:
             trigger_source = f"Interval (n_intervals={n_intervals})"
+            logger.info(f"🔄 Analytics callback triggered: {trigger_source}")
         
-        logger.info(f"🔄 Analytics callback triggered: {trigger_source}, device_id={device_id}, enabled_params_count={len(enabled_params) if enabled_params else 0}")
+        logger.info(f"   📊 Device ID: {device_id}, Enabled Params: {len(enabled_params) if enabled_params else 0}")
         
         if not device_id or not enabled_params:
             logger.warning(f"⚠️ Missing device_id or enabled_params: device_id={device_id}, enabled_params={enabled_params}")
@@ -992,10 +997,10 @@ def update_analytics_charts(n_intervals, rtd_trigger_data, time_range, device_id
             
             figures.append(fig)
         
-        logger.info(f"✅ Updated {len(figures)} charts for device {device_id}")
-        logger.info(f"   Total live values: {len(live_values)}")
-        logger.info(f"   Callback completed successfully - returning figures and live values")
-        logger.info(f"   Current time (IST): {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"✅ [RTD FLOW] Step 9/9: Charts updated successfully!")
+        logger.info(f"   📊 Updated {len(figures)} charts for device {device_id}")
+        logger.info(f"   📈 Total live values: {len(live_values)}")
+        logger.info(f"   📅 Current time (IST): {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
         
         # Ensure we return the correct number of outputs
         if len(figures) != len(live_values):
@@ -1004,6 +1009,12 @@ def update_analytics_charts(n_intervals, rtd_trigger_data, time_range, device_id
         # Log summary of data points for debugging
         total_data_points = sum(len(all_data.get(name, [])) for name in param_names)
         logger.info(f"   📊 Total data points across all parameters: {total_data_points}")
+        
+        # Final success log
+        if trigger_id == 'analytics-rtd-trigger-store':
+            logger.info(f"🎉 [RTD FLOW COMPLETE] Real-time update successful!")
+            logger.info(f"   ✅ Hardware → MQTT → Database → Socket.IO → Client → UI Update")
+            logger.info(f"   📈 Graphs and values should now be visible with latest data")
         
         return figures, live_values
         

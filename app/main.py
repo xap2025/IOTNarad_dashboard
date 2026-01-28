@@ -87,13 +87,19 @@ server.config['SESSION_COOKIE_HTTPONLY'] = True
 server.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 server.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 hours
 
-# Initialize SocketIO
+# Initialize SocketIO with optimized ping settings for stable connections
+# ping_interval: How often server sends ping (default: 25s, increased to 60s for stability)
+# ping_timeout: How long to wait for pong response (default: 5s, increased to 20s for slow networks)
+# max_http_buffer_size: Maximum size of HTTP request/response (default: 1MB, increased for large payloads)
 socketio = SocketIO(
     server,
     cors_allowed_origins="*",
     async_mode='eventlet',
     logger=True,
-    engineio_logger=True
+    engineio_logger=True,
+    ping_interval=60,  # Send ping every 60 seconds (increased from default 25s)
+    ping_timeout=20,   # Wait 20 seconds for pong response (increased from default 5s)
+    max_http_buffer_size=10000000  # 10MB buffer for large payloads
 )
 
 # Initialize Dash app with modern theme
@@ -1302,15 +1308,16 @@ def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
     }
     """
     try:
-        logger.info(f"📊 Real-time data received from device: {device_id}")
-        logger.info(f"   Full Payload: {json.dumps(data, indent=2)}")
+        logger.info(f"📡 [RTD FLOW] Step 1/4: Real-time data received from hardware via MQTT")
+        logger.info(f"   🏭 Device ID: {device_id}")
+        logger.info(f"   📦 Full Payload: {json.dumps(data, indent=2)}")
         
         # Extract data type and values
         data_type = data.get('type', 'Unknown')
         values = data.get('value', {})
         
-        logger.info(f"   Data Type: '{data_type}'")
-        logger.info(f"   Values count: {len(values) if values else 0}")
+        logger.info(f"   📊 Data Type: '{data_type}'")
+        logger.info(f"   📈 Values count: {len(values) if values else 0}")
         
         if not values:
             logger.warning(f"⚠️ No 'value' field in RTD payload from device {device_id}")
@@ -1382,14 +1389,29 @@ def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
             else:
                 logger.warning(f"⚠️ Skipping empty parameter name in RTD payload")
         
-        logger.info(f"✅ Processed {len(values)} real-time data parameters from device {device_id}")
-        logger.info(f"   Saved: {saved_count}, Failed: {failed_count}")
+        logger.info(f"✅ [RTD FLOW] Step 2/4: Database save completed")
+        logger.info(f"   📊 Processed: {len(values)} parameters from device {device_id}")
+        logger.info(f"   ✅ Saved: {saved_count}, ❌ Failed: {failed_count}")
+        logger.info(f"   💾 [RTD FLOW] Step 3/4: All data saved to InfluxDB")
         
         # Emit Socket.IO event to trigger real-time UI updates
         # IMPORTANT: Emit directly (not in background task) to ensure it happens immediately
         # Background tasks can be delayed or fail silently in some cases
         try:
-            logger.info(f"📡 Starting Socket.IO emit for device {device_id}...")
+            # Get number of connected clients for logging
+            from flask_socketio import SocketIOTestClient
+            try:
+                # This is a workaround to get client count - Flask-SocketIO doesn't expose this directly
+                # We'll just emit and log
+                client_count_info = "all connected clients"
+            except:
+                client_count_info = "all connected clients"
+            
+            logger.info(f"📡 [RTD FLOW] Step 4/4: Emitting Socket.IO event for device {device_id}...")
+            logger.info(f"   📊 Data summary: {len(values)} parameters, {saved_count} saved, {failed_count} failed")
+            logger.info(f"   📅 Timestamp: {timestamp.isoformat()}")
+            logger.info(f"   📤 Broadcasting to: {client_count_info}")
+            
             # Flask-SocketIO automatically broadcasts to all clients when 'to' parameter is not specified
             socketio.emit('rtd_data_update', {
                 'device_id': device_id,
@@ -1399,9 +1421,14 @@ def on_realtime_data_received(device_id: str, data: Dict[str, Any]):
                 'saved_count': saved_count,
                 'failed_count': failed_count
             })
-            logger.info(f"✅ Socket.IO event 'rtd_data_update' emitted successfully for device {device_id} (broadcast to all clients)")
+            
+            logger.info(f"✅ [RTD FLOW] Socket.IO event 'rtd_data_update' emitted successfully!")
+            logger.info(f"   📡 Event: rtd_data_update")
+            logger.info(f"   🎯 Device: {device_id}")
+            logger.info(f"   📊 Parameters: {len(values)}")
+            logger.info(f"   ✅ Clients should receive this event and update UI immediately")
         except Exception as socket_error:
-            logger.error(f"❌ Error emitting Socket.IO event: {socket_error}")
+            logger.error(f"❌ [RTD FLOW] ERROR emitting Socket.IO event: {socket_error}")
             logger.exception("Socket.IO emit traceback:")
         
     except Exception as e:

@@ -34,11 +34,15 @@ console.log('📦 z_analytics_socket_client.js loaded!');
         try {
             const socket = io({
                 // Auto-detects host:port from current page
-                transports: ['websocket'],
-                upgrade: false,
+                // Use polling first, then upgrade to websocket for better reliability
+                // Polling works better behind proxies/firewalls, websocket is faster when available
+                transports: ['polling', 'websocket'],
+                upgrade: true,  // Allow upgrade from polling to websocket
                 reconnection: true,
-                reconnectionAttempts: 10,
-                reconnectionDelay: 3000,
+                reconnectionAttempts: Infinity,  // Keep trying to reconnect forever
+                reconnectionDelay: 1000,  // Start reconnecting after 1 second
+                reconnectionDelayMax: 5000,  // Max delay between reconnection attempts
+                timeout: 20000,  // Connection timeout (20 seconds)
                 path: '/socket.io'
             });
             
@@ -52,19 +56,45 @@ console.log('📦 z_analytics_socket_client.js loaded!');
             });
             
             socket.on('rtd_data_update', (data) => {
-                console.log('📡 Analytics: Received rtd_data_update event!');
-                console.log('   Event data:', JSON.stringify(data, null, 2));
-                console.log('   Device ID:', data.device_id);
-                console.log('   Timestamp:', data.timestamp);
+                console.log('📡 [RTD FLOW] Step 5/5: Analytics page received Socket.IO event!');
+                console.log('   🎯 Event: rtd_data_update');
+                console.log('   🏭 Device ID:', data.device_id);
+                console.log('   📅 Timestamp:', data.timestamp);
+                console.log('   📊 Data Type:', data.data_type);
+                console.log('   📈 Parameters Count:', data.parameters_count);
+                console.log('   ✅ Saved:', data.saved_count, '❌ Failed:', data.failed_count);
+                console.log('   📦 Full Event Data:', JSON.stringify(data, null, 2));
+                console.log('   🔄 [RTD FLOW] Step 6/6: Updating Dash store to trigger UI refresh...');
                 safeSetProps(data);
             });
             
             socket.on('disconnect', (reason) => {
                 console.warn('🔴 Analytics Socket.IO disconnected:', reason);
+                if (reason === 'ping timeout') {
+                    console.warn('   ⚠️ Ping timeout - connection will auto-reconnect');
+                } else if (reason === 'transport close') {
+                    console.warn('   ⚠️ Transport closed - connection will auto-reconnect');
+                }
             });
             
             socket.on('connect_error', (error) => {
                 console.error('🔴 Analytics Socket.IO connection error:', error.message);
+            });
+            
+            socket.on('reconnect', (attemptNumber) => {
+                console.log(`🟡 Analytics Socket.IO reconnected after ${attemptNumber} attempt(s)`);
+            });
+            
+            socket.on('reconnect_attempt', () => {
+                console.log('🔄 Analytics Socket.IO attempting to reconnect...');
+            });
+            
+            socket.on('reconnect_error', (error) => {
+                console.error('❌ Analytics Socket.IO reconnection error:', error.message);
+            });
+            
+            socket.on('reconnect_failed', () => {
+                console.error('❌ Analytics Socket.IO reconnection failed - will keep trying');
             });
             
             // Store socket globally for debugging
@@ -101,10 +131,13 @@ console.log('📦 z_analytics_socket_client.js loaded!');
                         timestamp: Date.now()
                     });
                     
-                    console.log('✅ Analytics: set_props called successfully');
-                    console.log('   Store should now trigger analytics callback');
+                    console.log('✅ [RTD FLOW] Step 7/7: Dash store updated successfully!');
+                    console.log('   📦 Store ID: analytics-rtd-trigger-store');
+                    console.log('   📊 Store Data:', JSON.stringify(storeData, null, 2));
+                    console.log('   🔄 Analytics callback should trigger now...');
+                    console.log('   📈 Graphs and values should update in real-time!');
                 } catch (error) {
-                    console.error('❌ Analytics: Error calling set_props:', error);
+                    console.error('❌ [RTD FLOW] ERROR calling set_props:', error);
                     console.error('   Error details:', error.message, error.stack);
                 }
             } else if (attempt < MAX_ATTEMPTS) {
