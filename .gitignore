@@ -75,9 +75,10 @@ htmlcov/
 
 CREDENTIALS.md
 
-# Private dev notes — laptop only (not for team / server)
-# Repo keeps only: README.md and configuration.md (project root)
+# Private notes folder — laptop only (never push to GitHub / server)
+/md/
+
+# Repo root: only these .md files are shared with team
 /*.md
 !README.md
 !configuration.md
-/assets/**/*.md
