@@ -75,18 +75,9 @@ htmlcov/
 
 CREDENTIALS.md
 
-# Dev / ops markdown — local laptop only (same policy as XapSync repo)
-# Kept in git: README.md, configuration.md, assets/terminal.md,
-# docs/ARCHITECTURE_AND_DELIVERABLES.md, docs/TEAM_ARCHITECTURE.md,
-# pages/PARAMETERS_IMPLEMENTATION_SUMMARY.md, pages/code.md
+# Private dev notes — laptop only (not for team / server)
+# Repo keeps only: README.md and configuration.md (project root)
 /*.md
 !README.md
 !configuration.md
 /assets/**/*.md
-!assets/terminal.md
-/docs/**/*.md
-!docs/ARCHITECTURE_AND_DELIVERABLES.md
-!docs/TEAM_ARCHITECTURE.md
-/pages/**/*.md
-!pages/PARAMETERS_IMPLEMENTATION_SUMMARY.md
-!pages/code.md
